@@ -212,7 +212,8 @@ Select one or more tasks, hit spin up:
 3. A new visible terminal opens in the project directory running `claude`.
 
 ```python
-subprocess.Popen(["claude"], cwd=project_path,
+subprocess.Popen(["claude", "--dangerously-skip-permissions"],
+                 cwd=project_path, env=claude_environment(),
                  creationflags=subprocess.CREATE_NEW_CONSOLE)
 ```
 
@@ -221,6 +222,13 @@ no shell ever parses the prompt, so quotes, newlines and backticks in your notes
 survive intact — the escaping class of bug that `CLAUDE.md` already flags for
 commit messages simply cannot occur. On Windows 11 this still opens in Windows
 Terminal, since that is the default terminal application.
+
+The environment is built explicitly rather than inherited. `Popen` otherwise
+passes down `CLAUDE_CODE_CHILD_SESSION` and the rest of the launching session's
+identity, which makes the handed-off terminal a nested child: it disables
+transcript saving and keeps no history. `claude_environment()` strips those and
+sets `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE`, so the session is an ordinary
+top-level one no matter how the tracker itself was started.
 
 The prompt is **prefilled, not sent**: `Ctrl+V` drops it in, you can edit or add
 a constraint, `Enter` starts it. This keeps the session yours and makes a
