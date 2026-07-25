@@ -62,10 +62,10 @@ def parse_task(text: str, path: Path | None = None) -> Task:
         type=str(meta["type"]),
         bucket=str(meta["bucket"]),
         status=str(meta["status"]),
-        order=int(meta.get("order", 0)),
+        order=int(meta.get("order") or 0),
         created=str(meta["created"]),
-        started=meta.get("started") or None,
-        done=meta.get("done") or None,
+        started=str(meta["started"]) if meta.get("started") else None,
+        done=str(meta["done"]) if meta.get("done") else None,
         body=body,
         path=path,
     )
