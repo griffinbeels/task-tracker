@@ -1,3 +1,5 @@
+import pytest
+
 import store
 
 
@@ -73,3 +75,75 @@ def test_blank_order_field_defaults_to_zero():
     assert task.order == 0
     assert task.started is None
     assert task.done is None
+
+
+def test_ensure_tasks_dir_bootstraps_untracked(tmp_path):
+    store.ensure_tasks_dir(tmp_path, tracked=False)
+
+    assert (tmp_path / ".tasks" / "open").is_dir()
+    assert (tmp_path / ".tasks" / "done").is_dir()
+    assert (tmp_path / ".tasks" / ".gitignore").read_text(encoding="utf-8") == "*\n"
+
+
+def test_set_tracked_true_removes_the_gitignore(tmp_path):
+    store.ensure_tasks_dir(tmp_path, tracked=False)
+
+    store.set_tracked(tmp_path, True)
+    assert not (tmp_path / ".tasks" / ".gitignore").exists()
+
+    store.set_tracked(tmp_path, False)
+    assert (tmp_path / ".tasks" / ".gitignore").read_text(encoding="utf-8") == "*\n"
+
+
+def test_create_task_assigns_sequential_ids_and_writes_to_open(tmp_path):
+    first = store.create_task(tmp_path, "First thing", "body one", "BUG")
+    second = store.create_task(tmp_path, "Second thing", "body two", "FEATURE")
+
+    assert first.id == 1
+    assert second.id == 2
+    assert second.path == tmp_path / ".tasks" / "open" / "0002-second-thing.md"
+    assert second.path.exists()
+
+
+def test_next_task_id_counts_done_tasks_so_ids_are_never_reused(tmp_path):
+    task = store.create_task(tmp_path, "First thing", "body", "BUG")
+    store.complete_task(task)
+
+    assert store.next_task_id(tmp_path) == 2
+
+
+def test_complete_task_moves_to_done_and_stamps_the_date(tmp_path):
+    task = store.create_task(tmp_path, "Ship it", "body", "FEATURE")
+
+    completed = store.complete_task(task)
+
+    assert completed.status == "done"
+    assert completed.done is not None
+    assert completed.path == tmp_path / ".tasks" / "done" / "0001-ship-it.md"
+    assert not (tmp_path / ".tasks" / "open" / "0001-ship-it.md").exists()
+
+
+def test_list_tasks_can_exclude_the_done_archive(tmp_path):
+    store.create_task(tmp_path, "Open one", "body", "BUG")
+    store.complete_task(store.create_task(tmp_path, "Closed one", "body", "BUG"))
+
+    assert len(store.list_tasks(tmp_path, include_done=True)) == 2
+    assert [t.title for t in store.list_tasks(tmp_path, include_done=False)] == ["Open one"]
+
+
+def test_reorder_bucket_rewrites_order_to_match_the_given_sequence(tmp_path):
+    first = store.create_task(tmp_path, "A", "body", "BUG", bucket="now")
+    second = store.create_task(tmp_path, "B", "body", "BUG", bucket="now")
+    third = store.create_task(tmp_path, "C", "body", "BUG", bucket="next")
+
+    store.reorder_bucket(tmp_path, "now", [second.id, first.id])
+
+    by_id = {t.id: t for t in store.list_tasks(tmp_path)}
+    assert by_id[second.id].order == 0
+    assert by_id[first.id].order == 1
+    assert by_id[third.id].order == 0
+
+
+def test_create_task_rejects_an_unknown_bucket(tmp_path):
+    with pytest.raises(ValueError):
+        store.create_task(tmp_path, "A", "body", "BUG", bucket="urgent")

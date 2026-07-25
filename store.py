@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -69,3 +70,103 @@ def parse_task(text: str, path: Path | None = None) -> Task:
         body=body,
         path=path,
     )
+
+
+GITIGNORE_BODY = "*\n"
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def tasks_dir(project_path: Path) -> Path:
+    return Path(project_path) / ".tasks"
+
+
+def ensure_tasks_dir(project_path: Path, tracked: bool = False) -> Path:
+    root = tasks_dir(project_path)
+    (root / "open").mkdir(parents=True, exist_ok=True)
+    (root / "done").mkdir(parents=True, exist_ok=True)
+    set_tracked(project_path, tracked)
+    return root
+
+
+def set_tracked(project_path: Path, tracked: bool) -> None:
+    ignore = tasks_dir(project_path) / ".gitignore"
+    if tracked:
+        ignore.unlink(missing_ok=True)
+    else:
+        ignore.write_text(GITIGNORE_BODY, encoding="utf-8")
+
+
+def _task_files(project_path: Path, include_done: bool) -> list[Path]:
+    root = tasks_dir(project_path)
+    folders = ["open", "done"] if include_done else ["open"]
+    files: list[Path] = []
+    for folder in folders:
+        files.extend(sorted((root / folder).glob("*.md")))
+    return files
+
+
+def list_tasks(project_path: Path, include_done: bool = True) -> list[Task]:
+    tasks = []
+    for path in _task_files(project_path, include_done):
+        tasks.append(parse_task(path.read_text(encoding="utf-8"), path))
+    return tasks
+
+
+def next_task_id(project_path: Path) -> int:
+    ids = [task.id for task in list_tasks(project_path, include_done=True)]
+    return max(ids, default=0) + 1
+
+
+def create_task(project_path: Path, title: str, body: str, type: str,
+                bucket: str = "now") -> Task:
+    if bucket not in BUCKETS:
+        raise ValueError(f"unknown bucket: {bucket}")
+    if not tasks_dir(project_path).exists():
+        ensure_tasks_dir(project_path, tracked=False)
+    siblings = [t for t in list_tasks(project_path, include_done=False) if t.bucket == bucket]
+    task = Task(
+        id=next_task_id(project_path),
+        title=title,
+        type=type,
+        bucket=bucket,
+        status="open",
+        order=len(siblings),
+        created=_today(),
+        started=None,
+        done=None,
+        body=body,
+    )
+    task.path = tasks_dir(project_path) / "open" / f"{task.id:04d}-{task_slug(title)}.md"
+    return save_task(task)
+
+
+def save_task(task: Task) -> Task:
+    if task.path is None:
+        raise ValueError("task has no path")
+    task.path.write_text(render_task(task), encoding="utf-8")
+    return task
+
+
+def complete_task(task: Task) -> Task:
+    if task.path is None:
+        raise ValueError("task has no path")
+    project_path = task.path.parent.parent.parent
+    task.status = "done"
+    task.done = _today()
+    destination = tasks_dir(project_path) / "done" / task.path.name
+    task.path.unlink(missing_ok=True)
+    task.path = destination
+    return save_task(task)
+
+
+def reorder_bucket(project_path: Path, bucket: str, ordered_ids: list[int]) -> None:
+    by_id = {t.id: t for t in list_tasks(project_path, include_done=False)}
+    for position, task_id in enumerate(ordered_ids):
+        task = by_id.get(task_id)
+        if task is None or task.bucket != bucket:
+            continue
+        task.order = position
+        save_task(task)
