@@ -147,3 +147,28 @@ def test_reorder_bucket_rewrites_order_to_match_the_given_sequence(tmp_path):
 def test_create_task_rejects_an_unknown_bucket(tmp_path):
     with pytest.raises(ValueError):
         store.create_task(tmp_path, "A", "body", "BUG", bucket="urgent")
+
+
+def test_task_files_are_written_with_lf_endings(tmp_path):
+    task = store.create_task(tmp_path, "LF body", "line one\nline two", "BUG")
+
+    assert b"\r" not in task.path.read_bytes()
+
+
+def test_lf_body_round_trips_byte_exact(tmp_path):
+    body = "line one\nline two\n\n  indented"
+    task = store.create_task(tmp_path, "LF body", body, "BUG")
+
+    assert store.list_tasks(tmp_path)[0].body == body
+
+
+def test_crlf_body_normalises_to_lf_without_gaining_blank_lines(tmp_path):
+    task = store.create_task(tmp_path, "CRLF body", "line one\r\nline two", "BUG")
+
+    assert store.list_tasks(tmp_path)[0].body == "line one\nline two"
+
+
+def test_gitignore_is_written_with_lf(tmp_path):
+    store.ensure_tasks_dir(tmp_path, tracked=False)
+
+    assert (tmp_path / ".tasks" / ".gitignore").read_bytes() == b"*\n"

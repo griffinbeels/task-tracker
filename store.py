@@ -96,7 +96,7 @@ def set_tracked(project_path: Path, tracked: bool) -> None:
     if tracked:
         ignore.unlink(missing_ok=True)
     else:
-        ignore.write_text(GITIGNORE_BODY, encoding="utf-8")
+        ignore.write_text(GITIGNORE_BODY, encoding="utf-8", newline="\n")
 
 
 def _task_files(project_path: Path, include_done: bool) -> list[Path]:
@@ -146,7 +146,7 @@ def create_task(project_path: Path, title: str, body: str, type: str,
 def save_task(task: Task) -> Task:
     if task.path is None:
         raise ValueError("task has no path")
-    task.path.write_text(render_task(task), encoding="utf-8")
+    task.path.write_text(render_task(task), encoding="utf-8", newline="\n")
     return task
 
 
