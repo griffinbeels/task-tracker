@@ -27,6 +27,19 @@ document.getElementById('capture-save').onclick = async () => {
 let triageQueue = [];
 let triageIndex = 0;
 let triagePick = { project: null, type: null, bucket: 'now' };
+// Which note the title box was last filled for. renderTriage() runs on every
+// chip click, so without this the suggested title overwrites whatever the user
+// typed the moment they pick a type or bucket.
+let triageTitleFilledFor = null;
+
+function suggestedTitle(text) {
+  const firstLine = text.split('\n')[0].trim();
+  if (firstLine.length <= 80) return firstLine;
+  // Cut on a word boundary — a title sliced mid-word reads as corruption.
+  const cut = firstLine.slice(0, 80);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd();
+}
 
 function chip(label, selected, onClick) {
   const button = document.createElement('button');
@@ -44,8 +57,10 @@ function renderTriage() {
   // note.text is arbitrary user prose that can contain <, &, quotes and
   // newlines — textContent/.value only, never innerHTML (see tasks.js).
   document.getElementById('triage-text').textContent = note.text;
-  document.getElementById('triage-title').value =
-    note.text.split('\n')[0].slice(0, 80);
+  if (triageTitleFilledFor !== note.id) {
+    document.getElementById('triage-title').value = suggestedTitle(note.text);
+    triageTitleFilledFor = note.id;
+  }
 
   document.getElementById('triage-projects').replaceChildren(
     ...state.projects.map(p => chip(p.name, triagePick.project === p.name,
@@ -63,6 +78,7 @@ async function openTriage() {
   if (notes === API_FAILED) return;
   triageQueue = notes;
   triageIndex = 0;
+  triageTitleFilledFor = null;   // fresh pass — suggest a title again
   triagePick = {
     project: currentProject,
     type: (state.settings.types[0] || {}).name,
