@@ -1,7 +1,7 @@
 // The editor overlay: one Toast UI instance shared by every entry point that
-// turns prose into a task. Capture is the first entry point wired up here;
-// triage and edit reuse the same overlay and openEditor() contract in later
-// tasks — do not add their behaviour here ahead of time.
+// turns prose into a task. Capture and triage are wired up here; edit reuses
+// the same overlay and openEditor() contract in a later task — do not add
+// its behaviour here ahead of time.
 
 // Built once, on first open, and reused. A new toastui.Editor per open leaks
 // its ProseMirror instance into the DOM — nothing tears the old one down.
@@ -10,16 +10,16 @@ let toastEditor = null;
 // bucket chip selections. null until the first openEditor() call.
 let editorContext = null;
 // Which note/task identity the title box was last auto-filled for, and
-// whether the user has since typed into it. Mirrors ui/triage.js's
-// triageTitleFilledFor: without tracking this, re-showing a suggested title
-// for the same note/task would overwrite whatever the user already typed.
-// Capture has no note/task id to key off — see the Symbol fallback in
-// openEditor() below, which is what makes every capture open its own blank
-// slate rather than inheriting the previous capture's title. titleIsUsers
-// currently has no reader: nothing in capture mode re-suggests a title after
-// opening, so nothing needs to check it yet. It's wired up (the `input`
-// listener below sets it) so triage and edit, added next, have the
-// mechanism already in place rather than reinventing it.
+// whether the user has since typed into it. Capture has no note/task id to
+// key off — see the Symbol fallback in openEditor() below, which is what
+// makes every capture open its own blank slate rather than inheriting the
+// previous capture's title. Triage passes a real noteId, so a genuinely new
+// identity resets titleIsUsers (a fresh note deserves its own suggestion),
+// but an *unchanged* identity leaves titleIsUsers exactly as the user left
+// it — "one keystroke marks the title yours for the life of that note"
+// (design spec invariant 1). That matters because triage.js's Skip re-opens
+// the very same note whenever it's the only one left in the queue, and that
+// re-open must not clobber a title already typed.
 let titleFilledFor = null;
 let titleIsUsers = false;
 // The markdown last handed to setMarkdown, and what Toast UI normalises it to
@@ -81,7 +81,7 @@ function showEditorActions(visibleIds) {
 
 // The single entry point. context is
 // { mode, title, body, project, type, bucket, noteId, taskId }; mode is one
-// of 'capture' | 'triage' | 'edit'. Only 'capture' is wired to a caller yet.
+// of 'capture' | 'triage' | 'edit'. 'edit' is not wired to a caller yet.
 function openEditor(context) {
   editorContext = {
     mode: context.mode,
@@ -102,12 +102,19 @@ function openEditor(context) {
   // own blank slate." Triage/edit pass real ids and keep the suggest-once
   // behaviour unchanged.
   const identity = editorContext.noteId ?? editorContext.taskId ?? Symbol('no-identity');
-  const titleInput = document.getElementById('editor-title');
+  // A changed identity means a different note/task is now current, so
+  // whatever the box was "owned" for no longer applies — reset the flag so
+  // this identity gets its own suggestion. Leaving titleIsUsers untouched
+  // when the identity is unchanged is what makes ownership last "for the
+  // life of that note" (see the comment on titleIsUsers above).
   if (titleFilledFor !== identity) {
-    titleInput.value = context.title || '';
     titleFilledFor = identity;
+    titleIsUsers = false;
   }
-  titleIsUsers = false;
+  const titleInput = document.getElementById('editor-title');
+  if (!titleIsUsers) {
+    titleInput.value = context.title || '';
+  }
 
   loadedBody = context.body || '';
   const editor = getEditor();
@@ -119,6 +126,14 @@ function openEditor(context) {
   if (editorContext.mode === 'capture') {
     showEditorActions(['editor-save', 'editor-later', 'editor-cancel']);
     document.getElementById('editor-progress').hidden = true;
+  } else if (editorContext.mode === 'triage') {
+    showEditorActions(['editor-save', 'editor-skip', 'editor-discard', 'editor-cancel']);
+    const progress = document.getElementById('editor-progress');
+    progress.hidden = false;
+    // triageQueue/triageIndex live in triage.js, which loads after this file
+    // but before any user gesture can reach this branch — same cross-file
+    // global-scope pattern the rest of this project already relies on.
+    progress.textContent = `note ${triageIndex + 1} / ${triageQueue.length}`;
   }
 
   document.getElementById('editor').hidden = false;
@@ -133,13 +148,45 @@ document.getElementById('editor-title').addEventListener('input', () => { titleI
 
 document.getElementById('editor-save').onclick = async () => {
   const title = document.getElementById('editor-title').value.trim();
-  // Same guard triage.js applies before file_note: a title and a resolved
-  // project/type are non-negotiable, everything else has a default.
+  // A title and a resolved project/type are non-negotiable in every mode;
+  // everything else has a default.
   if (!title || !editorContext.project || !editorContext.type) return;
+
+  if (editorContext.mode === 'triage') {
+    const note = triageQueue[triageIndex];
+    if (!note) return;
+    // file_note takes no body — a note's prose is filed as-is; editing it
+    // mid-triage isn't wired up (out of scope for this task).
+    if (await callApi('file_note', note.id, editorContext.project, title,
+        editorContext.type, editorContext.bucket) === API_FAILED) return;
+    triageQueue.splice(triageIndex, 1);
+    afterNoteRemoved();
+    await refresh();
+    return;
+  }
+
   const body = getEditor().getMarkdown();
   if (await callApi('create_task', editorContext.project, title, body,
       editorContext.type, editorContext.bucket) === API_FAILED) return;
   closeEditor();
+  await refresh();
+};
+
+document.getElementById('editor-skip').onclick = () => {
+  // Math.max guards a queue that hits zero the same instant this fires —
+  // shouldn't happen since the button is hidden outside triage mode and the
+  // overlay closes once the queue empties, but division by zero would be a
+  // silent NaN index rather than a loud failure, so keep the guard.
+  triageIndex = (triageIndex + 1) % Math.max(triageQueue.length, 1);
+  openTriageNote();
+};
+
+document.getElementById('editor-discard').onclick = async () => {
+  const note = triageQueue[triageIndex];
+  if (!note) return;
+  if (await callApi('delete_note', note.id) === API_FAILED) return;
+  triageQueue.splice(triageIndex, 1);
+  afterNoteRemoved();
   await refresh();
 };
 

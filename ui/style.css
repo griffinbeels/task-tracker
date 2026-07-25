@@ -49,8 +49,6 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }
-#triage-text { flex: 1; overflow: auto; white-space: pre-wrap;
-               background: rgba(127,127,127,.1); padding: 8px; border-radius: 5px; }
 /* min-height: 0 overrides the flex item's content-based auto height — without
    it a tall rendered document pushes #editor-body past the overlay's fixed
    bounds instead of scrolling inside itself, and the page scrolls (the exact
