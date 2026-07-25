@@ -1,5 +1,6 @@
 """On-disk task format and .tasks/ directory operations."""
 
+import base64
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -158,6 +159,53 @@ def create_task(project_path: Path, title: str, body: str, type: str,
     )
     task.path = tasks_dir(project_path) / "open" / f"{task.id:04d}-{task_slug(title)}.md"
     return save_task(task)
+
+
+_ATTACHMENT_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+_DATA_URL = re.compile(r"\Adata:([^;,]+);base64,(.*)\Z", re.DOTALL)
+
+
+def attachments_dir(project_path: Path) -> Path:
+    return tasks_dir(project_path) / "attachments"
+
+
+def save_attachment(project_path: Path, data_url: str) -> Path:
+    """Decode a pasted `data:image/...;base64,...` URL and write it to disk.
+
+    Validates and decodes before touching the directory at all, so a
+    malformed URL never leaves an empty attachments/ folder behind as a
+    side effect of a raise.
+    """
+    match = _DATA_URL.match(data_url)
+    if match is None:
+        raise ValueError("not a data URL")
+    mime, payload = match.group(1), match.group(2)
+    extension = _ATTACHMENT_EXTENSIONS.get(mime)
+    if extension is None:
+        raise ValueError(f"unsupported attachment type: {mime}")
+    # validate=True is load-bearing: without it, b64decode silently drops
+    # characters outside the base64 alphabet instead of raising, which would
+    # turn a garbled paste into a garbage file instead of a clear error.
+    data = base64.b64decode(payload, validate=True)
+
+    directory = attachments_dir(project_path)
+    directory.mkdir(parents=True, exist_ok=True)
+    # Same collision scheme as inbox.save_note: a UTC timestamp stem, with a
+    # -1, -2... suffix if another attachment already landed the same second.
+    stem = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+    name, suffix = stem, 1
+    while (directory / f"{name}{extension}").exists():
+        name = f"{stem}-{suffix}"
+        suffix += 1
+    path = directory / f"{name}{extension}"
+    path.write_bytes(data)
+    return path
 
 
 def save_task(task: Task) -> Task:

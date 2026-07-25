@@ -93,3 +93,47 @@ def test_corrupt_window_state_falls_back_to_defaults():
 
     assert state["width"] == 420
     assert state["on_top"] is True
+
+
+def test_create_task_writes_a_task_and_returns_it_serialised(tmp_path):
+    repo = make_repo(tmp_path)
+
+    created = app.Api().create_task("repo", "Replay audio desync",
+                                    "- drifts after **3s**", "BUG", "next")
+
+    assert created["title"] == "Replay audio desync"
+    assert created["bucket"] == "next"
+    assert created["project"] == "repo"
+    assert "path" not in created          # Path is not JSON-serialisable
+    stored = store.list_tasks(repo)[0]
+    assert stored.body == "- drifts after **3s**"
+
+
+def test_create_task_rejects_an_unknown_bucket(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().create_task("repo", "A", "body", "BUG", "urgent")
+
+
+def test_create_task_rejects_a_non_string_title(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().create_task("repo", 42, "body", "BUG", "now")
+
+
+def test_save_attachment_returns_an_absolute_forward_slash_path(tmp_path):
+    import base64
+    repo = make_repo(tmp_path)
+    url = "data:image/png;base64," + base64.b64encode(b"pixels").decode()
+
+    returned = app.Api().save_attachment("repo", url)
+
+    # Forward slashes because a backslash is an escape character in a markdown
+    # link target; absolute so the editor can render it from file:// and the
+    # handed-off session can open it from the project root.
+    assert "\\" not in returned
+    assert returned.startswith(repo.as_posix())
+    from pathlib import Path
+    assert Path(returned).read_bytes() == b"pixels"

@@ -112,6 +112,21 @@ class Api:
         store.save_task(task)
         return _task_dict(task, project_name)
 
+    def create_task(self, project_name, title, body, type, bucket):
+        if bucket not in store.BUCKETS:
+            raise ValueError(f"unknown bucket: {bucket}")
+        for key, value in (("title", title), ("body", body), ("type", type)):
+            if not isinstance(value, str):
+                raise ValueError(f"{key} must be a string")
+        project = _project(project_name)
+        task = store.create_task(Path(project.path), title, body, type, bucket)
+        return _task_dict(task, project_name)
+
+    def save_attachment(self, project_name, data_url):
+        project = _project(project_name)
+        path = store.save_attachment(Path(project.path), data_url)
+        return path.as_posix()
+
     def complete_task(self, project_name, task_id):
         _, task = self._find(project_name, task_id)
         return _task_dict(store.complete_task(task), project_name)
