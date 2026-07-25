@@ -376,7 +376,7 @@ issue tracker documents that placing its script in `<head>` breaks it.
 - [ ] **Step 5: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101** (99 + 2 convention tests)
+Expected: PASS — **102** (100 + 2 convention tests)
 
 - [ ] **Step 6: Commit**
 
@@ -510,7 +510,7 @@ before treating invariant 5 as satisfied.
 - [ ] **Step 4: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101**. No Python changed; this confirms nothing regressed.
+Expected: PASS — **102**. No Python changed; this confirms nothing regressed.
 
 - [ ] **Step 5: Commit**
 
@@ -587,7 +587,7 @@ header — `tasks.js` still wires it to `openTriage`.
 - [ ] **Step 4: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101**
+Expected: PASS — **102**
 
 - [ ] **Step 5: Commit**
 
@@ -664,7 +664,7 @@ body only when it differs from `loadedBody`.
 - [ ] **Step 4: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101**
+Expected: PASS — **102**
 
 - [ ] **Step 5: Commit**
 
@@ -732,7 +732,7 @@ able to read that path.
 - [ ] **Step 3: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101**
+Expected: PASS — **102**
 
 - [ ] **Step 4: Commit**
 
@@ -790,7 +790,7 @@ replaced with a CDN reference, and that a convention test enforces it.
 - [ ] **Step 5: Run the whole suite**
 
 Run: `& ".venv\Scripts\python.exe" -m pytest tests/ -q`
-Expected: PASS — **101**
+Expected: PASS — **102**
 
 - [ ] **Step 6: Commit**
 
