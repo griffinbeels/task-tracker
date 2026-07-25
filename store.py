@@ -109,16 +109,21 @@ def _task_files(project_path: Path, include_done: bool) -> list[Path]:
 
 
 def read_tasks(project_path: Path, include_done: bool = True) -> tuple[list[Task], list[str]]:
-    """Parse every task file, collecting unreadable ones rather than raising.
+    """Parse every task file, collecting any that fail to parse rather than raising.
 
     A single malformed file must cost one row, not the whole app — get_state
     fans out over every project, so a raise here blanks the entire window.
+    Caught broadly (not just ValueError/KeyError/OSError) because parse_task
+    can also fail with yaml.YAMLError (malformed YAML, e.g. an unclosed quote
+    or a tab used for indentation) or TypeError (e.g. `id:` given as a list
+    instead of a scalar) — every path skipped this way is reported back to
+    the caller via `unreadable`, so nothing is hidden by catching broadly.
     """
     tasks, unreadable = [], []
     for path in _task_files(project_path, include_done):
         try:
             tasks.append(parse_task(path.read_text(encoding="utf-8"), path))
-        except (ValueError, KeyError, OSError):
+        except Exception:
             unreadable.append(str(path))
     return tasks, unreadable
 

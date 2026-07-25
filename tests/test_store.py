@@ -198,6 +198,32 @@ def test_read_tasks_skips_a_file_missing_a_required_key(tmp_path):
     assert len(unreadable) == 1
 
 
+def test_read_tasks_skips_a_file_with_malformed_yaml(tmp_path):
+    store.create_task(tmp_path, "Good one", "body", "BUG")
+    (tmp_path / ".tasks" / "open" / "0002-bad-yaml.md").write_text(
+        '---\nid: 2\ntitle: "unclosed quote\ntype: BUG\nbucket: now\n'
+        'status: open\ncreated: 2026-07-25\n---\n\nbody',
+        encoding="utf-8", newline="\n")
+
+    tasks, unreadable = store.read_tasks(tmp_path)
+
+    assert [t.title for t in tasks] == ["Good one"]
+    assert len(unreadable) == 1
+
+
+def test_read_tasks_skips_a_file_whose_id_is_not_a_number(tmp_path):
+    store.create_task(tmp_path, "Good one", "body", "BUG")
+    (tmp_path / ".tasks" / "open" / "0003-bad-id.md").write_text(
+        "---\nid: [1, 2]\ntitle: t\ntype: BUG\nbucket: now\n"
+        "status: open\ncreated: 2026-07-25\n---\n\nbody",
+        encoding="utf-8", newline="\n")
+
+    tasks, unreadable = store.read_tasks(tmp_path)
+
+    assert len(tasks) == 1
+    assert len(unreadable) == 1
+
+
 def test_complete_task_preserves_an_existing_completion_date(tmp_path):
     task = store.complete_task(store.create_task(tmp_path, "Ship it", "body", "FEATURE"))
     original = task.done
