@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 import launcher
 import store
 
@@ -29,10 +31,10 @@ def test_prompt_joins_multiple_tasks_in_the_given_order():
     assert prompt.index("body one") < prompt.index("## FEATURE 2 - Second")
 
 
-def test_prompt_appends_no_instructions():
+def test_prompt_format_is_exactly_header_blank_line_body():
     prompt = launcher.build_prompt([make_task(1, "Only", "BUG", "just this")])
 
-    assert prompt.strip().endswith("just this")
+    assert prompt == "## BUG 1 - Only\n\njust this"
 
 
 def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
@@ -74,3 +76,19 @@ def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(tmp_path, monkey
     assert reloaded.started is not None
     assert copied["text"] == prompt
     assert "drifts" in prompt
+
+
+def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(tmp_path, monkeypatch):
+    def exploding_popen(args, **kwargs):
+        raise FileNotFoundError("claude is not on PATH")
+
+    monkeypatch.setattr(subprocess, "Popen", exploding_popen)
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+
+    with pytest.raises(FileNotFoundError):
+        launcher.hand_off(tmp_path, [task])
+
+    reloaded = store.list_tasks(tmp_path)[0]
+    assert reloaded.status == "open"
+    assert reloaded.started is None

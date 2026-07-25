@@ -27,13 +27,14 @@ def spawn_claude(project_path: Path, launch: list[str] | None = None) -> None:
 
 def hand_off(project_path: Path, tasks: list[store.Task],
              launch: list[str] | None = None) -> str:
+    prompt = build_prompt(tasks)
+    spawn_claude(project_path, launch)
+
+    pyperclip.copy(prompt)
     today = datetime.now(timezone.utc).date().isoformat()
     for task in tasks:
         task.status = "in-progress"
         task.started = task.started or today
         store.save_task(task)
 
-    prompt = build_prompt(tasks)
-    pyperclip.copy(prompt)
-    spawn_claude(project_path, launch)
     return prompt
