@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 70 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 81 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Six small Python modules and four plain `<script>` files. No framework, no HTTP
+Seven small Python modules and four plain `<script>` files. No framework, no HTTP
 server, no bundler.
 
 | File | Owns |
@@ -36,6 +36,7 @@ server, no bundler.
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn |
+| `console_input.py` | Typing that prompt into the spawned session's console |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
@@ -61,10 +62,12 @@ Break one of these and the failure is silent. Each cost a bug.
    save. Reads deliberately use universal newlines so hand-edited CRLF files
    still parse — net behaviour is "line endings normalise to LF".
 
-2. **Task bodies are verbatim.** They are user prose that gets pasted into a
-   Claude session. Never strip, trim, normalise, re-wrap or append. `build_prompt`
-   adds a `## TYPE id - title` header and nothing else — no instructions, no
-   "mark this done when finished".
+2. **Task bodies are verbatim.** They are user prose that gets typed into a
+   Claude session. Never strip, trim, normalise, re-wrap or append.
+   `build_prompt` emits `TYPE: body`, one task per line, and nothing else — no
+   instructions, no "mark this done when finished". The single exception is a
+   body's *trailing* whitespace, dropped so that the newline between tasks is
+   exactly one newline; a body is never touched at the front or in the middle.
 
 3. **Frontend bridge calls go through `callApi('name', ...)`** in `state.js`,
    never `window.pywebview.api.*` directly. `get_state` inside `refresh()` is the
@@ -98,6 +101,15 @@ Break one of these and the failure is silent. Each cost a bug.
    strips the session-identity vars and sets
    `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`.
 
+9. **Typed text is bracketed, and waits for the prompt box.** `console_input`
+   writes into the spawned session's console input buffer, which accepts input
+   long before Claude is ready to read it. Unbracketed, the newline between two
+   tasks reads as Enter and sends the first one alone; unwaited, the text is
+   answered into whatever dialog is on screen — a folder Claude has not been
+   trusted in opens on a question whose default is Enter. Both failures are
+   silent, and both are why `paste()` polls for `READY_MARKERS` first. It is
+   allowed to give up: the same text is on the clipboard.
+
 ## Data on disk
 
 ```
@@ -125,7 +137,10 @@ flips it (settings → the tracked checkboxes), which deletes that `.gitignore`.
   and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
   `tests/test_registry.py`. Mock at the boundary — `subprocess.Popen` and
-  `launcher.pyperclip.copy` — never spawn a real process.
+  `launcher.pyperclip.copy` — never spawn a real process. The one exception is
+  `tests/test_console_input.py`, which really does open a console for a second
+  or two: typing into another process's console is OS behaviour, and a mock of
+  it would only assert that the mock was called.
 - **Deliberately untested:** `main()` and window geometry persistence. Driving a
   native window under pytest is not worth the machinery; this is a decision, not
   an oversight.

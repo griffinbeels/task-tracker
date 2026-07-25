@@ -95,18 +95,17 @@ function selectedIds() {
                   id: Number(el.closest('.task').dataset.id) }));
 }
 
-document.getElementById('task-list').addEventListener('change', () => {
-  document.getElementById('spin-up').disabled = selectedIds().length === 0;
-});
-
 document.getElementById('spin-up').onclick = async () => {
   const selected = selectedIds();
-  if (!selected.length) return;
   // Ids are per-project, so a mixed selection cannot be handed to one
   // session — and one session per working tree is the design anyway.
   const projects = new Set(selected.map(s => s.project));
   if (projects.size > 1) { alert('Select tasks from one project at a time.'); return; }
-  if (await callApi('hand_off', [...projects][0], selected.map(s => s.id)) === API_FAILED) return;
+  // Selecting nothing is a real request, not a mistake: open a session in the
+  // project you are looking at and leave its prompt empty.
+  const project = projects.size ? [...projects][0] : currentProject;
+  if (!project) return;
+  if (await callApi('hand_off', project, selected.map(s => s.id)) === API_FAILED) return;
   await refresh();
 };
 
@@ -202,10 +201,11 @@ function render() {
   badFiles.hidden = unreadable.length === 0;
   badFiles.textContent =
     `${unreadable.length} task file(s) could not be read: ${unreadable.join(', ')}`;
-  // Every branch above just replaced task-list with freshly built rows, so
-  // no checkbox can be checked yet — keep spin-up in sync rather than
-  // leaving it enabled from a selection that no longer exists in the DOM.
-  document.getElementById('spin-up').disabled = selectedIds().length === 0;
+  // Spin up Claude stays enabled with nothing ticked — that opens an empty
+  // session in the current project — so it needs no syncing with the
+  // selection. It is only useless with no projects at all, since then there
+  // is no directory to open in.
+  document.getElementById('spin-up').disabled = !state.projects.length;
 
   const inboxButton = document.getElementById('inbox-button');
   inboxButton.hidden = state.notes.length === 0;

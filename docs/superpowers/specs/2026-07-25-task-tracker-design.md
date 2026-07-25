@@ -121,6 +121,7 @@ task_tracker/
   store.py       .tasks/ read/write, task model
   registry.py    projects.json + settings.json
   launcher.py    clipboard + Claude process spawn
+  console_input.py  types the prompt into the spawned session's console
   ui/index.html  one page
   ui/app.js
   ui/style.css
@@ -207,9 +208,15 @@ not a substitute for migrating.
 Select one or more tasks, hit spin up:
 
 1. Selected tasks flip to `in-progress`, `started` is stamped.
-2. Their bodies are concatenated verbatim — each under a short
-   `## <TYPE> <id> — <title>` header — and copied to the clipboard.
+2. Their bodies are joined verbatim, one task per line, each prefixed with its
+   type — `FEATURE: <the idea>` — and copied to the clipboard.
 3. A new visible terminal opens in the project directory running `claude`.
+4. Once that session's prompt box is up, the text is **typed into it** and left
+   unsent, so it can be edited or added to before it runs. The clipboard copy
+   is the fallback for a session that never got there.
+
+With nothing selected, spin up is still live: it opens a session in the current
+project with an empty prompt, which is the "just get me a window here" case.
 
 ```python
 subprocess.Popen(["claude", "--dangerously-skip-permissions"],

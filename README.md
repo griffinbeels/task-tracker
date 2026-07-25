@@ -29,8 +29,13 @@ To run it directly instead:
 ## Handing tasks to Claude
 
 Select tasks and hit **Spin up Claude**. A terminal opens in that project's
-directory with your task text on the clipboard, ready to paste — nothing is
-appended to what you wrote.
+directory and your tasks are typed into its prompt box — one per line, as
+`FEATURE: what you wrote` — and left there unsent, so you can edit or add to
+them before hitting Enter. Nothing is appended to what you wrote.
+
+The same text also goes to the clipboard, as the fallback for a session that
+takes too long to come up. With no tasks selected the button still works: it
+just opens a session in the current project with an empty prompt.
 
 The session is launched with `--dangerously-skip-permissions`, and deliberately
 does *not* inherit the environment of whatever started the tracker: variables

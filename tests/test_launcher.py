@@ -14,27 +14,57 @@ def make_task(task_id, title, type, body):
     )
 
 
+class FakeSession:
+    """Stands in for the Popen of a spawned session."""
+    pid = 4242
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Swallow the process spawn and record what would have been typed."""
+    typed = {}
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeSession())
+    monkeypatch.setattr(launcher.console_input, "paste_when_ready",
+                        lambda pid, text: typed.update(pid=pid, text=text))
+    return typed
+
+
 def test_prompt_contains_each_body_verbatim():
     tricky = 'audio drifts\n---\n"quoted" and `backticks`\n\n  indented'
     prompt = launcher.build_prompt([make_task(42, "Replay audio desync", "BUG", tricky)])
 
     assert tricky in prompt
-    assert "## BUG 42 - Replay audio desync" in prompt
+    assert prompt.startswith("BUG: ")
 
 
-def test_prompt_joins_multiple_tasks_in_the_given_order():
+def test_prompt_gives_each_task_its_own_line_in_the_given_order():
     prompt = launcher.build_prompt([
         make_task(1, "First", "BUG", "body one"),
         make_task(2, "Second", "FEATURE", "body two"),
     ])
 
-    assert prompt.index("body one") < prompt.index("## FEATURE 2 - Second")
+    assert prompt == "BUG: body one\nFEATURE: body two"
 
 
-def test_prompt_format_is_exactly_header_blank_line_body():
+def test_prompt_format_is_exactly_type_colon_body():
     prompt = launcher.build_prompt([make_task(1, "Only", "BUG", "just this")])
 
-    assert prompt == "## BUG 1 - Only\n\njust this"
+    assert prompt == "BUG: just this"
+
+
+def test_a_trailing_newline_does_not_become_a_blank_line_between_tasks():
+    # Bodies read off disk end with the file's own newline, which would
+    # otherwise double every separator.
+    prompt = launcher.build_prompt([
+        make_task(1, "First", "BUG", "body one\n"),
+        make_task(2, "Second", "FEATURE", "body two\n"),
+    ])
+
+    assert prompt == "BUG: body one\nFEATURE: body two"
+
+
+def test_nothing_selected_is_an_empty_prompt():
+    assert launcher.build_prompt([]) == ""
 
 
 def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
@@ -63,9 +93,9 @@ def test_spawn_honours_a_per_project_launch_override(monkeypatch):
     assert captured["args"] == ["pwsh", "-c", "claude"]
 
 
-def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(tmp_path, monkeypatch):
+def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(
+        tmp_path, monkeypatch, spawned):
     copied = {}
-    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: None)
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: copied.update(text=text))
     task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
 
@@ -76,6 +106,30 @@ def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(tmp_path, monkey
     assert reloaded.started is not None
     assert copied["text"] == prompt
     assert "drifts" in prompt
+
+
+def test_hand_off_types_the_prompt_into_the_session_it_opened(
+        tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+
+    prompt = launcher.hand_off(tmp_path, [task])
+
+    assert spawned == {"pid": FakeSession.pid, "text": prompt}
+
+
+def test_hand_off_with_nothing_selected_opens_a_bare_session(
+        tmp_path, monkeypatch, spawned):
+    copied = {}
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: copied.update(text=text))
+
+    prompt = launcher.hand_off(tmp_path, [])
+
+    # A session in the right directory, and nothing else touched: no text
+    # typed, and whatever the user had on their clipboard still there.
+    assert prompt == ""
+    assert spawned == {}
+    assert copied == {}
 
 
 def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(tmp_path, monkeypatch):
