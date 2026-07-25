@@ -57,4 +57,9 @@ function render() {
   const list = document.getElementById('task-list');
   list.replaceChildren(...BUCKETS.map(bucketSection));
   renderWipWarning();
+
+  const inboxButton = document.getElementById('inbox-button');
+  inboxButton.hidden = state.notes.length === 0;
+  inboxButton.textContent = `Inbox ${state.notes.length}`;
+  inboxButton.onclick = openTriage;
 }

@@ -11,3 +11,14 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .title { flex: 1; }
 .done { opacity: 0; font-size: 10px; }
 .task:hover .done { opacity: .6; }
+
+.overlay { position: fixed; inset: 0; background: #111; padding: 12px;
+           display: flex; flex-direction: column; gap: 8px; }
+.overlay[hidden] { display: none; }
+#capture-text { flex: 1; resize: none; font: inherit; }
+#triage-text { flex: 1; overflow: auto; white-space: pre-wrap;
+               background: rgba(127,127,127,.1); padding: 8px; border-radius: 5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; opacity: .55; }
+.chip.on { opacity: 1; outline: 1px solid currentColor; }
+.actions { display: flex; gap: 6px; }

@@ -6,10 +6,32 @@
       <select id="project-picker"></select>
       <button id="add-project">+</button>
       <button id="capture-button">Capture</button>
+      <button id="inbox-button" hidden></button>
     </header>
     <div id="wip-warning" hidden></div>
     <main id="task-list"></main>
+
+    <div id="capture" class="overlay" hidden>
+      <textarea id="capture-text" placeholder="Write anything. No fields."></textarea>
+      <div class="actions"><button id="capture-save">Save</button>
+        <button id="capture-cancel">Cancel</button></div>
+    </div>
+
+    <div id="triage" class="overlay" hidden>
+      <div id="triage-progress"></div>
+      <pre id="triage-text"></pre>
+      <input id="triage-title" placeholder="Title">
+      <div id="triage-projects" class="chips"></div>
+      <div id="triage-types" class="chips"></div>
+      <div id="triage-buckets" class="chips"></div>
+      <div class="actions"><button id="triage-file">File</button>
+        <button id="triage-skip">Skip</button>
+        <button id="triage-discard">Discard</button>
+        <button id="triage-close">Close</button></div>
+    </div>
+
     <script src="state.js"></script>
     <script src="tasks.js"></script>
+    <script src="triage.js"></script>
   </body>
 </html>
