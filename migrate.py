@@ -13,7 +13,7 @@ class SweepResult:
     skipped: list[str] = field(default_factory=list)
 
 
-def _reachable_projects(skipped: list[str]) -> list[registry.Project]:
+def _reachable_projects() -> tuple[list[registry.Project], list[str]]:
     """Split registered projects into reachable ones and names to skip.
 
     Reachability is judged by the project's own path, not by whether its
@@ -24,17 +24,19 @@ def _reachable_projects(skipped: list[str]) -> list[registry.Project]:
     moved or disconnected project path should count as unreachable.
     """
     reachable = []
+    skipped = []
     for project in registry.load_projects():
         if Path(project.path).is_dir():
             reachable.append(project)
         else:
             skipped.append(project.name)
-    return reachable
+    return reachable, skipped
 
 
 def _sweep(old: str, new: str) -> SweepResult:
-    result = SweepResult()
-    for project in _reachable_projects(result.skipped):
+    reachable, skipped = _reachable_projects()
+    result = SweepResult(skipped=skipped)
+    for project in reachable:
         for task in store.list_tasks(Path(project.path), include_done=True):
             if task.type != old:
                 continue
@@ -45,9 +47,9 @@ def _sweep(old: str, new: str) -> SweepResult:
 
 
 def count_tasks_with_type(name: str) -> int:
-    skipped: list[str] = []
+    reachable, _skipped = _reachable_projects()
     total = 0
-    for project in _reachable_projects(skipped):
+    for project in reachable:
         tasks = store.list_tasks(Path(project.path), include_done=True)
         total += sum(1 for task in tasks if task.type == name)
     return total

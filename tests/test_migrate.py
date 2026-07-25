@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 import migrate
@@ -75,13 +77,24 @@ def test_unreachable_project_is_skipped_not_fatal(tmp_path):
     missing.mkdir()
     registry.add_project("beta", str(missing))
     store.create_task(reachable, "A", "body", "FEATURE")
-    import shutil
     shutil.rmtree(missing)
 
     result = migrate.rename_type("FEATURE", "FEAT")
 
     assert result.changed == 1
     assert result.skipped == ["beta"]
+
+
+def test_project_without_a_tasks_dir_is_swept_not_skipped(tmp_path):
+    reachable = make_project(tmp_path, "alpha")
+    bare = make_project(tmp_path, "beta")
+    store.create_task(reachable, "A", "body", "FEATURE")
+    shutil.rmtree(bare / ".tasks")
+
+    result = migrate.rename_type("FEATURE", "FEAT")
+
+    assert result.skipped == []
+    assert result.changed == 1
 
 
 def test_count_tasks_with_type_spans_projects_and_archives(tmp_path):
