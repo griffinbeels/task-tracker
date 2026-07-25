@@ -23,10 +23,20 @@
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
 
-    <div id="capture" class="overlay" hidden>
-      <textarea id="capture-text" placeholder="Write anything. No fields."></textarea>
-      <div class="actions"><button id="capture-save">Save</button>
-        <button id="capture-cancel">Cancel</button></div>
+    <div id="editor" class="overlay" hidden>
+      <div id="editor-progress"></div>
+      <input id="editor-title" placeholder="Title">
+      <div id="editor-body"></div>
+      <div id="editor-projects" class="chips"></div>
+      <div id="editor-types" class="chips"></div>
+      <div id="editor-buckets" class="chips"></div>
+      <div class="actions">
+        <button id="editor-save">File</button>
+        <button id="editor-later">Later</button>
+        <button id="editor-skip">Skip</button>
+        <button id="editor-discard">Discard</button>
+        <button id="editor-cancel">Cancel</button>
+      </div>
     </div>
 
     <div id="triage" class="overlay" hidden>
@@ -60,6 +70,7 @@
     <script src="vendor/toastui-editor.min.js"></script>
     <script src="state.js"></script>
     <script src="tasks.js"></script>
+    <script src="editor.js"></script>
     <script src="triage.js"></script>
     <script src="settings.js"></script>
   </body>

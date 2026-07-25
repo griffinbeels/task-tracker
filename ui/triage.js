@@ -1,28 +1,6 @@
-// Capture and triage — the two overlays that replace the user's notepad.
-//
-// Capture asks for nothing: text goes in, it's saved verbatim, the overlay
-// closes. Triage is the separate, deliberate act where project/type/bucket
-// get chosen before a note becomes a task.
-
-function openCapture() {
-  document.getElementById('capture-text').value = '';
-  document.getElementById('capture').hidden = false;
-  document.getElementById('capture-text').focus();
-}
-
-document.getElementById('capture-button').onclick = openCapture;
-document.getElementById('capture-cancel').onclick =
-  () => { document.getElementById('capture').hidden = true; };
-document.getElementById('capture-save').onclick = async () => {
-  const text = document.getElementById('capture-text').value;
-  // trim() here only decides whether an empty box counts as a note — the
-  // text sent to save_note is the untrimmed textarea value.
-  if (text.trim()) {
-    if (await callApi('save_note', text) === API_FAILED) return;
-  }
-  document.getElementById('capture').hidden = true;
-  await refresh();
-};
+// Triage — the deliberate act where project/type/bucket get chosen before a
+// note becomes a task. Capture, the zero-decision counterpart, now opens the
+// shared editor overlay directly; see editor.js.
 
 let triageQueue = [];
 let triageIndex = 0;
@@ -41,13 +19,8 @@ function suggestedTitle(text) {
   return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd();
 }
 
-function chip(label, selected, onClick) {
-  const button = document.createElement('button');
-  button.className = 'chip' + (selected ? ' on' : '');
-  button.textContent = label;
-  button.onclick = onClick;
-  return button;
-}
+// chip() moved to editor.js — still called from here via the shared global
+// scope every script in this project runs in.
 
 function renderTriage() {
   const note = triageQueue[triageIndex];
