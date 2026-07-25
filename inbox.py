@@ -65,11 +65,17 @@ def delete_note(note_id: str) -> None:
 
 
 def file_note(note_id: str, project_path: Path, title: str, type: str,
-              bucket: str) -> store.Task:
+              bucket: str, body: str | None = None) -> store.Task:
     path = _note_path(note_id)
     if not path.exists():
         raise FileNotFoundError(f"unknown note: {note_id}")
-    body = path.read_text(encoding="utf-8")
+    # Triage renders the note in an editor, so by the time File is clicked the
+    # box may hold prose the user has since corrected or extended. Only fall
+    # back to the on-disk text when no edited body is given, so a caller that
+    # just wants "file this note as-is" (and every existing call site) keeps
+    # working unchanged.
+    if body is None:
+        body = path.read_text(encoding="utf-8")
     task = store.create_task(Path(project_path), title, body, type, bucket)
     delete_note(note_id)
     return task

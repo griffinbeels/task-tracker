@@ -152,20 +152,23 @@ document.getElementById('editor-save').onclick = async () => {
   // everything else has a default.
   if (!title || !editorContext.project || !editorContext.type) return;
 
+  const body = getEditor().getMarkdown();
+
   if (editorContext.mode === 'triage') {
     const note = triageQueue[triageIndex];
     if (!note) return;
-    // file_note takes no body — a note's prose is filed as-is; editing it
-    // mid-triage isn't wired up (out of scope for this task).
+    // Pass the editor's current markdown, not the note's on-disk text — the
+    // whole point of triaging in an editor is that a typo fix or an added
+    // line survives to the task. file_note falls back to the note's own
+    // text only when this argument is omitted.
     if (await callApi('file_note', note.id, editorContext.project, title,
-        editorContext.type, editorContext.bucket) === API_FAILED) return;
+        editorContext.type, editorContext.bucket, body) === API_FAILED) return;
     triageQueue.splice(triageIndex, 1);
     afterNoteRemoved();
     await refresh();
     return;
   }
 
-  const body = getEditor().getMarkdown();
   if (await callApi('create_task', editorContext.project, title, body,
       editorContext.type, editorContext.bucket) === API_FAILED) return;
   closeEditor();

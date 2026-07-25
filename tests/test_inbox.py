@@ -51,6 +51,30 @@ def test_file_note_rejects_an_unknown_note(tmp_path):
         inbox.file_note("nope", tmp_path, "t", "BUG", "now")
 
 
+def test_file_note_uses_the_edited_body_when_one_is_given(tmp_path):
+    # Triage renders the note in an editor, so the prose that reaches the task
+    # must be what is on screen at File time, not what was captured earlier.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    note = inbox.save_note("Audio drifts out of sync after ~2 minutes")
+
+    task = inbox.file_note(note.id, repo, "Replay audio desync", "BUG", "now",
+                            body="Audio drifts out of sync after ~2 minutes, worse on Bluetooth")
+
+    assert task.body == "Audio drifts out of sync after ~2 minutes, worse on Bluetooth"
+    assert inbox.list_notes() == []
+
+
+def test_file_note_falls_back_to_the_notes_own_text_when_no_body_is_given(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    note = inbox.save_note("Audio drifts out of sync after ~2 minutes")
+
+    task = inbox.file_note(note.id, repo, "Replay audio desync", "BUG", "now")
+
+    assert task.body == "Audio drifts out of sync after ~2 minutes"
+
+
 def test_notes_are_written_with_lf_endings():
     note = inbox.save_note("line one\nline two")
 

@@ -83,9 +83,11 @@ class Api:
     def delete_note(self, note_id):
         inbox.delete_note(note_id)
 
-    def file_note(self, note_id, project_name, title, type, bucket):
+    def file_note(self, note_id, project_name, title, type, bucket, body=None):
+        if body is not None and not isinstance(body, str):
+            raise ValueError("body must be a string")
         project = _project(project_name)
-        task = inbox.file_note(note_id, Path(project.path), title, type, bucket)
+        task = inbox.file_note(note_id, Path(project.path), title, type, bucket, body)
         return _task_dict(task, project_name)
 
     def _find(self, project_name, task_id):

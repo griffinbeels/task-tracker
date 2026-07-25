@@ -123,6 +123,14 @@ def test_create_task_rejects_a_non_string_title(tmp_path):
         app.Api().create_task("repo", 42, "body", "BUG", "now")
 
 
+def test_file_note_rejects_a_non_string_body(tmp_path):
+    repo = make_repo(tmp_path)
+    note = app.Api().save_note("Audio drifts out of sync after ~2 minutes")
+
+    with pytest.raises(ValueError):
+        app.Api().file_note(note["id"], "repo", "Replay audio desync", "BUG", "now", body=42)
+
+
 def test_save_attachment_returns_an_absolute_forward_slash_path(tmp_path):
     import base64
     repo = make_repo(tmp_path)
