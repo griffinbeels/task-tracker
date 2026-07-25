@@ -7,6 +7,8 @@
       <button id="add-project">+</button>
       <button id="capture-button">Capture</button>
       <button id="inbox-button" hidden></button>
+      <button id="progress-button">Progress</button>
+      <button id="settings-button">⚙</button>
     </header>
     <div id="toolbar">
       <input id="search" placeholder="Search all projects">
@@ -35,8 +37,24 @@
         <button id="triage-close">Close</button></div>
     </div>
 
+    <div id="progress" class="overlay" hidden>
+      <div id="progress-body"></div>
+      <div class="actions"><button id="progress-close">Close</button></div>
+    </div>
+
+    <div id="settings" class="overlay" hidden>
+      <label>WIP limit <input id="wip-limit" type="number" min="1"></label>
+      <label>Stale after (days) <input id="stale-days" type="number" min="1"></label>
+      <div id="type-editor"></div>
+      <button id="add-type">Add type</button>
+      <div id="tracked-editor"></div>
+      <div class="actions"><button id="settings-save">Save</button>
+        <button id="settings-close">Close</button></div>
+    </div>
+
     <script src="state.js"></script>
     <script src="tasks.js"></script>
     <script src="triage.js"></script>
+    <script src="settings.js"></script>
   </body>
 </html>
