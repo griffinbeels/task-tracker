@@ -34,8 +34,6 @@ class Api:
         projects = registry.load_projects()
         tasks = []
         for project in projects:
-            if not store.tasks_dir(Path(project.path)).is_dir():
-                continue
             tasks.extend(_task_dict(t, project.name)
                          for t in store.list_tasks(Path(project.path)))
         return {
@@ -81,6 +79,10 @@ class Api:
         raise ValueError(f"unknown task: {task_id}")
 
     def update_task(self, project_name, task_id, fields):
+        if "bucket" in fields and fields["bucket"] not in store.BUCKETS:
+            raise ValueError(f"unknown bucket: {fields['bucket']}")
+        if "status" in fields and fields["status"] not in store.STATUSES:
+            raise ValueError(f"unknown status: {fields['status']}")
         _, task = self._find(project_name, task_id)
         for key in ("title", "type", "bucket", "status", "order", "body"):
             if key in fields:
@@ -123,9 +125,13 @@ class Api:
 
 
 def _load_window_state() -> dict:
-    if WINDOW_STATE.exists():
+    defaults = {"width": 420, "height": 900, "x": None, "y": None, "on_top": True}
+    if not WINDOW_STATE.exists():
+        return defaults
+    try:
         return json.loads(WINDOW_STATE.read_text(encoding="utf-8"))
-    return {"width": 420, "height": 900, "x": None, "y": None, "on_top": True}
+    except (json.JSONDecodeError, OSError):
+        return defaults
 
 
 def _save_window_state(window) -> None:
@@ -133,7 +139,7 @@ def _save_window_state(window) -> None:
     WINDOW_STATE.write_text(json.dumps({
         "width": window.width, "height": window.height,
         "x": window.x, "y": window.y, "on_top": window.on_top,
-    }, indent=2), encoding="utf-8")
+    }, indent=2), encoding="utf-8", newline="\n")
 
 
 def main() -> None:
