@@ -8,7 +8,14 @@
 // so a task can never end up orphaned.
 
 function monthLabel(isoDate) {
-  return new Date(isoDate).toLocaleDateString('en', { month: 'long', year: 'numeric' });
+  // isoDate is a date-only string (YYYY-MM-DD). Parsing it with `new Date()`
+  // treats it as UTC midnight, and toLocaleDateString renders in local time
+  // — west of UTC that shifts the 1st of a month back to the last day of the
+  // previous month, mislabeling the heading. Build the date from local
+  // year/month/day components instead so the label always matches the date
+  // that produced it.
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en', { month: 'long', year: 'numeric' });
 }
 
 document.getElementById('progress-button').onclick = () => {
@@ -92,6 +99,9 @@ function renderTypeEditor() {
     nameInput.onchange = async event => {
       const next = event.target.value.trim();
       if (!next || next === type.name) return;
+      // A pending type exists only in memory until Save writes it, so there
+      // is nothing on disk to migrate — just rename it locally.
+      if (type.pending) { type.name = next; return; }
       const count = await callApi('count_tasks_with_type', type.name);
       if (count === API_FAILED) return;
       // count is a real int and 0 is a legitimate result (no tasks use this
@@ -152,7 +162,7 @@ function renderTrackedEditor() {
 }
 
 document.getElementById('add-type').onclick = () => {
-  state.settings.types.push({ name: 'NEW', color: '#8e8e8e' });
+  state.settings.types.push({ name: 'NEW', color: '#8e8e8e', pending: true });
   renderTypeEditor();
 };
 
@@ -165,13 +175,17 @@ document.getElementById('settings-button').onclick = () => {
 };
 
 document.getElementById('settings-save').onclick = async () => {
+  const types = [...document.querySelectorAll('.type-row')].map(row => ({
+    name: row.querySelector('.type-name').value.trim(),
+    color: row.querySelector('.type-color').value,
+  }));
+  if (types.some(t => !t.name)) { alert('Type names cannot be empty.'); return; }
+  const names = types.map(t => t.name);
+  if (new Set(names).size !== names.length) { alert('Type names must be unique.'); return; }
   const payload = {
     wip_limit: Number(document.getElementById('wip-limit').value),
     stale_days: Number(document.getElementById('stale-days').value),
-    types: [...document.querySelectorAll('.type-row')].map(row => ({
-      name: row.querySelector('.type-name').value.trim(),
-      color: row.querySelector('.type-color').value,
-    })),
+    types,
   };
   if (await callApi('save_settings', payload) === API_FAILED) return;
   document.getElementById('settings').hidden = true;
