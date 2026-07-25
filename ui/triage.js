@@ -18,7 +18,7 @@ document.getElementById('capture-save').onclick = async () => {
   // trim() here only decides whether an empty box counts as a note — the
   // text sent to save_note is the untrimmed textarea value.
   if (text.trim()) {
-    if (await callApi('save_note', text) === null) return;
+    if (await callApi('save_note', text) === API_FAILED) return;
   }
   document.getElementById('capture').hidden = true;
   await refresh();
@@ -60,7 +60,7 @@ function renderTriage() {
 
 async function openTriage() {
   const notes = await callApi('list_notes');
-  if (notes === null) return;
+  if (notes === API_FAILED) return;
   triageQueue = notes;
   triageIndex = 0;
   triagePick = {
@@ -72,17 +72,26 @@ async function openTriage() {
   renderTriage();
 }
 
+// After splicing a note out, the next note shifts into this same index —
+// don't advance triageIndex, or every other note in the queue gets skipped.
+// But if the note removed was the last one in the queue, that same index is
+// now past the end (triageQueue[triageIndex] is undefined), which
+// renderTriage reads as "queue empty" and hides the overlay even though
+// earlier notes are still unfiled. Clamp back to the front of the queue
+// instead — those earlier notes are all that's left to triage.
+function afterNoteRemoved() {
+  if (triageIndex >= triageQueue.length) triageIndex = 0;
+  renderTriage();
+}
+
 document.getElementById('triage-file').onclick = async () => {
   const note = triageQueue[triageIndex];
   const title = document.getElementById('triage-title').value.trim();
   if (!note || !title || !triagePick.project || !triagePick.type) return;
   if (await callApi('file_note', note.id, triagePick.project, title,
-      triagePick.type, triagePick.bucket) === null) return;
-  // The note that was just filed is spliced out, so the next note shifts
-  // into this same index — don't also advance triageIndex or every other
-  // note in the queue gets skipped.
+      triagePick.type, triagePick.bucket) === API_FAILED) return;
   triageQueue.splice(triageIndex, 1);
-  renderTriage();
+  afterNoteRemoved();
   await refresh();
 };
 
@@ -92,9 +101,9 @@ document.getElementById('triage-skip').onclick =
 document.getElementById('triage-discard').onclick = async () => {
   const note = triageQueue[triageIndex];
   if (!note) return;
-  if (await callApi('delete_note', note.id) === null) return;
+  if (await callApi('delete_note', note.id) === API_FAILED) return;
   triageQueue.splice(triageIndex, 1);
-  renderTriage();
+  afterNoteRemoved();
   await refresh();
 };
 

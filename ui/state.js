@@ -13,12 +13,19 @@ function typeColor(name) {
 // silent unhandled rejection with no feedback to the user. Route call sites
 // that a user can trigger with bad input through this instead of calling
 // window.pywebview.api directly.
+//
+// Bridge methods that return nothing (e.g. delete_note) cross back as JS
+// null on success, same as any other value — null can't double as a failure
+// sentinel. Use this unique Symbol instead and compare call sites against
+// it, never against null.
+const API_FAILED = Symbol('api-failed');
+
 async function callApi(name, ...args) {
   try {
     return await window.pywebview.api[name](...args);
   } catch (error) {
     alert(`${name} failed:\n\n${error}`);
-    return null;
+    return API_FAILED;
   }
 }
 
@@ -53,7 +60,7 @@ document.getElementById('add-project').onclick = async () => {
   if (!path) return;
   const name = prompt('Project name', path.split(/[\\/]/).filter(Boolean).pop());
   if (!name) return;
-  if (await callApi('add_project', name, path) === null) return;
+  if (await callApi('add_project', name, path) === API_FAILED) return;
   currentProject = name;
   await refresh();
 };
