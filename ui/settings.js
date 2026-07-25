@@ -75,6 +75,9 @@ function reportSkipped(result) {
 function renderTypeEditor() {
   const editor = document.getElementById('type-editor');
   editor.replaceChildren(...state.settings.types.map(type => {
+    // Record each persisted type's original name once, so Save can diff the
+    // submitted list against what's on disk and know which rows to migrate.
+    if (!type.pending && type.original === undefined) type.original = type.name;
     const row = document.createElement('div');
     row.className = 'type-row';
 
@@ -96,28 +99,20 @@ function renderTypeEditor() {
 
     row.append(nameInput, colorInput, deleteButton);
 
-    nameInput.onchange = async event => {
+    nameInput.onchange = event => {
       const next = event.target.value.trim();
       if (!next || next === type.name) return;
-      // A pending type exists only in memory until Save writes it, so there
-      // is nothing on disk to migrate — just rename it locally.
-      if (type.pending) { type.name = next; return; }
-      const count = await callApi('count_tasks_with_type', type.name);
-      if (count === API_FAILED) return;
-      // count is a real int and 0 is a legitimate result (no tasks use this
-      // type) — only ask for confirmation when there's something at stake.
-      if (count && !confirm(`Rename ${type.name} to ${next} on ${count} task(s)?`)) {
-        event.target.value = type.name;
-        return;
-      }
-      const result = await callApi('rename_type', type.name, next);
-      if (result === API_FAILED) return;
-      reportSkipped(result);
-      await refresh();
-      renderTypeEditor();
+      // Record intent only. Save diffs against `original` and issues the
+      // migration — two writers to settings.json race, and the loser leaves
+      // settings and task files disagreeing, orphaning every task of the type.
+      type.name = next;
     };
 
     deleteButton.onclick = async () => {
+      if (state.settings.types.some(t => t.original !== undefined && t.original !== t.name)) {
+        alert('Save your type name changes before deleting a type.');
+        return;
+      }
       const count = await callApi('count_tasks_with_type', type.name);
       if (count === API_FAILED) return;
       const others = state.settings.types.filter(t => t.name !== type.name);
@@ -175,13 +170,29 @@ document.getElementById('settings-button').onclick = () => {
 };
 
 document.getElementById('settings-save').onclick = async () => {
-  const types = [...document.querySelectorAll('.type-row')].map(row => ({
+  const rows = [...document.querySelectorAll('.type-row')];
+  const types = rows.map(row => ({
     name: row.querySelector('.type-name').value.trim(),
     color: row.querySelector('.type-color').value,
   }));
   if (types.some(t => !t.name)) { alert('Type names cannot be empty.'); return; }
   const names = types.map(t => t.name);
   if (new Set(names).size !== names.length) { alert('Type names must be unique.'); return; }
+
+  // Migrate renamed types first, one at a time, so task files and settings
+  // can never disagree. Each rename rewrites every affected task file across
+  // every project including done/.
+  for (let index = 0; index < rows.length; index++) {
+    const original = state.settings.types[index] && state.settings.types[index].original;
+    if (!original || original === types[index].name) continue;
+    const count = await callApi('count_tasks_with_type', original);
+    if (count === API_FAILED) return;
+    if (count && !confirm(`Rename ${original} to ${types[index].name} on ${count} task(s)?`)) return;
+    const result = await callApi('rename_type', original, types[index].name);
+    if (result === API_FAILED) return;
+    reportSkipped(result);
+  }
+
   const payload = {
     wip_limit: Number(document.getElementById('wip-limit').value),
     stale_days: Number(document.getElementById('stale-days').value),

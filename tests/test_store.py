@@ -172,3 +172,39 @@ def test_gitignore_is_written_with_lf(tmp_path):
     store.ensure_tasks_dir(tmp_path, tracked=False)
 
     assert (tmp_path / ".tasks" / ".gitignore").read_bytes() == b"*\n"
+
+
+def test_read_tasks_skips_an_unparseable_file_and_reports_it(tmp_path):
+    store.create_task(tmp_path, "Good one", "body", "BUG")
+    (tmp_path / ".tasks" / "open" / "scratch.md").write_text(
+        "no frontmatter here", encoding="utf-8", newline="\n")
+
+    tasks, unreadable = store.read_tasks(tmp_path)
+
+    assert [t.title for t in tasks] == ["Good one"]
+    assert len(unreadable) == 1
+    assert "scratch.md" in unreadable[0]
+
+
+def test_read_tasks_skips_a_file_missing_a_required_key(tmp_path):
+    store.create_task(tmp_path, "Good one", "body", "BUG")
+    (tmp_path / ".tasks" / "open" / "0002-broken.md").write_text(
+        "---\ntitle: no id\ntype: BUG\nbucket: now\nstatus: open\ncreated: 2026-07-25\n---\n\nbody",
+        encoding="utf-8", newline="\n")
+
+    tasks, unreadable = store.read_tasks(tmp_path)
+
+    assert len(tasks) == 1
+    assert len(unreadable) == 1
+
+
+def test_complete_task_preserves_an_existing_completion_date(tmp_path):
+    task = store.complete_task(store.create_task(tmp_path, "Ship it", "body", "FEATURE"))
+    original = task.done
+    task.done = "2026-03-14"
+    store.save_task(task)
+
+    recompleted = store.complete_task(store.list_tasks(tmp_path)[0])
+
+    assert recompleted.done == "2026-03-14"
+    assert original != "2026-03-14"

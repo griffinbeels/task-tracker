@@ -9,17 +9,45 @@ function taskRow(task) {
   row.className = 'task';
   row.draggable = true;
   row.dataset.id = task.id;
+  row.dataset.project = task.project;
   row.innerHTML = `
     <input type="checkbox" class="select">
-    <span class="type" style="background:${typeColor(task.type)}"></span>
+    <span class="type"></span>
     <span class="title"></span>
     <button class="done" title="Mark done">done</button>`;
   // task.title and task.type are user-authored free text (store.py's Task.type
   // is a plain str with no validation) that can contain <, &, or quotes —
   // setting them via innerHTML would corrupt the markup, so set them as text
-  // content on the already-built elements instead.
-  row.querySelector('.type').textContent = task.type;
+  // content on the already-built elements instead. The type's background
+  // color is likewise unvalidated user text (registry.TaskType.color) — set
+  // via .style.background rather than interpolated into the innerHTML above,
+  // which would let it escape into markup with full pywebview.api access.
+  const typeTag = row.querySelector('.type');
+  typeTag.style.background = typeColor(task.type);
+  typeTag.textContent = task.type;
   row.querySelector('.title').textContent = task.title;
+
+  const bucketPicker = document.createElement('select');
+  bucketPicker.className = 'bucket';
+  BUCKETS.forEach(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    option.selected = name === task.bucket;
+    bucketPicker.append(option);
+  });
+  bucketPicker.onchange = async event => {
+    const target = event.target.value;
+    // Land it at the end of the target bucket rather than keeping an order
+    // that means nothing there.
+    const order = state.tasks.filter(
+      t => t.project === task.project && t.bucket === target && t.status !== 'done').length;
+    if (await callApi('update_task', task.project, task.id,
+        { bucket: target, order }) === API_FAILED) return;
+    await refresh();
+  };
+  row.querySelector('.done').before(bucketPicker);
+
   row.querySelector('.done').onclick = async () => {
     await callApi('complete_task', task.project, task.id);
     await refresh();
@@ -63,7 +91,8 @@ function wireDrag(section, bucket) {
 
 function selectedIds() {
   return [...document.querySelectorAll('.task .select:checked')]
-    .map(el => Number(el.closest('.task').dataset.id));
+    .map(el => ({ project: el.closest('.task').dataset.project,
+                  id: Number(el.closest('.task').dataset.id) }));
 }
 
 document.getElementById('task-list').addEventListener('change', () => {
@@ -71,9 +100,13 @@ document.getElementById('task-list').addEventListener('change', () => {
 });
 
 document.getElementById('spin-up').onclick = async () => {
-  const ids = selectedIds();
-  if (!ids.length) return;
-  if (await callApi('hand_off', currentProject, ids) === API_FAILED) return;
+  const selected = selectedIds();
+  if (!selected.length) return;
+  // Ids are per-project, so a mixed selection cannot be handed to one
+  // session — and one session per working tree is the design anyway.
+  const projects = new Set(selected.map(s => s.project));
+  if (projects.size > 1) { alert('Select tasks from one project at a time.'); return; }
+  if (await callApi('hand_off', [...projects][0], selected.map(s => s.id)) === API_FAILED) return;
   await refresh();
 };
 
@@ -98,8 +131,16 @@ function renderSearch(query) {
     const row = taskRow(task);
     row.draggable = false;
     row.querySelector('.select').disabled = true;
+    row.querySelector('.bucket').disabled = true;
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
-    if (task.status === 'done') row.classList.add('archived');
+    if (task.status === 'done') {
+      row.classList.add('archived');
+      // This is an archived result from done/ — completing it again would
+      // restamp task.done to today, silently moving it out of the progress
+      // view's month it actually finished in (store.complete_task also
+      // guards this, but removing the control here is the clearer fix).
+      row.querySelector('.done').remove();
+    }
     return row;
   });
   if (all.length > hits.length) {
@@ -120,6 +161,7 @@ function renderAllProjects() {
     const row = taskRow(task);
     row.draggable = false;
     row.querySelector('.select').disabled = true;
+    row.querySelector('.bucket').disabled = true;
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     return row;
   }));
@@ -132,6 +174,11 @@ function render() {
   else document.getElementById('task-list')
         .replaceChildren(...BUCKETS.map(bucketSection));
   renderWipWarning();
+  const unreadable = state.unreadable || [];
+  const badFiles = document.getElementById('unreadable-warning');
+  badFiles.hidden = unreadable.length === 0;
+  badFiles.textContent =
+    `${unreadable.length} task file(s) could not be read: ${unreadable.join(', ')}`;
   // Every branch above just replaced task-list with freshly built rows, so
   // no checkbox can be checked yet — keep spin-up in sync rather than
   // leaving it enabled from a selection that no longer exists in the DOM.

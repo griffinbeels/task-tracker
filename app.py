@@ -32,15 +32,17 @@ def _task_dict(task: store.Task, project_name: str) -> dict:
 class Api:
     def get_state(self) -> dict:
         projects = registry.load_projects()
-        tasks = []
+        tasks, unreadable = [], []
         for project in projects:
-            tasks.extend(_task_dict(t, project.name)
-                         for t in store.list_tasks(Path(project.path)))
+            found, bad = store.read_tasks(Path(project.path))
+            tasks.extend(_task_dict(t, project.name) for t in found)
+            unreadable.extend(bad)
         return {
             "projects": [asdict(p) for p in projects],
             "settings": asdict(registry.load_settings()),
             "tasks": tasks,
             "notes": [asdict(n) for n in inbox.list_notes()],
+            "unreadable": unreadable,
         }
 
     def add_project(self, name, path):
@@ -83,6 +85,11 @@ class Api:
             raise ValueError(f"unknown bucket: {fields['bucket']}")
         if "status" in fields and fields["status"] not in store.STATUSES:
             raise ValueError(f"unknown status: {fields['status']}")
+        if "order" in fields:
+            fields = {**fields, "order": int(fields["order"])}
+        for key in ("title", "type", "body"):
+            if key in fields and not isinstance(fields[key], str):
+                raise ValueError(f"{key} must be a string")
         _, task = self._find(project_name, task_id)
         for key in ("title", "type", "bucket", "status", "order", "body"):
             if key in fields:
@@ -102,7 +109,10 @@ class Api:
         project = _project(project_name)
         wanted = [int(i) for i in task_ids]
         by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
-        tasks = [by_id[i] for i in wanted if i in by_id]
+        missing = [i for i in wanted if i not in by_id]
+        if missing:
+            raise ValueError(f"no such task in {project_name}: {missing}")
+        tasks = [by_id[i] for i in wanted]
         return launcher.hand_off(Path(project.path), tasks, project.launch)
 
     def save_settings(self, payload):

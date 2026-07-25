@@ -108,11 +108,23 @@ def _task_files(project_path: Path, include_done: bool) -> list[Path]:
     return files
 
 
-def list_tasks(project_path: Path, include_done: bool = True) -> list[Task]:
-    tasks = []
+def read_tasks(project_path: Path, include_done: bool = True) -> tuple[list[Task], list[str]]:
+    """Parse every task file, collecting unreadable ones rather than raising.
+
+    A single malformed file must cost one row, not the whole app — get_state
+    fans out over every project, so a raise here blanks the entire window.
+    """
+    tasks, unreadable = [], []
     for path in _task_files(project_path, include_done):
-        tasks.append(parse_task(path.read_text(encoding="utf-8"), path))
-    return tasks
+        try:
+            tasks.append(parse_task(path.read_text(encoding="utf-8"), path))
+        except (ValueError, KeyError, OSError):
+            unreadable.append(str(path))
+    return tasks, unreadable
+
+
+def list_tasks(project_path: Path, include_done: bool = True) -> list[Task]:
+    return read_tasks(project_path, include_done)[0]
 
 
 def next_task_id(project_path: Path) -> int:
@@ -155,7 +167,7 @@ def complete_task(task: Task) -> Task:
         raise ValueError("task has no path")
     project_path = task.path.parent.parent.parent
     task.status = "done"
-    task.done = _today()
+    task.done = task.done or _today()
     destination = tasks_dir(project_path) / "done" / task.path.name
     task.path.unlink(missing_ok=True)
     task.path = destination

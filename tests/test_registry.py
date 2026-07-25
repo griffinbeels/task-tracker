@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import registry
@@ -89,3 +91,25 @@ def test_config_files_are_written_with_lf_endings(tmp_path):
     registry.add_project("repo", str(repo))
 
     assert b"\r" not in (registry.CONFIG_DIR / "projects.json").read_bytes()
+
+
+def test_corrupt_projects_json_falls_back_to_empty(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "projects.json").write_text("{not json", encoding="utf-8", newline="\n")
+
+    assert registry.load_projects() == []
+
+
+def test_unknown_keys_in_projects_json_are_ignored(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    registry.add_project("repo", str(repo))
+    raw = json.loads((registry.CONFIG_DIR / "projects.json").read_text(encoding="utf-8"))
+    raw[0]["icon"] = "sparkle"
+    (registry.CONFIG_DIR / "projects.json").write_text(
+        json.dumps(raw), encoding="utf-8", newline="\n")
+
+    projects = registry.load_projects()
+
+    assert len(projects) == 1
+    assert projects[0].name == "repo"

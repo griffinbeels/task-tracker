@@ -47,6 +47,38 @@ def test_update_task_applies_a_valid_bucket_change(tmp_path):
     assert store.list_tasks(repo)[0].bucket == "someday"
 
 
+def test_update_task_rejects_a_non_integer_order(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().update_task("repo", task.id, {"order": "abc"})
+
+
+def test_update_task_rejects_a_non_string_title(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().update_task("repo", task.id, {"title": 42})
+
+
+def test_update_task_moves_a_task_between_buckets(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    app.Api().update_task("repo", task.id, {"bucket": "someday", "order": 0})
+
+    assert store.list_tasks(repo)[0].bucket == "someday"
+
+
+def test_hand_off_rejects_an_id_that_does_not_exist(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().hand_off("repo", [999])
+
+
 def test_corrupt_window_state_falls_back_to_defaults():
     app.WINDOW_STATE.parent.mkdir(parents=True, exist_ok=True)
     app.WINDOW_STATE.write_text("{not json", encoding="utf-8")

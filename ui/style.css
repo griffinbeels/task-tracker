@@ -7,6 +7,9 @@ header { display: flex; gap: 6px; margin-bottom: 10px; }
 #wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
                font-size: 11px; margin-bottom: 8px; }
 #wip-warning[hidden] { display: none; }
+#unreadable-warning { background: #5a1a1a; padding: 5px 8px; border-radius: 5px;
+                       font-size: 11px; margin-bottom: 8px; }
+#unreadable-warning[hidden] { display: none; }
 .age { font-size: 10px; opacity: .35; }
 .archived .title { opacity: .45; text-decoration: line-through; }
 h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
@@ -16,6 +19,8 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .type { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
         color: #fff; }
 .title { flex: 1; }
+.bucket { font-size: 10px; opacity: .5; }
+.task:hover .bucket { opacity: 1; }
 .done { opacity: 0; font-size: 10px; }
 .task:hover .done { opacity: .6; }
 

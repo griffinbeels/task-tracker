@@ -1,5 +1,5 @@
 const BUCKETS = ['now', 'next', 'someday'];
-let state = { projects: [], settings: {}, tasks: [], notes: [] };
+let state = { projects: [], settings: {}, tasks: [], notes: [], unreadable: [] };
 let currentProject = null;
 
 function typeColor(name) {
@@ -57,7 +57,12 @@ function renderProjectPicker() {
 }
 
 async function refresh() {
-  state = await window.pywebview.api.get_state();
+  try {
+    state = await window.pywebview.api.get_state();
+  } catch (error) {
+    alert(`Could not load your tasks:\n\n${error}`);
+    return;
+  }
   if (!currentProject && state.projects.length) currentProject = state.projects[0].name;
   renderProjectPicker();
   render();

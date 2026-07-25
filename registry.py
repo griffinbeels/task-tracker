@@ -1,7 +1,7 @@
 """Global config: registered projects and app settings."""
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import store
@@ -49,7 +49,10 @@ def _settings_file() -> Path:
 def _read_json(path: Path, fallback):
     if not path.exists():
         return fallback
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return fallback
 
 
 def _write_json(path: Path, payload) -> None:
@@ -58,7 +61,9 @@ def _write_json(path: Path, payload) -> None:
 
 
 def load_projects() -> list[Project]:
-    return [Project(**row) for row in _read_json(_projects_file(), [])]
+    known = {f.name for f in fields(Project)}
+    return [Project(**{k: v for k, v in row.items() if k in known})
+            for row in _read_json(_projects_file(), [])]
 
 
 def save_projects(projects: list[Project]) -> None:
