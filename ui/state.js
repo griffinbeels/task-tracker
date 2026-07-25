@@ -7,6 +7,21 @@ function typeColor(name) {
   return found ? found.color : '#8e8e8e';
 }
 
+// Every pywebview.api call can reject (backend methods raise ValueError on
+// bad input — e.g. add_project on a non-directory path or a duplicate name).
+// Across the bridge that becomes a rejected promise; without a catch it's a
+// silent unhandled rejection with no feedback to the user. Route call sites
+// that a user can trigger with bad input through this instead of calling
+// window.pywebview.api directly.
+async function callApi(name, ...args) {
+  try {
+    return await window.pywebview.api[name](...args);
+  } catch (error) {
+    alert(`${name} failed:\n\n${error}`);
+    return null;
+  }
+}
+
 // Placeholder for Task 10's real WIP-limit banner (see
 // docs/superpowers/plans/2026-07-25-task-tracker.md Task 10 Step 4). tasks.js's
 // render() calls this unconditionally per the Task 8 brief, so without a stub
@@ -38,7 +53,7 @@ document.getElementById('add-project').onclick = async () => {
   if (!path) return;
   const name = prompt('Project name', path.split(/[\\/]/).filter(Boolean).pop());
   if (!name) return;
-  await window.pywebview.api.add_project(name, path);
+  if (await callApi('add_project', name, path) === null) return;
   currentProject = name;
   await refresh();
 };

@@ -21,7 +21,7 @@ function taskRow(task) {
   row.querySelector('.type').textContent = task.type;
   row.querySelector('.title').textContent = task.title;
   row.querySelector('.done').onclick = async () => {
-    await window.pywebview.api.complete_task(task.project, task.id);
+    await callApi('complete_task', task.project, task.id);
     await refresh();
   };
   return row;
@@ -48,7 +48,7 @@ function wireDrag(section, bucket) {
   });
   section.addEventListener('drop', async () => {
     const ids = [...section.querySelectorAll('.task')].map(el => Number(el.dataset.id));
-    await window.pywebview.api.reorder_bucket(currentProject, bucket, ids);
+    await callApi('reorder_bucket', currentProject, bucket, ids);
     await refresh();
   });
 }
