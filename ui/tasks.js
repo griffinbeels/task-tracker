@@ -84,15 +84,31 @@ function matches(task, query) {
 }
 
 function renderSearch(query) {
-  const hits = state.tasks.filter(t => matches(t, query)).slice(0, 200);
+  // Search spans every project, exactly like the cross-project view — and
+  // task ids are per-project (store.next_task_id counts within one
+  // project's own files), so two projects routinely both have a "task 2".
+  // Without disabling selection here, ticking a result from a project
+  // other than currentProject would hand its id to hand_off(currentProject,
+  // ids), which silently resolves it against currentProject's own tasks —
+  // the wrong task gets marked in-progress and its body goes to Claude.
+  const all = state.tasks.filter(t => matches(t, query));
+  const hits = all.slice(0, 200);
   const list = document.getElementById('task-list');
-  list.replaceChildren(...hits.map(task => {
+  const rows = hits.map(task => {
     const row = taskRow(task);
     row.draggable = false;
+    row.querySelector('.select').disabled = true;
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     if (task.status === 'done') row.classList.add('archived');
     return row;
-  }));
+  });
+  if (all.length > hits.length) {
+    const more = document.createElement('div');
+    more.className = 'age';
+    more.textContent = `showing first ${hits.length} of ${all.length} matches`;
+    rows.push(more);
+  }
+  list.replaceChildren(...rows);
 }
 
 function renderAllProjects() {
