@@ -10,6 +10,7 @@ import inbox
 import launcher
 import migrate
 import registry
+import singleton
 import store
 
 WINDOW_STATE = registry.CONFIG_DIR / "window.json"
@@ -152,7 +153,33 @@ def _save_window_state(window) -> None:
     }, indent=2), encoding="utf-8", newline="\n")
 
 
+def _report_fatal(message: str) -> None:
+    """Surface a startup failure even when launched without a console.
+
+    run.bat uses pythonw.exe so the tracker opens without a console window,
+    which means a bare print() on the failure path would go nowhere.
+    """
+    print(message)
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(0, message, "Task Tracker", 0x10)
+    except (AttributeError, OSError):
+        pass
+
+
 def main() -> None:
+    # Taking the lock shuts down any window already open, so launching always
+    # leaves exactly one, running the current code.
+    lock = singleton.acquire()
+    if lock is None:
+        _report_fatal(
+            f"Port {singleton.LOCK_PORT} is held by something that is not "
+            f"Task Tracker, so it did not shut down when asked.\n\n"
+            f"Free that port and try again."
+        )
+        return
+
     state = _load_window_state()
     window = webview.create_window(
         "Tasks",
@@ -163,6 +190,10 @@ def main() -> None:
         on_top=state["on_top"],
     )
     window.events.closing += lambda: _save_window_state(window)
+    # destroy() closes the window, which fires `closing` on the UI thread and
+    # saves geometry there — the socket thread must not read window.x/width
+    # itself, those properties are only safe to touch on the UI thread.
+    singleton.serve(lock, window.destroy)
     webview.start()
 
 
