@@ -50,3 +50,36 @@ def test_no_bridge_result_is_compared_against_null():
         "a successful call look failed. Compare against API_FAILED at: "
         + ", ".join(offenders)
     )
+
+
+VENDOR = REPO / "ui" / "vendor"
+
+
+def test_the_vendored_editor_assets_are_present_and_not_error_pages():
+    expected = {
+        "toastui-editor.min.js": 300_000,
+        "toastui-editor.min.css": 100_000,
+        "toastui-editor-dark.css": 1_000,
+    }
+    problems = []
+    for name, floor in expected.items():
+        path = VENDOR / name
+        if not path.exists():
+            problems.append(f"{name} is missing")
+        elif path.stat().st_size < floor:
+            problems.append(f"{name} is {path.stat().st_size} bytes, expected >{floor}")
+
+    assert not problems, (
+        "The editor is vendored, not loaded from a CDN, because the UI is "
+        "served from file:// and must work offline. A truncated or missing "
+        "asset fails only when a user opens the editor: " + "; ".join(problems)
+    )
+
+
+def test_the_editor_assets_are_loaded_from_vendor_not_a_cdn():
+    markup = (REPO / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert "uicdn.toast.com" not in markup and "cdn.jsdelivr.net" not in markup, (
+        "A CDN reference makes the app require a network connection to edit a "
+        "task. Load the vendored copies in ui/vendor/ instead."
+    )
