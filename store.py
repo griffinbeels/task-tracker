@@ -194,6 +194,12 @@ def save_attachment(project_path: Path, data_url: str) -> Path:
     # turn a garbled paste into a garbage file instead of a clear error.
     data = base64.b64decode(payload, validate=True)
 
+    # A project registered before .tasks/ exists must still get its
+    # .gitignore — same reason create_task does this: .tasks/ is untracked
+    # by default so a pasted screenshot never gets auto-published alongside
+    # a public repo's tracked files.
+    if not tasks_dir(project_path).exists():
+        ensure_tasks_dir(project_path, tracked=False)
     directory = attachments_dir(project_path)
     directory.mkdir(parents=True, exist_ok=True)
     # Same collision scheme as inbox.save_note: a UTC timestamp stem, with a

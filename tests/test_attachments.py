@@ -33,6 +33,16 @@ def test_the_attachments_directory_is_created_on_demand(tmp_path):
     assert (tmp_path / ".tasks" / "attachments").is_dir()
 
 
+def test_an_attachment_in_a_fresh_project_does_not_expose_tasks_to_git(tmp_path):
+    # .tasks/ is untracked by default because some tracked repos are public.
+    # A pasted screenshot is exactly what must not be auto-published, so the
+    # directory an attachment creates has to carry the same .gitignore that
+    # ensure_tasks_dir writes.
+    store.save_attachment(tmp_path, PNG_DATA_URL)
+
+    assert (tmp_path / ".tasks" / ".gitignore").read_text() == store.GITIGNORE_BODY
+
+
 def test_a_jpeg_keeps_its_own_extension(tmp_path):
     url = "data:image/jpeg;base64," + base64.b64encode(b"jpeg bytes").decode()
 
