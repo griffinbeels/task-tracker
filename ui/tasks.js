@@ -167,12 +167,35 @@ function renderAllProjects() {
   }));
 }
 
+function emptyHint(text) {
+  const hint = document.createElement('p');
+  hint.className = 'empty-hint';
+  hint.textContent = text;
+  return hint;
+}
+
 function render() {
+  const list = document.getElementById('task-list');
   const query = document.getElementById('search').value.trim();
-  if (query) renderSearch(query);
-  else if (document.getElementById('all-projects').checked) renderAllProjects();
-  else document.getElementById('task-list')
-        .replaceChildren(...BUCKETS.map(bucketSection));
+  if (!state.projects.length) {
+    // Three bare bucket headings tell a first-time user nothing about why
+    // the window is empty or what to do about it.
+    list.replaceChildren(emptyHint(
+      'No projects yet. Click + and point it at a project folder — its tasks '
+      + 'live in that folder as markdown, alongside the code.'));
+  } else if (query) {
+    renderSearch(query);
+  } else if (document.getElementById('all-projects').checked) {
+    renderAllProjects();
+  } else {
+    list.replaceChildren(...BUCKETS.map(bucketSection));
+    const open = state.tasks.filter(
+      t => t.project === currentProject && t.status !== 'done').length;
+    if (!open) {
+      list.append(emptyHint(
+        'No tasks yet. Hit Capture to write one down — no fields, no decisions.'));
+    }
+  }
   renderWipWarning();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');

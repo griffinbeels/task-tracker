@@ -1,9 +1,19 @@
 :root { color-scheme: dark; }
 body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12px; }
 
-header { display: flex; gap: 6px; margin-bottom: 10px; }
+header { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
 #toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
 #search { flex: 1; }
+
+/* One height for every control, so the row lines up and the select's caret
+   has room to sit centred instead of being crushed against the edge. */
+header select, header button, #toolbar input, #toolbar button {
+  font: inherit;
+  height: 28px;
+  box-sizing: border-box;
+}
+#project-picker { min-width: 150px; padding: 0 6px; }
+.empty-hint { opacity: .5; margin: 20px 2px; max-width: 46ch; line-height: 1.7; }
 #wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
                font-size: 11px; margin-bottom: 8px; }
 #wip-warning[hidden] { display: none; }

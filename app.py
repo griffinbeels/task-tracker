@@ -46,6 +46,20 @@ class Api:
             "unreadable": unreadable,
         }
 
+    def pick_project_folder(self):
+        """Open the OS folder picker and return the chosen path, or None.
+
+        Hand-typing an absolute path into a JS prompt is a bad control for the
+        job — you cannot browse, cannot see what exists, and a typo is silent.
+        """
+        if not webview.windows:
+            return None
+        projects = registry.load_projects()
+        start_in = str(Path(projects[-1].path).parent) if projects else ""
+        chosen = webview.windows[0].create_file_dialog(
+            webview.FOLDER_DIALOG, directory=start_in)
+        return chosen[0] if chosen else None
+
     def add_project(self, name, path):
         return asdict(registry.add_project(name, path))
 

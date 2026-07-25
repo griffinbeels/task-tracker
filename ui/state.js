@@ -46,6 +46,18 @@ function renderWipWarning() {
 
 function renderProjectPicker() {
   const picker = document.getElementById('project-picker');
+  // With no projects the select has no options, so it collapses to a stub
+  // that says nothing about why it is empty. Say it instead.
+  if (!state.projects.length) {
+    const empty = document.createElement('option');
+    empty.textContent = 'No projects yet';
+    empty.disabled = true;
+    empty.selected = true;
+    picker.replaceChildren(empty);
+    picker.disabled = true;
+    return;
+  }
+  picker.disabled = false;
   picker.replaceChildren(...state.projects.map(p => {
     const option = document.createElement('option');
     option.value = p.name;
@@ -69,10 +81,16 @@ async function refresh() {
 }
 
 document.getElementById('add-project').onclick = async () => {
-  const path = prompt('Project folder path');
-  if (!path) return;
-  const name = prompt('Project name', path.split(/[\\/]/).filter(Boolean).pop());
-  if (!name) return;
+  const path = await callApi('pick_project_folder');
+  if (path === API_FAILED || !path) return;
+
+  // Name it after the folder. Only ask when that name is taken — one dialog
+  // for the normal case, since registering a project should be one gesture.
+  let name = path.split(/[\\/]/).filter(Boolean).pop();
+  if (state.projects.some(p => p.name === name)) {
+    name = prompt(`A project named "${name}" is already registered. Name this one:`, name);
+    if (!name) return;
+  }
   if (await callApi('add_project', name, path) === API_FAILED) return;
   currentProject = name;
   await refresh();
