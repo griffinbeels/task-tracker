@@ -826,12 +826,22 @@ def save_note(text: str) -> Note:
     return Note(id=note_id, text=text, created=now.date().isoformat())
 
 
+def _chronological_key(path: Path) -> tuple[str, int]:
+    # Filenames sort lexicographically, but a collision suffix like "-1"
+    # sorts *before* the bare timestamp ("-" < "." in ASCII), which would put
+    # a later note ahead of the one it collided with. Sort on the timestamp
+    # prefix and suffix number instead so save order is preserved.
+    stem = path.stem
+    timestamp, suffix = stem[:17], stem[18:]
+    return (timestamp, int(suffix) if suffix.isdigit() else 0)
+
+
 def list_notes() -> list[Note]:
     directory = inbox_dir()
     if not directory.exists():
         return []
     notes = []
-    for path in sorted(directory.glob("*.md")):
+    for path in sorted(directory.glob("*.md"), key=_chronological_key):
         notes.append(Note(
             id=path.stem,
             text=path.read_text(encoding="utf-8"),
