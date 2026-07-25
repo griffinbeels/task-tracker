@@ -13,9 +13,12 @@ let editorContext = null;
 // whether the user has since typed into it. Mirrors ui/triage.js's
 // triageTitleFilledFor: without tracking this, re-showing a suggested title
 // for the same note/task would overwrite whatever the user already typed.
-// Capture has no identity (every capture is its own blank slate) and never
-// re-suggests a title after opening, so neither flag is exercised by capture
-// itself — they exist here so triage and edit, added next, have the
+// Capture has no note/task id to key off — see the Symbol fallback in
+// openEditor() below, which is what makes every capture open its own blank
+// slate rather than inheriting the previous capture's title. titleIsUsers
+// currently has no reader: nothing in capture mode re-suggests a title after
+// opening, so nothing needs to check it yet. It's wired up (the `input`
+// listener below sets it) so triage and edit, added next, have the
 // mechanism already in place rather than reinventing it.
 let titleFilledFor = null;
 let titleIsUsers = false;
@@ -89,7 +92,16 @@ function openEditor(context) {
     taskId: context.taskId ?? null,
   };
 
-  const identity = editorContext.noteId ?? editorContext.taskId ?? null;
+  // Capture has no noteId/taskId, so without this a fresh Symbol() every
+  // capture open would collapse to the same `null` identity every other
+  // capture also uses — `titleFilledFor !== identity` would then be false
+  // from the second capture on, and the title box would silently keep
+  // whatever the previous capture left in it. A fresh Symbol per identity-
+  // less open can never equal a previous (or future) titleFilledFor, so the
+  // title always gets (re)written — which is exactly "every capture is its
+  // own blank slate." Triage/edit pass real ids and keep the suggest-once
+  // behaviour unchanged.
+  const identity = editorContext.noteId ?? editorContext.taskId ?? Symbol('no-identity');
   const titleInput = document.getElementById('editor-title');
   if (titleFilledFor !== identity) {
     titleInput.value = context.title || '';
