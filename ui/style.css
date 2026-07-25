@@ -2,6 +2,13 @@
 body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12px; }
 
 header { display: flex; gap: 6px; margin-bottom: 10px; }
+#toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+#search { flex: 1; }
+#wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
+               font-size: 11px; margin-bottom: 8px; }
+#wip-warning[hidden] { display: none; }
+.age { font-size: 10px; opacity: .35; }
+.archived .title { opacity: .45; text-decoration: line-through; }
 h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .task { display: flex; align-items: center; gap: 6px; padding: 5px 6px;
         border-radius: 5px; cursor: grab; }

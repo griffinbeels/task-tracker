@@ -7,6 +7,10 @@ function typeColor(name) {
   return found ? found.color : '#8e8e8e';
 }
 
+function daysSince(isoDate) {
+  return Math.floor((Date.now() - new Date(isoDate).getTime()) / 86400000);
+}
+
 // Every pywebview.api call can reject (backend methods raise ValueError on
 // bad input — e.g. add_project on a non-directory path or a duplicate name).
 // Across the bridge that becomes a rejected promise; without a catch it's a
@@ -29,12 +33,16 @@ async function callApi(name, ...args) {
   }
 }
 
-// Placeholder for Task 10's real WIP-limit banner (see
-// docs/superpowers/plans/2026-07-25-task-tracker.md Task 10 Step 4). tasks.js's
-// render() calls this unconditionally per the Task 8 brief, so without a stub
-// here every refresh() throws ReferenceError until Task 10 lands and replaces
-// this with the real implementation.
-function renderWipWarning() {}
+// Soft banner over the user-configurable WIP limit (default 5, matching the
+// user's stated ceiling of concurrent Claude windows). Never blocks an
+// action — it exists so an overloaded backlog is visible, not to nag.
+function renderWipWarning() {
+  const active = state.tasks.filter(t => t.status === 'in-progress').length;
+  const limit = state.settings.wip_limit || 5;
+  const banner = document.getElementById('wip-warning');
+  banner.hidden = active <= limit;
+  banner.textContent = `${active} tasks in progress — over your limit of ${limit}`;
+}
 
 function renderProjectPicker() {
   const picker = document.getElementById('project-picker');
