@@ -2,7 +2,14 @@
 <html>
   <head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head>
   <body>
-    <div id="app">loading…</div>
+    <header>
+      <select id="project-picker"></select>
+      <button id="add-project">+</button>
+      <button id="capture-button">Capture</button>
+    </header>
+    <div id="wip-warning" hidden></div>
+    <main id="task-list"></main>
     <script src="state.js"></script>
+    <script src="tasks.js"></script>
   </body>
 </html>
