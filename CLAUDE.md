@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Seven small Python modules and four plain `<script>` files. No framework, no HTTP
+Nine small Python modules and four plain `<script>` files. No framework, no HTTP
 server, no bundler.
 
 | File | Owns |
@@ -37,6 +37,7 @@ server, no bundler.
 | `migrate.py` | Type rename/delete sweep across every project |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn |
 | `console_input.py` | Typing that prompt into the spawned session's console |
+| `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
@@ -95,11 +96,22 @@ Break one of these and the failure is silent. Each cost a bug.
    for this reason. (`app.WINDOW_STATE` is the sole exception, safe only because
    `app.py` is never imported by a test — do not copy that pattern.)
 
-8. **Spawned Claude sessions get a sanitized environment.** `Popen` inherits the
-   parent env, so `CLAUDE_CODE_CHILD_SESSION` would make the handed-off terminal
-   a nested child with no transcript history. `launcher.claude_environment()`
-   strips the session-identity vars and sets
-   `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`.
+8. **A spawned session's environment is rebuilt, never filtered.** `Popen`
+   inherits the tracker's environment, and the tracker is normally started
+   *from* a Claude session — which sets a batch of variables for the processes
+   it spawns. Inheriting them made the handed-off session differ from one
+   opened by hand in ways that were all silent: `NO_COLOR=1` rendered it
+   monochrome, `GIT_EDITOR=true` and `GIT_TERMINAL_PROMPT=0` left its git
+   unable to open an editor or ask for credentials, and
+   `CLAUDE_CODE_CHILD_SESSION` turned transcript saving off.
+   `user_environment.login_environment()` calls Win32 `CreateEnvironmentBlock`
+   instead, which is how Windows builds the environment for a newly launched
+   process. **Do not add a var to a strip-list** — the list belongs to
+   upstream and grows; rebuilding makes tomorrow's addition absent by
+   construction. Nothing is added back on top either: with no
+   `CLAUDE_CODE_CHILD_SESSION` to override, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE`
+   is redundant, and setting it would be one more difference from a
+   hand-started session.
 
 9. **Typed text is bracketed, and waits for the prompt box.** `console_input`
    writes into the spawned session's console input buffer, which accepts input
@@ -109,6 +121,14 @@ Break one of these and the failure is silent. Each cost a bug.
    trusted in opens on a question whose default is Enter. Both failures are
    silent, and both are why `paste()` polls for `READY_MARKERS` first. It is
    allowed to give up: the same text is on the clipboard.
+
+10. **Nothing this app opens may take focus.** Hand-off is triggered mid-thought
+    and mid-sentence; a console that activates itself swallows the next
+    keystrokes into a session you were not looking at. `spawn_claude` passes
+    `unfocused_startup()` (`STARTF_USESHOWWINDOW` + `SW_SHOWNOACTIVATE`).
+    Nothing needs the focus it would take — `console_input` writes to the
+    console's input buffer, which does not require an active window. Any
+    future spawn gets the same treatment.
 
 ## Data on disk
 

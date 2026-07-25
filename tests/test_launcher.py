@@ -83,6 +83,21 @@ def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
     assert captured["kwargs"]["creationflags"] == launcher.NEW_CONSOLE
 
 
+def test_the_new_console_opens_without_taking_focus(monkeypatch):
+    # A hand-off is triggered mid-thought and mid-sentence. A console that
+    # activates itself eats the next keystrokes and drops them into the new
+    # session, so the window is asked to show without becoming active.
+    captured = {}
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda args, **kwargs: captured.update(kwargs))
+
+    launcher.spawn_claude(Path("C:/repos/x"))
+
+    startup = captured["startupinfo"]
+    assert startup.dwFlags & subprocess.STARTF_USESHOWWINDOW
+    assert startup.wShowWindow == launcher.SW_SHOWNOACTIVATE
+
+
 def test_spawn_honours_a_per_project_launch_override(monkeypatch):
     captured = {}
     monkeypatch.setattr(subprocess, "Popen",
@@ -158,29 +173,6 @@ def test_spawn_skips_permission_prompts_by_default(monkeypatch):
     assert captured["args"] == ["claude", "--dangerously-skip-permissions"]
 
 
-def test_spawned_session_does_not_inherit_the_nested_session_marker(monkeypatch):
-    captured = {}
-    monkeypatch.setenv("CLAUDE_CODE_CHILD_SESSION", "1")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "abc-123")
-    monkeypatch.setenv("CLAUDE_PID", "20380")
-    monkeypatch.setattr(subprocess, "Popen",
-                        lambda args, **kwargs: captured.update(kwargs))
-
-    launcher.spawn_claude(Path("C:/repos/x"))
-
-    environment = captured["env"]
-    assert "CLAUDE_CODE_CHILD_SESSION" not in environment
-    assert "CLAUDE_CODE_SESSION_ID" not in environment
-    assert "CLAUDE_PID" not in environment
-    assert environment["CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"] == "1"
-
-
-def test_spawned_session_keeps_the_rest_of_the_environment(monkeypatch):
-    captured = {}
-    monkeypatch.setenv("SOME_UNRELATED_VAR", "keep me")
-    monkeypatch.setattr(subprocess, "Popen",
-                        lambda args, **kwargs: captured.update(kwargs))
-
-    launcher.spawn_claude(Path("C:/repos/x"))
-
-    assert captured["env"]["SOME_UNRELATED_VAR"] == "keep me"
+# What the spawned session's environment must look like is tested in
+# tests/test_user_environment.py — it is now rebuilt from Windows rather than
+# filtered out of this process's own environment.
