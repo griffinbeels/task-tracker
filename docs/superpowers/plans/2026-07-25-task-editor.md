@@ -251,7 +251,9 @@ Add to `Api`, next to `update_task`. Both are translation only — no logic
   `store.BUCKETS`, and `title`, `body`, `type` must each be `str`. Reuse that
   shape rather than inventing a second validation style. Return
   `_task_dict(task, project_name)`.
-- `save_attachment` resolves the project with `self._project(name)`, calls
+- `save_attachment` resolves the project with `_project(name)` — a
+  module-level function in `app.py`, not a method, which every existing `Api`
+  method calls bare. Calls
   `store.save_attachment(Path(project.path), data_url)`, and returns
   `path.as_posix()`. `as_posix()` is what produces forward slashes on Windows;
   `str(path)` produces backslashes and would break the markdown link.
