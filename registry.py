@@ -69,6 +69,8 @@ def add_project(name: str, path: str) -> Project:
     projects = load_projects()
     if any(p.name == name for p in projects):
         raise ValueError(f"project already registered: {name}")
+    if not Path(path).is_dir():
+        raise ValueError(f"not a directory: {path}")
     project = Project(name=name, path=str(path))
     store.ensure_tasks_dir(Path(project.path), tracked=False)
     projects.append(project)
@@ -95,9 +97,10 @@ def load_settings() -> Settings:
     raw = _read_json(_settings_file(), None)
     if raw is None:
         return Settings()
+    defaults = Settings()
     return Settings(
-        wip_limit=raw.get("wip_limit", 5),
-        stale_days=raw.get("stale_days", 90),
+        wip_limit=raw.get("wip_limit", defaults.wip_limit),
+        stale_days=raw.get("stale_days", defaults.stale_days),
         types=[TaskType(**t) for t in raw.get("types", [])] or default_types(),
     )
 

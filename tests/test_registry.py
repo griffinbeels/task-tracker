@@ -73,6 +73,16 @@ def test_remove_project_leaves_the_task_files_on_disk(tmp_path):
     assert (repo / ".tasks" / "open" / "0001-keep-me.md").exists()
 
 
+def test_add_project_rejects_a_path_that_is_not_a_directory(tmp_path):
+    missing = tmp_path / "typo"
+
+    with pytest.raises(ValueError):
+        registry.add_project("typo", str(missing))
+
+    assert not missing.exists()
+    assert registry.load_projects() == []
+
+
 def test_config_files_are_written_with_lf_endings(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
