@@ -55,3 +55,21 @@ def test_notes_are_written_with_lf_endings():
     note = inbox.save_note("line one\nline two")
 
     assert b"\r" not in (inbox.inbox_dir() / f"{note.id}.md").read_bytes()
+
+
+def test_list_notes_orders_a_collision_suffix_after_its_base_note():
+    directory = inbox.inbox_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "2026-07-25-110000.md").write_text("base", encoding="utf-8", newline="\n")
+    (directory / "2026-07-25-110000-1.md").write_text("collision", encoding="utf-8", newline="\n")
+    (directory / "2026-07-25-110001.md").write_text("later", encoding="utf-8", newline="\n")
+
+    assert [n.text for n in inbox.list_notes()] == ["base", "collision", "later"]
+
+
+def test_list_notes_tolerates_a_file_that_is_not_a_note_id():
+    directory = inbox.inbox_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "some-stray-file-name.md").write_text("stray", encoding="utf-8", newline="\n")
+
+    assert [n.text for n in inbox.list_notes()] == ["stray"]

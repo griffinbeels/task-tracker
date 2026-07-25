@@ -43,7 +43,7 @@ def _chronological_key(path: Path) -> tuple[str, int]:
     # timestamp prefix and suffix number instead so save order is preserved.
     stem = path.stem
     timestamp, suffix = stem[:17], stem[18:]
-    return (timestamp, int(suffix) if suffix else 0)
+    return (timestamp, int(suffix) if suffix.isdigit() else 0)
 
 
 def list_notes() -> list[Note]:
