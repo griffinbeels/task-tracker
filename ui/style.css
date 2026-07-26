@@ -88,6 +88,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .reset { opacity: 0; font-size: 11px; line-height: 1; }
 .task:hover .reset, .group-header:hover .reset { opacity: .6; }
 
+/* An outline, not a fill: a row already changes background on hover, so a
+   second background change would read as the same state rather than a new one.
+   Inset so it does not nudge the row's neighbours as it appears. */
+.task.drop-into, .group-header.drop-into {
+  outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
+  border-radius: 5px; }
+
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }

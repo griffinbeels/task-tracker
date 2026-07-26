@@ -141,6 +141,13 @@ function groupBlock(block, options = {}) {
 // name (callApi has already said why) keeps what was typed and the focus, so
 // it can be fixed rather than retyped.
 function renameInPlace(nameElement, project, current) {
+  // A text box inside draggable="true" cannot be selected with the mouse in
+  // Chromium — the drag starts instead. Suspend the header's own draggability
+  // for as long as the box is open.
+  const header = nameElement.closest('.group-header');
+  const restoreDrag = () => { if (header) header.draggable = true; };
+  if (header) header.draggable = false;
+
   const input = document.createElement('input');
   input.className = 'group-name-input';
   input.value = current;
@@ -152,7 +159,11 @@ function renameInPlace(nameElement, project, current) {
   const commit = async () => {
     if (committing) return;
     const wanted = input.value.trim();
-    if (!wanted || wanted === current) { input.replaceWith(nameElement); return; }
+    if (!wanted || wanted === current) {
+      input.replaceWith(nameElement);
+      restoreDrag();
+      return;
+    }
     committing = true;
     if (await callApi('rename_group', project, current, wanted) === API_FAILED) {
       committing = false;
@@ -166,8 +177,145 @@ function renameInPlace(nameElement, project, current) {
   input.onblur = commit;
   input.onkeydown = event => {
     if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
-    if (event.key === 'Escape') { input.onblur = null; input.replaceWith(nameElement); }
+    if (event.key === 'Escape') {
+      input.onblur = null;
+      input.replaceWith(nameElement);
+      restoreDrag();
+    }
   };
+}
+
+// --- Dragging: reorder, form a group, join one, leave one ---------------
+//
+// Three zones instead of one. Over a top-level loose row, the middle half
+// means "group these two" and the outer quarters mean "reorder". Inside a
+// group's container — its header or between its child rows — every position
+// means "join this group", because a drop between two children would otherwise
+// write an order that interleaves a non-member into the group's contiguous run
+// and the next renumber would silently eject it below the block.
+//
+// A reorder moves the DOM live and reads the result back on drop, so where a
+// row LANDED is what decides its group: dropped inside a container it joins,
+// dropped in a top-level gap it leaves. The two "onto" gestures move nothing —
+// the backend places the task and refresh() redraws.
+
+function clearDropAffordance(section) {
+  section.querySelectorAll('.drop-into').forEach(
+    element => element.classList.remove('drop-into'));
+}
+
+function dropIntent(event, dragged, draggedIsGroup) {
+  const header = event.target.closest('.group-header');
+  if (header && header.parentElement !== dragged) {
+    // Dropping a group onto a group does not merge them: a group IS its name,
+    // so merging silently destroys one of the two names.
+    if (draggedIsGroup) return null;
+    return { kind: 'join', group: header.parentElement.dataset.group, element: header };
+  }
+
+  const over = event.target.closest('.task');
+  if (!over || over === dragged || dragged.contains(over)) return null;
+
+  const inGroup = over.parentElement.classList.contains('group')
+    ? over.parentElement.dataset.group : null;
+  // A group is one level deep. Never let a container land inside another.
+  if (draggedIsGroup && inGroup) return null;
+
+  const box = over.getBoundingClientRect();
+  const offset = (event.clientY - box.top) / box.height;
+  if (!draggedIsGroup && !inGroup && offset > 0.25 && offset < 0.75) {
+    return { kind: 'pair', over, element: over };
+  }
+  return { kind: 'move', over, after: offset > 0.5 };
+}
+
+function wireDrag(section, bucket) {
+  let dragged = null;
+  let draggedIsGroup = false;
+  let draggedGroup = null;
+  let intent = null;
+
+  section.addEventListener('dragstart', event => {
+    const header = event.target.closest('.group-header');
+    dragged = header ? header.parentElement : event.target.closest('.task');
+    draggedIsGroup = Boolean(header);
+    const container = dragged ? dragged.closest('.group') : null;
+    draggedGroup = container ? container.dataset.group : null;
+    intent = null;
+  });
+
+  section.addEventListener('dragend', () => {
+    clearDropAffordance(section);
+    dragged = null;
+    intent = null;
+  });
+
+  section.addEventListener('dragover', event => {
+    event.preventDefault();
+    if (!dragged) return;
+    clearDropAffordance(section);
+    intent = dropIntent(event, dragged, draggedIsGroup);
+    if (!intent) return;
+    if (intent.kind === 'move') {
+      intent.over.parentElement.insertBefore(
+        dragged, intent.after ? intent.over.nextSibling : intent.over);
+    } else {
+      intent.element.classList.add('drop-into');
+    }
+  });
+
+  section.addEventListener('drop', async event => {
+    event.preventDefault();
+    clearDropAffordance(section);
+    const settled = intent;
+    const row = dragged;
+    const wasInGroup = draggedGroup;
+    const wasGroup = draggedIsGroup;
+    dragged = null;
+    intent = null;
+    if (!settled || !row) return;
+
+    if (settled.kind === 'pair') {
+      // The target's title seeds the name, and the target comes first so the
+      // new block sits where it already was. Read the title from state rather
+      // than the row, which may carry display decoration.
+      const targetId = Number(settled.over.dataset.id);
+      const target = state.tasks.find(
+        task => task.project === currentProject && task.id === targetId);
+      const name = await callApi('create_group', currentProject,
+        [targetId, Number(row.dataset.id)], target ? target.title : 'New group');
+      if (name === API_FAILED) return;
+      await refresh();
+      // Only on birth. A task joining an existing group must not reopen it —
+      // that name is an identity by then, not a suggestion.
+      focusGroupName(currentProject, name);
+      return;
+    }
+
+    if (settled.kind === 'join') {
+      if (await callApi('group_tasks', currentProject,
+          [Number(row.dataset.id)], settled.group) === API_FAILED) return;
+      await refresh();
+      return;
+    }
+
+    // A reorder. Where the row landed decides what it belongs to.
+    if (!wasGroup) {
+      const container = row.closest('.group');
+      const landed = container ? container.dataset.group : null;
+      if (landed !== wasInGroup) {
+        const outcome = landed === null
+          ? await callApi('ungroup_tasks', currentProject, [Number(row.dataset.id)])
+          : await callApi('group_tasks', currentProject, [Number(row.dataset.id)], landed);
+        if (outcome === API_FAILED) return;
+      }
+    }
+    // Last writer, and rightly so: the DOM is what the user just saw. Members
+    // stay contiguous because a group's rows live inside its own container.
+    const ids = [...section.querySelectorAll('.task')].map(el => Number(el.dataset.id));
+    if (await callApi('reorder_bucket', currentProject, bucket, ids) === API_FAILED) return;
+    await refresh();
+  });
 }
 
 // Open a freshly created group's name box, seeded and selected so the real

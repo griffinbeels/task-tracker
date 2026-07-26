@@ -157,22 +157,8 @@ function bucketSection(bucket) {
   return section;
 }
 
-function wireDrag(section, bucket) {
-  let dragged = null;
-  section.addEventListener('dragstart', e => { dragged = e.target.closest('.task'); });
-  section.addEventListener('dragover', e => {
-    e.preventDefault();
-    const over = e.target.closest('.task');
-    if (!over || over === dragged || !dragged) return;
-    const after = over.getBoundingClientRect().top + over.offsetHeight / 2 < e.clientY;
-    section.insertBefore(dragged, after ? over.nextSibling : over);
-  });
-  section.addEventListener('drop', async () => {
-    const ids = [...section.querySelectorAll('.task')].map(el => Number(el.dataset.id));
-    await callApi('reorder_bucket', currentProject, bucket, ids);
-    await refresh();
-  });
-}
+// wireDrag lives in groups.js — dragging is now how groups are formed and
+// dissolved, not only how rows are ordered.
 
 function selectedIds() {
   return [...document.querySelectorAll('.task .select:checked')]
