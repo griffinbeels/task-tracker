@@ -28,6 +28,10 @@ let titleIsUsers = false;
 // it" — see the editor-save handler's 'edit' branch below.
 let loadedBody = '';
 let normalisedBody = '';
+// The bucket the task was in when it was opened, so edit mode can tell a real
+// move from a save that left the bucket alone. A move needs a new `order` —
+// see the save handler.
+let loadedBucket = null;
 
 function chip(label, selected, onClick) {
   const button = document.createElement('button');
@@ -117,30 +121,37 @@ function openEditor(context) {
     taskId: context.taskId ?? null,
   };
 
-  // Capture has no noteId/taskId, so without this a fresh Symbol() every
-  // capture open would collapse to the same `null` identity every other
-  // capture also uses — `titleFilledFor !== identity` would then be false
-  // from the second capture on, and the title box would silently keep
-  // whatever the previous capture left in it. A fresh Symbol per identity-
-  // less open can never equal a previous (or future) titleFilledFor, so the
-  // title always gets (re)written — which is exactly "every capture is its
-  // own blank slate." Triage/edit pass real ids and keep the suggest-once
-  // behaviour unchanged.
-  const identity = editorContext.noteId ?? editorContext.taskId ?? Symbol('no-identity');
-  // A changed identity means a different note/task is now current, so
-  // whatever the box was "owned" for no longer applies — reset the flag so
-  // this identity gets its own suggestion. Leaving titleIsUsers untouched
-  // when the identity is unchanged is what makes ownership last "for the
-  // life of that note" (see the comment on titleIsUsers above).
-  if (titleFilledFor !== identity) {
-    titleFilledFor = identity;
+  // Suppressing a title write is only ever right for a *guessed* title, and
+  // triage is the only mode that has one — it derives a suggestion from the
+  // note's first line, which must not stomp what you have typed over it.
+  //
+  // The other two modes carry an authoritative value and must write it every
+  // single time. Capture's is the empty string: every capture is a blank
+  // slate. Edit's is the task's own persisted title. Letting either be
+  // suppressed is how this mechanism produced three separate bugs — the last
+  // being that cancelling a title edit and re-opening the same task left the
+  // abandoned text in the box, and saving then wrote it to disk over the real
+  // title. Note ids and task ids are also drawn from different spaces, and
+  // task ids repeat across projects (invariant 6), so an identity shared
+  // between modes could collide outright.
+  const titleInput = document.getElementById('editor-title');
+  if (editorContext.mode === 'triage') {
+    // A changed note means the previous note's ownership no longer applies,
+    // so it gets its own suggestion; an unchanged one keeps it, which is what
+    // makes "one keystroke marks the title yours" last for the life of a note
+    // across a Skip that cycles back round to it.
+    if (titleFilledFor !== editorContext.noteId) {
+      titleFilledFor = editorContext.noteId;
+      titleIsUsers = false;
+    }
+    if (!titleIsUsers) titleInput.value = context.title || '';
+  } else {
+    titleInput.value = context.title || '';
+    titleFilledFor = null;
     titleIsUsers = false;
   }
-  const titleInput = document.getElementById('editor-title');
-  if (!titleIsUsers) {
-    titleInput.value = context.title || '';
-  }
 
+  loadedBucket = editorContext.bucket;
   loadedBody = context.body || '';
   const editor = getEditor();
   editor.setMarkdown(loadedBody, true);
@@ -220,6 +231,16 @@ document.getElementById('editor-save').onclick = async () => {
     // really edited, so send what the editor has now.
     const fields = { title, type: editorContext.type, bucket: editorContext.bucket };
     if (body !== normalisedBody) fields.body = body;
+    // Moving buckets without a new order carries the old bucket's position
+    // across, which drops the task at an arbitrary point in the target list.
+    // Land it at the end, exactly as the row's own bucket picker does in
+    // tasks.js — the two controls do the same thing and must agree.
+    if (editorContext.bucket !== loadedBucket) {
+      fields.order = state.tasks.filter(
+        task => task.project === editorContext.project
+          && task.bucket === editorContext.bucket
+          && task.status !== 'done').length;
+    }
     if (await callApi('update_task', editorContext.project, editorContext.taskId, fields)
         === API_FAILED) return;
     closeEditor();

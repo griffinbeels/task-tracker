@@ -60,11 +60,17 @@ The same text also goes to the clipboard, as the fallback for a session that
 takes too long to come up. With no tasks selected the button still works: it
 just opens a session in the current project with an empty prompt.
 
-The session is launched with `--dangerously-skip-permissions`, and deliberately
-does *not* inherit the environment of whatever started the tracker: variables
-like `CLAUDE_CODE_CHILD_SESSION` are stripped and `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE`
-is set, so it is an ordinary top-level session with full transcript history and
-memory. Without that it would silently run as a nested child and keep no history.
+The session is launched with `--dangerously-skip-permissions`, and its
+environment is **rebuilt rather than inherited**. The tracker is usually
+started from a Claude session, and Claude Code sets a batch of variables for
+the processes it spawns; passing those on made the new session differ from one
+you opened yourself in ways that were all silent — it rendered monochrome, its
+git could not open an editor or ask for credentials, and it kept no transcript.
+Windows is asked for the environment it would give a freshly launched process,
+so the session is indistinguishable from one you started by hand in a terminal.
+
+It also opens without taking focus. Hand-off happens mid-sentence, and a window
+that activates itself swallows whatever you type next.
 
 Override the command per project with a `launch` array in `projects.json` — for
 example a project that needs a wrapper script or a different flag set.

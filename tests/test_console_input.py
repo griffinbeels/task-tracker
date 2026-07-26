@@ -22,6 +22,45 @@ def test_every_character_is_written_as_a_press_and_a_release():
     assert pressed == [True, False, True, False]
 
 
+def code_units_of(records):
+    """The raw UTF-16 code unit in each record.
+
+    Read as a number rather than through UnicodeChar: half a surrogate pair is
+    not a character, and asking ctypes to hand one back as a `str` is asking
+    for trouble that has nothing to do with what is being tested.
+    """
+    return [records[index].Event.KeyEvent.uChar.Code
+            for index in range(len(records))]
+
+
+def utf16_units(text):
+    raw = text.encode("utf-16-le", "surrogatepass")
+    return [int.from_bytes(raw[at:at + 2], "little")
+            for at in range(0, len(raw), 2)]
+
+
+def test_an_emoji_is_typed_as_its_two_utf16_code_units():
+    # A console input record holds one UTF-16 code unit, not one Python
+    # character. An emoji is a surrogate pair, so it needs two records — four
+    # with press and release — and assigning it to a single WCHAR raises
+    # TypeError. That exception surfaced nowhere: paste() runs on a daemon
+    # thread, so one emoji in a task body silently stopped the entire hand-off
+    # from being typed, with the clipboard copy the only surviving path.
+    records = console_input.key_records("\U0001F680")
+
+    assert len(records) == 4
+    assert code_units_of(records) == [0xD83D, 0xD83D, 0xDE80, 0xDE80]
+
+
+def test_a_body_mixing_plain_text_and_an_emoji_keeps_every_code_unit_in_order():
+    text = "ship it \U0001F680 now"
+
+    records = console_input.key_records(text)
+
+    expected = [unit for unit in utf16_units(text) for _ in range(2)]
+    assert code_units_of(records) == expected
+
+
 def test_a_session_is_ready_once_its_prompt_hint_is_on_screen():
     assert console_input.is_ready("  ⏵⏵ bypass permissions on (shift+tab to cycle)")
     assert console_input.is_ready("? for shortcuts")

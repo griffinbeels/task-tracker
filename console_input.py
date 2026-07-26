@@ -60,7 +60,11 @@ _attachment = threading.Lock()
 
 
 class _KeyChar(ctypes.Union):
-    _fields_ = [("UnicodeChar", wintypes.WCHAR), ("AsciiChar", ctypes.c_char)]
+    # Code overlays the same two bytes as UnicodeChar. Writing through it is
+    # what lets a surrogate be set at all: half a surrogate pair is not a
+    # character, so assigning one to a WCHAR raises TypeError.
+    _fields_ = [("UnicodeChar", wintypes.WCHAR), ("AsciiChar", ctypes.c_char),
+                ("Code", ctypes.c_ushort)]
 
 
 class KEY_EVENT_RECORD(ctypes.Structure):
@@ -104,20 +108,40 @@ kernel32.CreateFileW.restype = wintypes.HANDLE
 kernel32.AttachConsole.argtypes = [wintypes.DWORD]
 
 
+def utf16_code_units(text: str) -> list[int]:
+    """The text as Windows counts it: UTF-16 code units, not Python characters.
+
+    A console input record holds one code unit. Anything outside the BMP — an
+    emoji, most obviously — is a surrogate pair and therefore two records, so
+    iterating Python characters is wrong for exactly the text a task body is
+    most likely to contain.
+    """
+    raw = text.encode("utf-16-le", "surrogatepass")
+    return [int.from_bytes(raw[at:at + 2], "little")
+            for at in range(0, len(raw), 2)]
+
+
 def key_records(text: str) -> ctypes.Array:
-    """One key-down/key-up pair per character, as a real keypress arrives.
+    """One key-down/key-up pair per UTF-16 code unit, as a real keypress arrives.
 
     Only the character matters — Claude reads the console as a stream, not as
     scan codes — so the virtual key and scan code are left at zero.
+
+    Written through uChar.Code rather than uChar.UnicodeChar: a lone surrogate
+    is not a character and assigning one to a WCHAR raises TypeError. That
+    exception had nowhere to surface, since paste() runs on a daemon thread —
+    a single emoji in a task body silently stopped the whole hand-off from
+    being typed, leaving only the clipboard copy.
     """
-    records = (INPUT_RECORD * (len(text) * 2))()
-    for index, character in enumerate(text):
+    units = utf16_code_units(text)
+    records = (INPUT_RECORD * (len(units) * 2))()
+    for index, unit in enumerate(units):
         for offset, pressed in ((0, 1), (1, 0)):
             key = records[index * 2 + offset].Event.KeyEvent
             records[index * 2 + offset].EventType = _KEY_EVENT
             key.bKeyDown = pressed
             key.wRepeatCount = 1
-            key.uChar.UnicodeChar = character
+            key.uChar.Code = unit
     return records
 
 
