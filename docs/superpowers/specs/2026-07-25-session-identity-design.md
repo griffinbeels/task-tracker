@@ -70,7 +70,12 @@ rest:
 - a settle of roughly half a second after each submitted command, so the next
   write does not land while Claude Code is re-rendering;
 - **a command that times out abandons the remaining commands but never the
-  prompt.** The prompt paste is always attempted with whatever budget is left.
+  prompt.** The prompt paste gets a fresh `READY_TIMEOUT`, not whatever budget
+  the commands left behind — `deliver` calls `paste(pid, prompt)` with no
+  timeout argument of its own. A full retry for the one thing that actually
+  matters, since handing it only the leftover budget would make the most
+  important part of the hand-off the part most likely to be cut short by
+  commands that failed early.
 
 All of it is best-effort and silent on failure, for the reason invariant 9
 already gives: the same text is on the clipboard, so the cost of giving up is

@@ -207,8 +207,8 @@ class Api:
         if not isinstance(name, str):
             raise ValueError("name must be a string")
         project, tasks = self._selected_tasks(project_name, task_ids)
-        # name is the third positional on launcher.hand_off's own signature —
-        # pass it as a keyword or it lands in `launch` and spawns the wrong
+        # launch is the third positional on launcher.hand_off's own signature —
+        # pass name as a keyword, or it lands in `launch` and spawns the wrong
         # process.
         return launcher.hand_off(Path(project.path), tasks, project.launch, name=name)
 

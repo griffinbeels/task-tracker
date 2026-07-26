@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 122 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 179 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -31,16 +31,16 @@ library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
-| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD |
+| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD, the colour vocabulary (`CLAUDE_COLORS`) |
 | `registry.py` | `~/.task-tracker/projects.json` and `settings.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
-| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
-| `console_input.py` | Typing that prompt into the spawned session's console |
+| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
+| `console_input.py` | Typing that prompt into the spawned session's console, and submitting the `/rename`/`/color` commands ahead of it |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
-| `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
+| `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor` |
 | `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, copy-as-prompt, WIP |
 | `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
@@ -189,6 +189,28 @@ Break one of these and the failure is silent. Each cost a bug.
     was wrong about this. The absolute form is also what lets a handed-off
     Claude session open the screenshot the body refers to.
 
+15. **Commands are submitted before the prompt is typed.** `console_input.deliver`
+    calls `submit()` — which presses Enter — for every `/rename`/`/color` line
+    first, and only then `paste()`s the prompt, which never presses Enter. Get
+    the order backwards and a command's Enter would land on top of the
+    still-unsubmitted task text, submitting the user's prose as a chat message
+    instead of leaving it editable — silently breaking invariant 2. Ordered
+    this way instead, a command that fails to submit costs only itself: the
+    remaining commands are abandoned, but the prompt is attempted regardless,
+    so a hand-off whose `/rename` was too slow to land still ends exactly
+    where a hand-off without this feature always has — task text sitting
+    editable in the box.
+
+16. **`Task.color` is always one of the eight `CLAUDE_COLORS` — parsing repairs
+    it, the bridge refuses to.** `Task.__post_init__` replaces a missing,
+    empty, or hand-edited-into-garbage colour with `CLAUDE_COLORS[id % 8]`, so
+    nothing downstream — the `/color` argument, the renderer's hex lookup —
+    ever has to defend against a bad value. `Api.update_task` and
+    `Api.create_task` do the opposite on purpose: an out-of-range colour there
+    means the JS caller sent something wrong, not that a file was hand-edited,
+    so they raise instead of silently repairing it — repairing it there would
+    hide the bug that produced it.
+
 ## Data on disk
 
 ```
@@ -201,6 +223,11 @@ Break one of these and the failure is silent. Each cost a bug.
 <project>/.tasks/done/          the archive, and the progress view's source
 <project>/.tasks/attachments/   pasted screenshots, YYYY-MM-DD-HHMMSS.png
 ```
+
+A task file's frontmatter carries `id`, `title`, `type`, `color`, `bucket`,
+`group`, `status`, `order`, `created`, `started`, `done` — `render_task`'s
+`meta` dict is the single source of that key order, and `parse_task` is the
+only reader of it.
 
 `.tasks/` is **untracked by default** because several tracked repos are public
 and committing would publish raw backlog prose. A per-project `tracked` flag
@@ -263,6 +290,37 @@ the tracker, select this project, and they are the backlog. Highlights:
 - Triage chips are mouse-only; the spec called for single-key assignment.
 - Nothing ever writes `## Outcome`; the progress view renders it but it can only
   arrive by hand-editing.
+
+Session identity (naming and colouring a handed-off window, see
+`docs/superpowers/specs/2026-07-25-session-identity-design.md`) ships with two
+gaps of its own:
+
+- **It is unverified against a live session.** Nobody has yet watched a real
+  Claude Code window receive a bracketed-paste `/rename` and `/color` and
+  confirmed it treats them as commands rather than as literal text. Detection
+  is supposed to happen on the input buffer's contents at submit time, so it
+  should work — but that is a claim about someone else's UI, not this
+  codebase, which is why it is a known gap here rather than an invariant.
+  Symptoms and fixes, for whoever runs it first:
+  - the command line shows up in the transcript as a user message Claude
+    answers → the paste was read as chat text, not command input → write the
+    line unbracketed and lengthen `SETTLE_SECONDS` in `console_input.py`.
+  - the line sits in the prompt box but never submits → the `\r` write is not
+    being read as Enter → set `wVirtualKeyCode = 0x0D` on that `INPUT_RECORD`.
+  - the first command runs but the second is swallowed → raise
+    `SETTLE_SECONDS`.
+  In any of these cases the fallback must *also* clear the input line before
+  pasting the prompt — otherwise the unsubmitted command text and the task
+  prose end up concatenated on one line. That came out of the whole-branch
+  review, not the design spec. Whoever verifies this against a real session
+  should replace this gap with a real invariant.
+- **`#handoff-name` is a placeholder for a component that does not exist yet.**
+  When the selection-bar design
+  (`docs/superpowers/specs/2026-07-25-selection-bar-design.md`) lands, this row
+  moves into `#selection-bar` as a second line and `#handoff-name` disappears,
+  and `Api._selected_tasks` collapses into that design's planned `Api._tasks`
+  — the two do the same id-to-task lookup under names chosen only to keep them
+  from colliding before that merge happens.
 
 Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
 `docs/superpowers/specs/2026-07-25-task-editor-design.md`
