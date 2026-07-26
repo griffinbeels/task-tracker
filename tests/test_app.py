@@ -185,6 +185,65 @@ def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"
 
 
+def test_a_bucket_change_on_one_member_moves_the_whole_group(tmp_path):
+    # The editor's "When" row edits one task, but a group lives in one bucket.
+    # Enforced in update_task so every control that writes a bucket obeys it.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "Editor polish")
+
+    app.Api().update_task("repo", first.id, {"bucket": "someday"})
+
+    assert {t.bucket for t in store.list_tasks(repo)} == {"someday"}
+
+
+def test_a_bucket_change_on_a_loose_task_moves_only_it(tmp_path):
+    repo = make_repo(tmp_path)
+    grouped = store.create_task(repo, "One", "body", "BUG")
+    loose = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [grouped.id], "Editor polish")
+
+    app.Api().update_task("repo", loose.id, {"bucket": "someday"})
+
+    by_id = {t.id: t for t in store.list_tasks(repo)}
+    assert by_id[loose.id].bucket == "someday"
+    assert by_id[grouped.id].bucket == "now"
+
+
+def test_an_order_aimed_at_a_group_member_cannot_split_the_group(tmp_path):
+    # The group owns its own ordering. An `order` computed for a single task —
+    # the editor sends one whenever the bucket changes — would otherwise wedge
+    # a member away from its siblings.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    third = store.create_task(repo, "Three", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, third.id], "Editor polish")
+
+    app.Api().update_task("repo", first.id, {"order": 99})
+
+    grouped = sorted(t.order for t in store.list_tasks(repo) if t.group)
+    assert grouped[1] - grouped[0] == 1
+    assert {t.id for t in store.list_tasks(repo) if t.group} == {first.id, third.id}
+    assert second.id not in {t.id for t in store.list_tasks(repo) if t.group}
+
+
+def test_editing_a_completed_task_does_not_drag_its_old_group_around(tmp_path):
+    # done/ keeps the group string so the archive stays meaningful, but a
+    # completed task is not part of the group the renderer draws.
+    repo = make_repo(tmp_path)
+    finished = store.create_task(repo, "One", "body", "BUG")
+    still_open = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [finished.id, still_open.id], "Editor polish")
+    app.Api().complete_task("repo", finished.id)
+
+    app.Api().update_task("repo", finished.id, {"bucket": "someday"})
+
+    survivor = [t for t in store.list_tasks(repo) if t.id == still_open.id][0]
+    assert survivor.bucket == "now"
+
+
 def test_create_group_dedupes_the_seed(tmp_path):
     repo = make_repo(tmp_path)
     first = store.create_task(repo, "One", "body", "BUG")

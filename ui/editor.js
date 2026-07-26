@@ -32,6 +32,10 @@ let normalisedBody = '';
 // move from a save that left the bucket alone. A move needs a new `order` —
 // see the save handler.
 let loadedBucket = null;
+// The group the task was in when it was opened, so the save can tell a real
+// regroup from a no-op. null for an ungrouped task and for the two modes that
+// create rather than edit.
+let loadedGroup = null;
 
 function chip(label, selected, onClick, color) {
   const button = document.createElement('button');
@@ -155,6 +159,59 @@ function renderChips() {
   document.getElementById('editor-buckets').replaceChildren(
     ...BUCKETS.map(b => chip(b, editorContext.bucket === b,
       () => { editorContext.bucket = b; renderChips(); })));
+  renderGroupChips();
+}
+
+// Every group already in this project, from the tasks we are holding — there
+// is no group entity to fetch, a group is just a name its members share.
+function projectGroups(project) {
+  return [...new Set(state.tasks
+    .filter(t => t.project === project && t.group && t.status !== 'done')
+    .map(t => t.group))].sort((a, b) => a.localeCompare(b));
+}
+
+function groupMembers(project, name) {
+  return state.tasks.filter(
+    t => t.project === project && t.group === name && t.status !== 'done');
+}
+
+// The group row, and the warning that the bucket above it is not this task's
+// alone. Edit only: create_task and file_note take no group, and a group is
+// something you put an existing task into.
+//
+// Picking a group also sets the When chips to that group's bucket, because
+// joining one takes its bucket — leaving the old value showing would make the
+// save move the whole group somewhere nobody asked for.
+function renderGroupChips() {
+  const field = document.getElementById('editor-group-field');
+  const hint = document.getElementById('editor-bucket-hint');
+  field.hidden = editorContext.mode !== 'edit';
+  if (field.hidden) { hint.hidden = true; return; }
+
+  const project = editorContext.project;
+  const join = name => {
+    editorContext.group = name;
+    if (name) {
+      const anchor = groupMembers(project, name)
+        .reduce((lowest, task) => (!lowest || task.order < lowest.order ? task : lowest), null);
+      if (anchor) editorContext.bucket = anchor.bucket;
+    }
+    renderChips();
+  };
+
+  document.getElementById('editor-groups').replaceChildren(
+    chip('none', !editorContext.group, () => join(null)),
+    ...projectGroups(project).map(
+      name => chip(name, editorContext.group === name, () => join(name))));
+
+  hint.hidden = !editorContext.group;
+  if (editorContext.group) {
+    const members = groupMembers(project, editorContext.group);
+    const size = members.some(t => t.id === editorContext.taskId)
+      ? members.length : members.length + 1;
+    hint.textContent =
+      `When moves all ${size} in “${editorContext.group}” — a group is one bucket.`;
+  }
 }
 
 // Every action button always exists in the markup; this just shows the ones
@@ -175,6 +232,8 @@ function openEditor(context) {
     bucket: context.bucket || 'now',
     noteId: context.noteId ?? null,
     taskId: context.taskId ?? null,
+    status: context.status || 'open',
+    group: context.group ?? null,
   };
 
   // Suppressing a title write is only ever right for a *guessed* title, and
@@ -208,6 +267,7 @@ function openEditor(context) {
   }
 
   loadedBucket = editorContext.bucket;
+  loadedGroup = editorContext.group;
   loadedBody = context.body || '';
   const editor = getEditor();
   editor.setMarkdown(loadedBody, true);
@@ -243,7 +303,13 @@ function openEditor(context) {
     progress.textContent = `note ${triageIndex + 1} / ${triageQueue.length}`;
   } else if (editorContext.mode === 'edit') {
     showEditorActions(['editor-save', 'editor-cancel']);
-    document.getElementById('editor-progress').hidden = true;
+    // A task with a Claude session already running against it can still be
+    // renamed, retyped, rebucketed and regrouped — but none of that reaches
+    // the session, which is worth saying rather than leaving to be discovered.
+    const progress = document.getElementById('editor-progress');
+    const running = editorContext.status === 'in-progress';
+    progress.hidden = !running;
+    if (running) progress.textContent = "In progress · edits here won't reach the session";
   }
 
   document.getElementById('editor').hidden = false;
@@ -290,6 +356,18 @@ document.getElementById('editor-save').onclick = async () => {
   }
 
   if (editorContext.mode === 'edit') {
+    // Regroup first. Joining a group takes that group's bucket, so the bucket
+    // this task is judged against below has to be the one it ends up with —
+    // otherwise update_task reads a bucket "change" that nobody asked for and
+    // moves the new group somewhere else entirely.
+    if (editorContext.group !== loadedGroup) {
+      const regrouped = editorContext.group
+        ? await callApi('group_tasks', editorContext.project,
+                        [editorContext.taskId], editorContext.group)
+        : await callApi('ungroup_tasks', editorContext.project, [editorContext.taskId]);
+      if (regrouped === API_FAILED) return;
+    }
+
     // Toast UI normalises markdown on every round-trip (list markers,
     // wrapping, blank lines) even when the user typed nothing — comparing
     // `body` against loadedBody would therefore read as "changed" for every
@@ -303,7 +381,9 @@ document.getElementById('editor-save').onclick = async () => {
     // Moving buckets without a new order carries the old bucket's position
     // across, which drops the task at an arbitrary point in the target list.
     // Land it at the end, exactly as the row's own bucket picker does in
-    // tasks.js — the two controls do the same thing and must agree.
+    // tasks.js — the two controls do the same thing and must agree. A grouped
+    // task ignores this: update_task drops `order` for one, because the group
+    // owns its own ordering.
     if (editorContext.bucket !== loadedBucket) {
       fields.order = state.tasks.filter(
         task => task.project === editorContext.project

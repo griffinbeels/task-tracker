@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 168 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 179 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -46,7 +46,7 @@ library. No framework, no HTTP server, no bundler.
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
 | `ui/inprogress.js` | The IN PROGRESS section, its per-project split, and the reset actions |
-| `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
+| `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
@@ -121,12 +121,15 @@ Break one of these and the failure is silent. Each cost a bug.
    per-project integers — every project has a task 1 — so an id is only
    meaningful paired with its project. A row's project comes from its own
    `dataset.project`, which `taskRow` sets for exactly this reason;
-   `selectedIds()` carries it, and `spin-up` derives its target project from
-   the selection rather than from `currentProject`. That is why the IN PROGRESS
-   section can span projects **and** allow selection. It disables
-   click-to-edit on foreign rows, because `openEditor` would resolve the id
-   against `currentProject`. Search and the all-projects view disable selection
-   outright, because there a row's project is not visible in the layout.
+   `selectedIds()` carries it, `spin-up` derives its target project from the
+   selection rather than from `currentProject`, and `openEditor` takes
+   `context.project` and routes every save, attachment read and image write
+   through `editorContext.project`. Because all three obey it, **any row from
+   any project opens the editor** — search, all-projects and IN PROGRESS
+   alike. Selection is the narrower case: IN PROGRESS allows it because it is
+   split by project heading, while search and the all-projects view disable it,
+   since there a row's project is not visible as a grouping and a mixed tick is
+   easy to make by accident.
 
 7. **Reach `registry.CONFIG_DIR` through the module at call time.** Tests
    monkeypatch it; binding it into a module-level constant at import captures
@@ -216,7 +219,12 @@ Break one of these and the failure is silent. Each cost a bug.
     touched — skip it and the group renders as two blocks with other rows
     wedged between them. The group header owns the bucket picker for the same
     reason; a member that could move on its own would render in two places at
-    once. The renderer is deliberately forgiving of a hand-edited file: a
+    once. `Api.update_task` enforces both for anything that edits a single
+    task: a bucket change on a member moves the whole group via
+    `groups.set_bucket`, and an `order` aimed at a member is ignored. That
+    lives in the bridge rather than in the editor so every writer inherits it,
+    and it is skipped for a completed task, which keeps its `group` string in
+    done/ but is not part of the group any more (invariant 15). The renderer is deliberately forgiving of a hand-edited file: a
     group's bucket and position come from its **lowest-order member**, and
     every member draws inside that block whatever its own `bucket:` line says.
 
@@ -306,9 +314,11 @@ Three spec behaviours were never implemented, and the deferred findings from the
 whole-branch review are filed as tasks in this repo's own `.tasks/open/` — open
 the tracker, select this project, and they are the backlog. Highlights:
 
-- Cross-project rows do not click through to their project, and deliberately do
-  not open the editor either — ids are per-project, so a row in the search or
-  all-projects view names an ambiguous task (invariant 6).
+- Cross-project rows do not switch the project picker to the row's project.
+  They do open the editor, which is project-safe (invariant 6).
+- The editor cannot **create** a group, only join one that exists or leave the
+  one it is in. Creating stays the drag gesture, so there is one set of naming
+  rules rather than two.
 - Triage chips are mouse-only; the spec called for single-key assignment.
 - Nothing ever writes `## Outcome`; the progress view renders it but it can only
   arrive by hand-editing.

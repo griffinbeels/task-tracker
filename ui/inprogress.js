@@ -58,17 +58,17 @@ function inProgressSection() {
   return section;
 }
 
-// A row from a project other than the selected one says so, and does not open
-// the editor. Selection stays enabled — selectedIds() carries each row's own
-// project and spin-up derives its target from the selection, rejecting only
-// mixed ones. Editing is the real hazard: openEditor would resolve this id
-// against currentProject, and ids are per-project (invariant 6).
+// A row from a project other than the selected one says which project it is.
+// That is all it needs: taskRow hands openEditor the row's OWN project, and
+// selectedIds() carries it too, so neither editing nor spin-up ever resolves
+// an id against currentProject (invariant 6). Clicking through works from any
+// project — editing a running task is bookkeeping and does not reach the
+// session, which the editor says on the way in.
 function nameForeignRows(element) {
   const rows = element.classList.contains('task')
     ? [element] : [...element.querySelectorAll('.task')];
   for (const row of rows) {
     if (row.dataset.project === currentProject) continue;
-    row.onclick = null;
     const task = state.tasks.find(candidate => candidate.project === row.dataset.project
       && candidate.id === Number(row.dataset.id));
     if (task) row.querySelector('.title').textContent = `${task.project} · ${task.title}`;

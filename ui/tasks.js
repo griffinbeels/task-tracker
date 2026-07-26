@@ -72,6 +72,10 @@ function taskRow(task, options = {}) {
       body: task.body,
       type: task.type,
       bucket: task.bucket,
+      // Carried so the editor can say that edits to a running task are
+      // bookkeeping, and can offer the group as something to change.
+      status: task.status,
+      group: task.group,
     });
   };
 
@@ -206,10 +210,9 @@ function renderSearch(query) {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
-    // Same ambiguous-id hazard as selection above — editing here would open
-    // whichever project's task 1 happens to be currentProject's, not the one
-    // this row actually names.
-    row.onclick = null;
+    // Editing IS safe here, unlike selection: taskRow hands openEditor the
+    // row's own project and every save routes through it, so a result from
+    // another project opens the task it actually names.
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     if (task.status === 'done') {
       row.classList.add('archived');
@@ -240,10 +243,7 @@ function renderAllProjects() {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
-    // Same ambiguous-id hazard as selection above — editing here would open
-    // whichever project's task 1 happens to be currentProject's, not the one
-    // this row actually names.
-    row.onclick = null;
+    // Editing IS safe here — see renderSearch.
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     return row;
   }));

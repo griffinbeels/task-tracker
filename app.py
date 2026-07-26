@@ -134,11 +134,37 @@ class Api:
         for key in ("title", "type", "body"):
             if key in fields and not isinstance(fields[key], str):
                 raise ValueError(f"{key} must be a string")
-        _, task = self._find(project_name, task_id)
+        project, task = self._find(project_name, task_id)
+        # A group lives in one bucket and its members are contiguous in order
+        # (invariant 16). Both are enforced here rather than in whichever
+        # control happened to call, so every writer gets them: a bucket change
+        # on one member moves the whole group instead of splitting it, and an
+        # `order` aimed at a single member is ignored because the group owns
+        # its own ordering.
+        # A completed task keeps its group string in done/ but is not part of
+        # the group the renderer draws (invariant 15), so editing one must not
+        # drag its still-open siblings around.
+        in_a_group = bool(task.group) and task.status != "done"
+        moving_group = (in_a_group and "bucket" in fields
+                        and fields["bucket"] != task.bucket)
+        if moving_group:
+            ignored = {"bucket", "order"}
+        elif in_a_group:
+            ignored = {"order"}
+        else:
+            ignored = set()
+
         for key in ("title", "type", "bucket", "status", "order", "body"):
-            if key in fields:
+            if key in fields and key not in ignored:
                 setattr(task, key, fields[key])
         store.save_task(task)
+
+        if moving_group:
+            groups.set_bucket(Path(project.path), task.group, fields["bucket"])
+        elif in_a_group:
+            groups.renumber(Path(project.path), task.bucket)
+        if in_a_group:
+            _, task = self._find(project_name, task_id)
         return _task_dict(task, project_name)
 
     def create_task(self, project_name, title, body, type, bucket):
