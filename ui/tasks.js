@@ -14,9 +14,13 @@ const COPIED_ICON = `
     <polyline points="20 6 9 17 4 12"></polyline>
   </svg>`;
 
+// Open only: an in-progress task lives in the IN PROGRESS section instead, and
+// keeps its bucket untouched the whole time so it lands back where it came
+// from when the session turns out not to have been real work after all.
+// Without this filter every running task renders twice.
 function tasksFor(project, bucket) {
   return state.tasks
-    .filter(t => t.project === project && t.bucket === bucket && t.status !== 'done')
+    .filter(t => t.project === project && t.bucket === bucket && t.status === 'open')
     .sort((a, b) => a.order - b.order);
 }
 
@@ -266,7 +270,8 @@ function render() {
   } else if (document.getElementById('all-projects').checked) {
     renderAllProjects();
   } else {
-    list.replaceChildren(...BUCKETS.map(bucketSection));
+    const running = inProgressSection();
+    list.replaceChildren(...(running ? [running] : []), ...BUCKETS.map(bucketSection));
     const open = state.tasks.filter(
       t => t.project === currentProject && t.status !== 'done').length;
     if (!open) {

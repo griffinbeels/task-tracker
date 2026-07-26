@@ -1,0 +1,77 @@
+// The IN PROGRESS section: what Claude is working on right now, above NOW
+// because it is a higher elevation than "next thing I will start".
+//
+// It spans every project, because the limit it answers to is about concurrent
+// Claude windows and those are not per-project. A banner counting every
+// project over a list showing one is how thirteen sessions accumulated
+// unnoticed. Rows are split by project heading so no row is ambiguous about
+// which project's task 1 it names.
+
+function inProgressTasks() {
+  return state.tasks.filter(task => task.status === 'in-progress');
+}
+
+// Distinct groups, counting an ungrouped task as a group of one. This is what
+// the limit counts and what the section draws, so the two always agree.
+function inProgressGroupKeys() {
+  return new Set(inProgressTasks().map(
+    task => (task.group ? `${task.project}\ngroup:${task.group}`
+                        : `${task.project}\ntask:${task.id}`)));
+}
+
+function inProgressSection() {
+  const running = inProgressTasks();
+  if (!running.length) return null;
+
+  const section = document.createElement('section');
+  section.id = 'in-progress';
+  const groupCount = inProgressGroupKeys().size;
+  const heading = document.createElement('h2');
+  heading.textContent =
+    `IN PROGRESS · ${groupCount} ${groupCount === 1 ? 'GROUP' : 'GROUPS'}`;
+  section.append(heading);
+
+  // state.projects order, so the section does not reshuffle as tasks change.
+  for (const project of state.projects) {
+    const mine = running.filter(task => task.project === project.name);
+    if (!mine.length) continue;
+
+    const label = document.createElement('div');
+    label.className = 'project-heading';
+    // Project names are user-authored (they default to a folder name but can
+    // be typed) — textContent, never innerHTML.
+    label.textContent = project.name;
+    section.append(label);
+
+    // No bucket picker and no disband here: a running session's bucket is not
+    // a useful control, and dissolving a group mid-flight is not the gesture
+    // anyone reaches for. Reordering means nothing either, so nothing drags.
+    for (const block of groupBlocks(mine)) {
+      const element = block.group
+        ? groupBlock(block, { showBucket: false, showDisband: false,
+                              showReset: true, draggable: false })
+        : taskRow(block.tasks[0], { showBucket: false, showReset: true,
+                                    draggable: false });
+      section.append(nameForeignRows(element));
+    }
+  }
+  return section;
+}
+
+// A row from a project other than the selected one says so, and does not open
+// the editor. Selection stays enabled — selectedIds() carries each row's own
+// project and spin-up derives its target from the selection, rejecting only
+// mixed ones. Editing is the real hazard: openEditor would resolve this id
+// against currentProject, and ids are per-project (invariant 6).
+function nameForeignRows(element) {
+  const rows = element.classList.contains('task')
+    ? [element] : [...element.querySelectorAll('.task')];
+  for (const row of rows) {
+    if (row.dataset.project === currentProject) continue;
+    row.onclick = null;
+    const task = state.tasks.find(candidate => candidate.project === row.dataset.project
+      && candidate.id === Number(row.dataset.id));
+    if (task) row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
+  }
+  return element;
+}
