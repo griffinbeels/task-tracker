@@ -481,10 +481,15 @@ Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
-code and these invariants are.** Three things in them are known-wrong and were
+code and these invariants are.** Four things in them are known-wrong and were
 corrected during implementation: `file_note` had no way to receive an edited
 body (so triage silently discarded prose edits); image references were
 specified as bare `C:/...` paths and `as_posix()`, which are not URLs and never
-render; and the tracker spec still describes the strip-list environment that
-`user_environment.py` replaced. Invariants 8, 13 and 14 are the record of what
-the code actually does.
+render; the tracker spec still describes the strip-list environment that
+`user_environment.py` replaced; and its console-probe snippet
+(`2026-07-25-task-tracker-design.md:224`) still reads
+`creationflags=subprocess.CREATE_NEW_CONSOLE`, which opens a Windows Terminal
+window on every test run — copying that line back in is the one way to
+reintroduce the flash, and `test_nothing_but_the_hand_off_may_open_a_console_window`
+now fails the build if anything does. Invariants 8, 13 and 14 are the record of
+what the code actually does.
