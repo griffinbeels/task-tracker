@@ -108,6 +108,48 @@ def test_the_vendored_editor_assets_are_present_and_not_error_pages():
     )
 
 
+_ELEMENT_ID = re.compile(r"""getElementById\(\s*(['"])([^'"]+)\1\s*\)""")
+_MARKUP_ID = re.compile(r'id="([^"]+)"')
+_ASSIGNED_ID = re.compile(r"""\.id\s*=\s*(['"])([^'"]+)\1""")
+
+
+def test_every_element_id_the_scripts_ask_for_exists():
+    """A renamed id is silent, and a merge is where it bites.
+
+    getElementById returns null for an id nothing defines; the first property
+    access on that null throws mid-render, which leaves the window blank with
+    no error anyone sees. There is no JS test runner here, so nothing else
+    catches it.
+
+    The case that motivated this: `#wip-warning` was renamed to
+    `#group-limit-warning` on main while `feature/selection-bar` and
+    `feature/session-identity` both still carried
+    `getElementById('wip-warning')` in ui/state.js. Those are separate regions
+    of separate files, so the text merge is clean and the suite stays green —
+    the app just stops drawing (2026-07-25).
+    """
+    defined = set(_MARKUP_ID.findall(
+        (REPO / "ui" / "index.html").read_text(encoding="utf-8")))
+    sources = {script: script.read_text(encoding="utf-8") for script in UI_SCRIPTS}
+    # Elements the scripts build themselves are legitimate lookup targets and
+    # never appear in the markup — #in-progress is one.
+    for text in sources.values():
+        defined |= {match.group(2) for match in _ASSIGNED_ID.finditer(text)}
+
+    missing = sorted(
+        f"{script.name}:{text[:match.start()].count(chr(10)) + 1} {match.group(2)}"
+        for script, text in sources.items()
+        for match in _ELEMENT_ID.finditer(text)
+        if match.group(2) not in defined
+    )
+
+    assert not missing, (
+        "These ids are asked for by a script and defined by neither index.html "
+        "nor any script. getElementById returns null and the next property "
+        "access throws inside a render, emptying the window: " + ", ".join(missing)
+    )
+
+
 def test_the_editor_assets_are_loaded_from_vendor_not_a_cdn():
     markup = (REPO / "ui" / "index.html").read_text(encoding="utf-8")
 
