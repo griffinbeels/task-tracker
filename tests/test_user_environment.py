@@ -5,12 +5,32 @@ module is what Windows itself considers a fresh login environment, so a mock
 would only assert that the mock was called.
 """
 
+import ctypes
 import os
 import subprocess
 from pathlib import Path
 
 import launcher
 import user_environment
+
+
+def test_the_block_is_walked_by_utf16_code_units_not_characters():
+    """A variable holding an emoji must not desync everything after it.
+
+    Windows stores the block as UTF-16 code units. Anything outside the BMP is
+    one Python character and two units, so advancing the cursor by len() lands
+    two bytes short — mid-surrogate — and every later variable is misread. The
+    same mistake shipped in console_input.key_records this session, which is
+    why the second instance gets a test rather than only a fix.
+    """
+    block = ctypes.create_unicode_buffer(
+        "PLAIN=before\x00ROCKET=\U0001F680\x00AFTER=still readable\x00")
+
+    parsed = user_environment._parse_block(ctypes.addressof(block))
+
+    assert parsed["PLAIN"] == "before"
+    assert parsed["ROCKET"] == "\U0001F680"
+    assert parsed["AFTER"] == "still readable"
 
 
 def upper_keys(environment):

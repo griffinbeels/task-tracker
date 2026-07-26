@@ -55,9 +55,41 @@ def test_no_bridge_result_is_compared_against_null():
 VENDOR = REPO / "ui" / "vendor"
 
 
+def test_the_vendored_editor_bundle_is_self_contained():
+    """It must be the `-all` build, which inlines its dependencies.
+
+    The core `toastui-editor.min.js` declares all eight prosemirror-* modules
+    as *external*, and its UMD wrapper has no global names for them — the
+    browser branch reads `e.toastui.Editor = t(e[void 0], e[void 0], ...)`,
+    handing the editor `undefined` for every dependency. `window.toastui`
+    exists, so nothing looks wrong until `new toastui.Editor()` throws, at
+    which point Capture and click-to-edit both silently do nothing.
+
+    That shipped. The size-and-not-a-404 check below passed the whole time,
+    because a file can be the right size, be real, and still be the wrong
+    build. This asserts the property that actually matters.
+    """
+    bundle = (VENDOR / "toastui-editor-all.min.js").read_text(
+        encoding="utf-8", errors="ignore")
+
+    unbundled = [name for name in ("prosemirror-state", "prosemirror-view",
+                                   "prosemirror-model")
+                 if f'require("{name}")' in bundle]
+
+    assert not unbundled, (
+        "This bundle expects the page to supply modules it does not contain: "
+        + ", ".join(unbundled)
+        + ". Vendor toastui-editor-all.min.js, which inlines them."
+    )
+    assert "e[void 0]" not in bundle, (
+        "The UMD wrapper is passing `undefined` for its external dependencies, "
+        "which means this is the core build, not the standalone one."
+    )
+
+
 def test_the_vendored_editor_assets_are_present_and_not_error_pages():
     expected = {
-        "toastui-editor.min.js": 300_000,
+        "toastui-editor-all.min.js": 400_000,
         "toastui-editor.min.css": 100_000,
         "toastui-editor-dark.css": 1_000,
     }

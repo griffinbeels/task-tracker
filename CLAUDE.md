@@ -59,11 +59,24 @@ modules or a build step.
 **`ui/vendor/` is committed, not fetched.** The UI is served from `file://` and
 has to work with no network, so the editor is vendored rather than loaded from
 a CDN. `tests/test_conventions.py` fails the build if the assets go missing or
-if a CDN URL appears in `index.html`. Use the core `toastui-editor.min.js`; the
-`-all` bundle is half a megabyte larger and adds chart and UML plugins nothing
-here wants. Note the library's last release was February 2023 — it will not
-receive fixes, which is a reason to keep it pinned and vendored rather than a
-reason to keep it current.
+if a CDN URL appears in `index.html`.
+
+**It must be `toastui-editor-all.min.js`, never `toastui-editor.min.js`.** The
+core build is not standalone: it declares all eight `prosemirror-*` modules as
+*external*, and its UMD wrapper has no global names for them, so the browser
+branch reads `e.toastui.Editor = t(e[void 0], e[void 0], …)` and hands the
+editor `undefined` for every dependency. `window.toastui` still exists, so
+nothing looks broken until `new toastui.Editor()` throws — and then Capture and
+click-to-edit both silently do nothing, because both go through `openEditor`.
+That shipped, and the size-and-not-a-404 convention test passed the whole time:
+a file can be the right size, be genuinely downloaded, and still be the wrong
+build. `-all` inlines the dependencies (`define([], t)`, factory called with no
+arguments) and is the build the library's own script-tag documentation uses.
+`test_the_vendored_editor_bundle_is_self_contained` now pins this.
+
+The library's last release was February 2023 — it will not receive fixes, which
+is a reason to keep it pinned and vendored rather than a reason to keep it
+current.
 
 If you find yourself writing business logic in `app.py`, it belongs in a backend
 module instead.
@@ -253,8 +266,11 @@ Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
 Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-editor.md`
 
-Two things in the editor spec were wrong and are corrected in the code, not in
-that document: `file_note` had no way to receive an edited body (so triage
-silently discarded prose edits), and image references were specified as bare
-`C:/...` paths, which are not URLs and never render. Invariants 13 and 14 are
-the record of what the code actually does.
+**The specs and plans are historical records, not current documentation — the
+code and these invariants are.** Three things in them are known-wrong and were
+corrected during implementation: `file_note` had no way to receive an edited
+body (so triage silently discarded prose edits); image references were
+specified as bare `C:/...` paths and `as_posix()`, which are not URLs and never
+render; and the tracker spec still describes the strip-list environment that
+`user_environment.py` replaced. Invariants 8, 13 and 14 are the record of what
+the code actually does.

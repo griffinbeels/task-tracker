@@ -237,6 +237,15 @@ transcript saving and keeps no history. `claude_environment()` strips those and
 sets `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE`, so the session is an ordinary
 top-level one no matter how the tracker itself was started.
 
+> **Superseded 2026-07-25.** Stripping a named list caught the identity
+> variables and missed everything else Claude Code sets for its children —
+> `NO_COLOR` (the session rendered monochrome), `GIT_EDITOR`,
+> `GIT_TERMINAL_PROMPT`. The environment is now *rebuilt* from Win32
+> `CreateEnvironmentBlock` rather than filtered, and
+> `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` is no longer set: with no
+> `CLAUDE_CODE_CHILD_SESSION` to override, it is redundant. See `CLAUDE.md`
+> invariant 8 and `user_environment.py`.
+
 The prompt is **prefilled, not sent**: `Ctrl+V` drops it in, you can edit or add
 a constraint, `Enter` starts it. This keeps the session yours and makes a
 mis-selected task a no-op rather than an interruption.
