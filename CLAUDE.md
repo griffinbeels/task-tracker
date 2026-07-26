@@ -254,6 +254,32 @@ Break one of these and the failure is silent. Each cost a bug.
     same guarantee the spawn failure path already gives for `status` and
     `started`.
 
+20. **Window geometry is only trusted if a monitor can show it.** While a
+    window is minimized Windows parks it at a sentinel rectangle — measured
+    here as -32000,-32000 at 237x39 — and that is what pywebview reports for
+    `window.x/y/width/height`. Saving it is unrecoverable rather than merely
+    wrong: the next launch opens somewhere the user cannot reach, so they
+    cannot move it anywhere better, and closing re-saves the same value
+    forever. The only exit is deleting a JSON file nobody knows exists.
+    `window_state.on_screen` is therefore checked on **both** sides of the
+    trip: `save` keeps the previous position instead of overwriting it with the
+    sentinel, and `load` discards a rectangle that overlaps no screen, which is
+    what repairs a `window.json` that is already poisoned. The load-side check
+    also covers a window left on a monitor that has since been unplugged —
+    different cause, identical symptom. Overlapping a screen by any amount
+    passes, and a negative coordinate is normal, not suspicious: a monitor to
+    the left of the primary starts at a negative x.
+
+21. **The selected project is reconciled against the project list on every
+    refresh.** `projects.json` is hand-editable and `refresh()` re-reads it, so
+    the selection can go stale after it is made, not just before. When
+    `currentProject` names a project that is no longer registered, no
+    `<option>` matches and the browser silently selects the first one — the
+    picker then shows one project while the list below renders another, which
+    reads as the tasks having been lost. The check is the same one that
+    restores `last_project` at launch; it just runs unconditionally rather than
+    only when `currentProject` is unset.
+
 ## Data on disk
 
 ```
