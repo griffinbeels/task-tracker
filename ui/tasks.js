@@ -1,3 +1,19 @@
+// The classic two-overlapping-sheets copy glyph, and the check it becomes for
+// a moment after a successful copy. Both are static markup with no
+// user-authored text anywhere in them, which is why setting them via innerHTML
+// does not fall foul of invariant 5.
+const COPY_ICON = `
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>`;
+const COPIED_ICON = `
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+       stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="20 6 9 17 4 12"></polyline>
+  </svg>`;
+
 function tasksFor(project, bucket) {
   return state.tasks
     .filter(t => t.project === project && t.bucket === bucket && t.status !== 'done')
@@ -14,6 +30,7 @@ function taskRow(task) {
     <input type="checkbox" class="select">
     <span class="type"></span>
     <span class="title"></span>
+    <button class="copy" title="Copy as a prompt">${COPY_ICON}</button>
     <button class="done" title="Mark done">done</button>`;
   // task.title and task.type are user-authored free text (store.py's Task.type
   // is a plain str with no validation) that can contain <, &, or quotes —
@@ -67,7 +84,28 @@ function taskRow(task) {
         { bucket: target, order }) === API_FAILED) return;
     await refresh();
   };
-  row.querySelector('.done').before(bucketPicker);
+  row.querySelector('.copy').before(bucketPicker);
+
+  // The whole task, as the text you would have typed to start it: exactly what
+  // "Spin up Claude" would send, built by the same backend function so the two
+  // cannot drift apart. It takes task.project rather than currentProject, so
+  // unlike selection and editing it stays correct in the search and
+  // all-projects views, where a row can belong to any project (invariant 6).
+  // Nothing is written — copying is not a commitment to start the task.
+  const copyButton = row.querySelector('.copy');
+  let revertIcon = null;
+  copyButton.onclick = async () => {
+    if (await callApi('copy_task_prompt', task.project, task.id) === API_FAILED) return;
+    // The only confirmation there is. A clipboard write is otherwise entirely
+    // invisible, and a toast in a 420px window costs more than it says.
+    copyButton.innerHTML = COPIED_ICON;
+    copyButton.classList.add('copied');
+    clearTimeout(revertIcon);
+    revertIcon = setTimeout(() => {
+      copyButton.innerHTML = COPY_ICON;
+      copyButton.classList.remove('copied');
+    }, 1200);
+  };
 
   row.querySelector('.done').onclick = async () => {
     await callApi('complete_task', task.project, task.id);

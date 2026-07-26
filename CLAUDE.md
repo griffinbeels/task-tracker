@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 107 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 122 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -35,13 +35,13 @@ library. No framework, no HTTP server, no bundler.
 | `registry.py` | `~/.task-tracker/projects.json` and `settings.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
-| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn |
+| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | Typing that prompt into the spawned session's console |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
-| `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, WIP |
+| `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, copy-as-prompt, WIP |
 | `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
@@ -246,7 +246,10 @@ the images arrive, the paths do not resolve.
   touched, because both are silent when broken: type a title then click a
   different type chip (the title must not change), and edit *only* a task's
   bucket in a tracked project then run `git status` (the `.md` file must show a
-  frontmatter change and **no body diff**).
+  frontmatter change and **no body diff**). In `ui/tasks.js`, check that
+  hovering a row does not shift the title sideways (the hover-revealed controls
+  must use `opacity`, never `display`) and that clicking the copy button does
+  not also open the editor.
 
 ## Known gaps
 

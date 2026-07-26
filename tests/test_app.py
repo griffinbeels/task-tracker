@@ -79,6 +79,39 @@ def test_hand_off_rejects_an_id_that_does_not_exist(tmp_path):
         app.Api().hand_off("repo", [999])
 
 
+def test_copy_task_prompt_copies_one_task_in_the_hand_off_format(tmp_path, monkeypatch):
+    copied = {}
+    monkeypatch.setattr(app.launcher.pyperclip, "copy",
+                        lambda text: copied.update(text=text))
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "First", "body one", "BUG")
+    wanted = store.create_task(repo, "Second", "body two", "FEATURE")
+
+    returned = app.Api().copy_task_prompt("repo", wanted.id)
+
+    assert returned == "FEATURE: body two"
+    assert copied["text"] == returned
+
+
+def test_copy_task_prompt_leaves_the_task_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(app.launcher.pyperclip, "copy", lambda text: None)
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    app.Api().copy_task_prompt("repo", task.id)
+
+    reloaded = store.list_tasks(repo)[0]
+    assert reloaded.status == "open"
+    assert reloaded.started is None
+
+
+def test_copy_task_prompt_rejects_an_id_that_does_not_exist(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().copy_task_prompt("repo", 999)
+
+
 def test_pick_project_folder_returns_none_without_a_window():
     # No window means no native dialog to open — it must return cleanly rather
     # than indexing into an empty webview.windows.

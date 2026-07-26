@@ -49,8 +49,27 @@ def build_prompt(tasks: list[store.Task]) -> str:
     one per line, nothing else added. Trailing blank lines are dropped so the
     join is exactly one newline between tasks; nothing else about a body is
     touched, and a body is never trimmed at the front or re-wrapped.
+
+    A task with no body falls back to its title, because `FEATURE: ` on its own
+    hands over nothing at all. That is still verbatim — it selects a different
+    field of the task, it does not edit either one.
     """
-    return "\n".join(f"{task.type}: {task.body.rstrip()}" for task in tasks)
+    return "\n".join(f"{task.type}: {task.body.rstrip() or task.title}"
+                     for task in tasks)
+
+
+def copy_prompt(tasks: list[store.Task]) -> str:
+    """Put the hand-off text on the clipboard, and change nothing else.
+
+    Deliberately not a slice of hand_off(): no session is opened and no task is
+    marked in-progress. Copying is a cheap gesture — the text might be going to
+    an already-open session, a chat, or nowhere — so it commits you to nothing.
+    Sharing build_prompt with hand_off is the point, though: the two ways of
+    getting a task into Claude cannot then drift into two different formats.
+    """
+    prompt = build_prompt(tasks)
+    pyperclip.copy(prompt)
+    return prompt
 
 
 def spawn_claude(project_path: Path,
