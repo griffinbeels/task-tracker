@@ -7,10 +7,11 @@ import launcher
 import store
 
 
-def make_task(task_id, title, type, body):
+def make_task(task_id, title, type, body, color=""):
     return store.Task(
         id=task_id, title=title, type=type, bucket="now", status="open",
         order=0, created="2026-07-25", started=None, done=None, body=body,
+        color=color,
     )
 
 
@@ -214,3 +215,99 @@ def test_spawn_skips_permission_prompts_by_default(monkeypatch):
 # What the spawned session's environment must look like is tested in
 # tests/test_user_environment.py — it is now rebuilt from Windows rather than
 # filtered out of this process's own environment.
+
+
+def test_session_name_is_the_type_then_the_title():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task]) == "FEATURE: Rename the spawned session"
+
+
+def test_session_name_names_the_first_task_and_counts_the_others():
+    tasks = [make_task(1, "Rename the spawned session", "FEATURE", "b"),
+             make_task(2, "Colour it too", "FEATURE", "b"),
+             make_task(3, "And a dot on the row", "BUG", "b")]
+
+    assert launcher.session_name(tasks) == "FEATURE: Rename the spawned session (+2)"
+
+
+def test_a_name_that_was_given_wins_and_carries_no_type_prefix():
+    tasks = [make_task(1, "Rename the spawned session", "FEATURE", "b"),
+             make_task(2, "Colour it too", "FEATURE", "b")]
+
+    assert launcher.session_name(tasks, "Editor polish") == "Editor polish"
+
+
+def test_a_whitespace_only_name_is_not_a_name():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task], "   ") == "FEATURE: Rename the spawned session"
+
+
+def test_a_newline_in_a_title_never_reaches_the_command_line():
+    # Unbracketed, a newline mid-line submits early and leaves the rest as a
+    # stray prompt. Task files are hand-editable, so this is reachable.
+    task = make_task(1, "Rename\nthe spawned\tsession", "FEATURE", "b")
+
+    assert launcher.session_name([task]) == "FEATURE: Rename the spawned session"
+
+
+def test_a_long_title_is_capped_but_the_count_survives():
+    tasks = [make_task(1, "R" * 200, "FEATURE", "b"),
+             make_task(2, "Second", "FEATURE", "b"),
+             make_task(3, "Third", "FEATURE", "b")]
+
+    name = launcher.session_name(tasks)
+
+    assert len(name) <= launcher.SESSION_NAME_LIMIT
+    assert name.startswith("FEATURE: ")
+    assert name.endswith(" (+2)")
+
+
+def test_a_long_given_name_is_capped_too():
+    task = make_task(1, "Short", "FEATURE", "b")
+
+    name = launcher.session_name([task], "E" * 200)
+
+    assert len(name) <= launcher.SESSION_NAME_LIMIT
+
+
+def test_nothing_selected_has_no_name_even_if_one_was_typed():
+    assert launcher.session_name([]) == ""
+    assert launcher.session_name([], "Editor polish") == ""
+
+
+def test_a_task_with_no_title_has_no_name():
+    # "FEATURE: " on its own names nothing, so no /rename is sent at all.
+    assert launcher.session_name([make_task(1, "  ", "FEATURE", "b")]) == ""
+
+
+def test_session_color_is_the_first_selected_task_s():
+    tasks = [make_task(1, "First", "FEATURE", "b", color="purple"),
+             make_task(2, "Second", "FEATURE", "b", color="red")]
+
+    assert launcher.session_color(tasks) == "purple"
+
+
+def test_nothing_selected_has_no_colour():
+    assert launcher.session_color([]) is None
+
+
+def test_setup_commands_renames_then_colours():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b",
+                     color="purple")
+
+    assert launcher.setup_commands([task]) == [
+        "/rename FEATURE: Rename the spawned session",
+        "/color purple",
+    ]
+
+
+def test_setup_commands_is_empty_with_nothing_selected():
+    assert launcher.setup_commands([]) == []
+
+
+def test_setup_commands_still_colours_a_task_that_cannot_be_named():
+    task = make_task(1, "  ", "FEATURE", "b", color="cyan")
+
+    assert launcher.setup_commands([task]) == ["/color cyan"]

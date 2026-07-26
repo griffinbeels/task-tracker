@@ -108,3 +108,97 @@ def hand_off(project_path: Path, tasks: list[store.Task],
         store.save_task(task)
 
     return prompt
+
+
+# A tab label longer than this is unreadable, and it doubles as what keeps
+# Claude Code inserting a pasted `/rename` argument literally rather than
+# collapsing it into a `[Pasted text]` placeholder — a short line pastes as
+# text, a long one pastes as an attachment.
+SESSION_NAME_LIMIT = 60
+
+
+def session_name(tasks: list[store.Task], name: str | None = None) -> str:
+    """The `/rename` argument for a session opened on these tasks, or "" for none.
+
+    The name is a parameter rather than something derived from the tasks
+    themselves — a sibling feature will eventually supply it from a task's
+    group, and keeping it an argument here is what lets that land independently
+    of this one. This function never reads `task.group`.
+
+    With no tasks there is nothing to name a session after, so this returns ""
+    even when a name was given — an empty spin-up gets no `/rename` at all.
+
+    A given name wins outright and carries no type prefix; it is only "given"
+    if something survives whitespace-collapsing, so `None` and blank strings
+    both fall through to naming the first task. Composition on that fallback
+    path is: build the `TYPE: ` prefix and the `(+n-1)` suffix first, and only
+    truncate the title into whatever room is left between them — truncating
+    the finished string instead would risk eating the count, which is the most
+    informative part of it.
+    """
+    if not tasks:
+        return ""
+
+    if name is not None:
+        collapsed_name = " ".join(name.split())
+        if collapsed_name:
+            return _cap(collapsed_name)
+
+    prefix = f"{tasks[0].type}: "
+    suffix = f" (+{len(tasks) - 1})" if len(tasks) > 1 else ""
+    # Collapse whitespace before measuring room for the title: a task file is
+    # hand-editable, and a raw newline inside a `/rename` argument would submit
+    # the line early and leave the rest sitting in the prompt box as text.
+    title = " ".join(tasks[0].title.split())
+    if not title:
+        return ""
+
+    room = SESSION_NAME_LIMIT - len(prefix) - len(suffix)
+    if room < 1:
+        # The type name alone already fills the budget. There is no sane way
+        # to fit any of the title in, so give up on the prefix/suffix split
+        # and cap the whole composed string instead of producing a negative
+        # slice.
+        return _cap(f"{prefix}{title}{suffix}")
+    return f"{prefix}{_cap(title, room)}{suffix}"
+
+
+def _cap(text: str, limit: int = SESSION_NAME_LIMIT) -> str:
+    """Truncate to `limit`, appending a single ellipsis so the result lands on it.
+
+    A single `…` rather than three dots, so a capped string is exactly `limit`
+    characters long instead of `limit + 2`.
+    """
+    if len(text) <= limit:
+        return text
+    return text[:limit - 1] + "…"
+
+
+def session_color(tasks: list[store.Task]) -> str | None:
+    """The colour to `/color` a session after, taken from the first task selected.
+
+    `None` with nothing selected — there is no task to take a colour from, and
+    `None` (not a `CLAUDE_COLORS` member) is what tells `setup_commands` to
+    omit the `/color` line entirely.
+    """
+    return tasks[0].color if tasks else None
+
+
+def setup_commands(tasks: list[store.Task], name: str | None = None) -> list[str]:
+    """The `/rename` and `/color` lines to submit after a session comes up.
+
+    Rename first, then colour, matching the order a person doing this by hand
+    would type them. Either line is omitted when its value is empty, so a task
+    with no title still gets coloured, and an empty selection sends nothing.
+    """
+    commands = []
+
+    name_line = session_name(tasks, name)
+    if name_line:
+        commands.append(f"/rename {name_line}")
+
+    color = session_color(tasks)
+    if color:
+        commands.append(f"/color {color}")
+
+    return commands
