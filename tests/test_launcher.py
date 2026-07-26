@@ -22,11 +22,13 @@ class FakeSession:
 
 @pytest.fixture
 def spawned(monkeypatch):
-    """Swallow the process spawn and record what would have been typed."""
+    """Swallow the process spawn and record what would have been sent to it."""
     typed = {}
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeSession())
-    monkeypatch.setattr(launcher.console_input, "paste_when_ready",
-                        lambda pid, text: typed.update(pid=pid, text=text))
+    monkeypatch.setattr(
+        launcher.console_input, "deliver_when_ready",
+        lambda pid, commands, text: typed.update(
+            pid=pid, commands=commands, text=text))
     return typed
 
 
@@ -169,7 +171,8 @@ def test_hand_off_types_the_prompt_into_the_session_it_opened(
 
     prompt = launcher.hand_off(tmp_path, [task])
 
-    assert spawned == {"pid": FakeSession.pid, "text": prompt}
+    assert spawned["pid"] == FakeSession.pid
+    assert spawned["text"] == prompt
 
 
 def test_hand_off_with_nothing_selected_opens_a_bare_session(
@@ -311,3 +314,59 @@ def test_setup_commands_still_colours_a_task_that_cannot_be_named():
     task = make_task(1, "  ", "FEATURE", "b", color="cyan")
 
     assert launcher.setup_commands([task]) == ["/color cyan"]
+
+
+def test_a_type_name_that_fills_the_whole_budget_still_yields_a_capped_name():
+    # Type names come from user-editable settings, so a 60-character one is
+    # reachable. The prefix/suffix split has no room to work with here, and
+    # the fallback must not produce a negative slice.
+    task = make_task(1, "Replay audio desync", "T" * 70, "b")
+
+    name = launcher.session_name([task])
+
+    assert len(name) == launcher.SESSION_NAME_LIMIT
+    assert name.startswith("TTT")
+
+
+def test_hand_off_renames_and_colours_the_session_it_opened(
+        tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG",
+                             color="purple")
+
+    launcher.hand_off(tmp_path, [task])
+
+    assert spawned["commands"] == ["/rename BUG: Replay audio desync",
+                                   "/color purple"]
+
+
+def test_hand_off_uses_the_name_it_was_given(tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    first = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+    second = store.create_task(tmp_path, "Chips rewrite the row", "x", "BUG")
+
+    launcher.hand_off(tmp_path, [first, second], name="Editor polish")
+
+    assert spawned["commands"][0] == "/rename Editor polish"
+
+
+def test_the_commands_are_sent_before_the_prompt_is_typed(
+        tmp_path, monkeypatch, spawned):
+    # Ordering is the whole safety argument: if both commands fail, the session
+    # still ends up where it lands today — task text sitting editable.
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+
+    prompt = launcher.hand_off(tmp_path, [task])
+
+    assert spawned["commands"][0].startswith("/rename ")
+    assert spawned["text"] == prompt
+
+
+def test_hand_off_with_nothing_selected_sends_no_commands(
+        tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+
+    launcher.hand_off(tmp_path, [])
+
+    assert spawned == {}

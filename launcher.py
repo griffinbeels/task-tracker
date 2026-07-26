@@ -178,22 +178,26 @@ def setup_commands(tasks: list[store.Task], name: str | None = None) -> list[str
 
 
 def hand_off(project_path: Path, tasks: list[store.Task],
-             launch: list[str] | None = None) -> str:
-    """Open a session in the project with the selected tasks in its prompt box.
+             launch: list[str] | None = None, name: str | None = None) -> str:
+    """Open a session in the project, rename and colour it, and hand over the tasks.
 
-    The text is typed into the new window rather than submitted for you: it
-    arrives as an editable prompt, so you can add to it or think again before
-    sending. The clipboard copy is the backup for a session that took too long
-    to come up, and the reason typing is allowed to fail silently.
+    Delivery order is commands first, prompt last and unsubmitted: a `/rename`
+    or `/color` that fails to submit costs only itself, because the prompt was
+    never made to depend on the commands succeeding, and it still arrives as
+    editable text rather than being sent for you. The clipboard copy is the
+    backup for a session that took too long to come up, and the reason typing
+    is allowed to fail silently.
 
     With nothing selected this is simply "open Claude in this project" —
     nothing is typed, and the clipboard is left alone.
     """
     prompt = build_prompt(tasks)
+    commands = setup_commands(tasks, name)
     session = spawn_claude(project_path, launch)
     if prompt:
         pyperclip.copy(prompt)
-        console_input.paste_when_ready(session.pid, prompt)
+    if prompt or commands:
+        console_input.deliver_when_ready(session.pid, commands, prompt)
 
     today = datetime.now(timezone.utc).date().isoformat()
     for task in tasks:
