@@ -83,7 +83,7 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .bucket { font-size: 10px; opacity: .5; }
 .task:hover .bucket { opacity: 1; }
 .done { opacity: 0; font-size: 10px; }
-.task:hover .done { opacity: .6; }
+.task:hover .done, .group-header:hover .done { opacity: .6; }
 
 /* Hover-revealed the same way .done is, and for the same reason it uses
    opacity rather than display: the button keeps its box in the row at all

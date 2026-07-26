@@ -190,6 +190,22 @@ function groupBlock(block, options = {}) {
     releaseDragWhileUsing(reset, header);
   }
 
+  // Unconditional, not behind an option: rows have `done` in both bucket
+  // sections and IN PROGRESS, so headers should too. Between the reset and
+  // disband buttons — "change these tasks" actions adjacent, "unmake the
+  // group" last.
+  const done = document.createElement('button');
+  done.className = 'done';
+  done.textContent = 'done';
+  done.title = 'Mark the whole group done';
+  // block.tasks, not the group's full membership — what this header actually
+  // drew. In IN PROGRESS a header can read "2 of 5"; done completes those 2
+  // and leaves the other 3 in their bucket, same as the ↩ beside it.
+  done.onclick = () =>
+    completeTasksWithConfirm(project, block.tasks.map(task => task.id));
+  header.append(done);
+  releaseDragWhileUsing(done, header);
+
   if (showDisband) {
     // The undo for a mis-drag. Members stay exactly where they are.
     const disband = document.createElement('button');
