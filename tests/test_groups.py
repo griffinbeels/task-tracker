@@ -413,3 +413,37 @@ def test_place_keeps_a_member_where_it_is_when_only_the_status_changes(tmp_path)
 
     assert orders(tmp_path) == {one.id: 0, two.id: 1, three.id: 2}
     assert by_id(tmp_path)[one.id].status == "in-progress"
+
+
+def test_place_releases_a_running_task_into_a_position(tmp_path):
+    # The reported bug's backend half: a task dragged out of IN PROGRESS and
+    # dropped between two rows of the bucket it already belonged to. Its bucket
+    # never changed while it was running, so nothing about the destination
+    # differs except the status and the position — which is exactly the case
+    # where a "did anything change?" shortcut would decide to do nothing.
+    first, second, third, running = seed_bucket(
+        tmp_path, ["A", "B", "C", "D"], "now")
+    store.start_task(running)
+
+    groups.place(tmp_path, [running.id], bucket="now", group=None, status="open",
+                 ordered_ids=[first.id, second.id, running.id, third.id])
+
+    landed = by_id(tmp_path)[running.id]
+    assert landed.status == "open"
+    assert landed.started is None
+    assert orders(tmp_path) == {first.id: 0, second.id: 1,
+                                running.id: 2, third.id: 3}
+
+
+def test_place_releases_a_running_task_into_a_different_bucket(tmp_path):
+    first, second = seed_bucket(tmp_path, ["A", "B"], "now")
+    running, = seed_bucket(tmp_path, ["D"], "someday")
+    store.start_task(running)
+
+    groups.place(tmp_path, [running.id], bucket="now", group=None, status="open",
+                 ordered_ids=[first.id, running.id, second.id])
+
+    landed = by_id(tmp_path)[running.id]
+    assert landed.status == "open"
+    assert landed.bucket == "now"
+    assert orders(tmp_path) == {first.id: 0, running.id: 1, second.id: 2}

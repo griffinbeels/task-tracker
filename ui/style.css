@@ -217,6 +217,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
   outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
   border-radius: 5px; }
 
+/* The exception to "an outline, not a fill", and the reason is that this one
+   is not a row: the whole IN PROGRESS box is a single drop target, so it has
+   to read as a zone rather than as a line around something. A box that only
+   gained an outline would look like a row that had grown, and the point of
+   lighting the whole rectangle is to say that all of it accepts the drop. */
+#in-progress.drop-into { outline: 2px solid rgba(48, 164, 108, .75);
+                         outline-offset: -1px;
+                         background: rgba(48, 164, 108, .07); }
+
 /* The opposite gesture, so the opposite look: dashed and neutral for "this
    comes loose", against solid green for "this joins". Drawn on the whole
    region the row would land in, because that region — a project block, or a

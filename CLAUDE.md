@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 357 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 359 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -450,6 +450,32 @@ Break one of these and the failure is silent. Each cost a bug.
     one substitution is the whole of claiming and releasing — neither is a
     special case anywhere in the handler.
 
+    **A drag that reorders live must handle the pointer landing on the row it
+    is dragging.** `dropIntent` refuses a drop whose target is the dragged row
+    itself — an unchanged guard from when the only gesture was reordering — but
+    the live `insertBefore` slides that row *under the cursor*, so the next
+    `dragover` resolves to it and `intent` goes null. Release there and `drop`
+    returns before calling anything: the row is visibly in its new section and
+    nothing was written, so the next render silently puts it back. This shipped
+    on 2026-07-26 and reads exactly like a backend failure — the tests for the
+    placement it never reached were green the whole time. The fix is that the
+    row already being in its destination IS the drop: commit where it sits,
+    with no `over` to insert against. Any future gesture that moves the dragged
+    element during `dragover` inherits this.
+
+    **The IN PROGRESS box is one drop target, all of it.** It is drawn as a
+    bordered box with an invitation written inside it, so the strip beside its
+    heading and around that line has to accept a drop too — anything else is a
+    dead zone in the middle of something that says "drag a task here". The
+    affordance is the box itself, and bucket sections deliberately do *not*
+    work this way: a reorder drag crosses their gaps constantly with
+    `event.target` set to the section, and releasing in one would dissolve the
+    grouping being rearranged. IN PROGRESS has no top-level reorder, so it has
+    no such gaps. The one exclusion is a row that is *already* running — the
+    box would otherwise ungroup it when a sort within its own group overshot
+    the last row by a few pixels of padding, and the project heading is the
+    aimable target for that.
+
 ## Data on disk
 
 ```
@@ -612,6 +638,15 @@ show two unrelated tasks under one id at different points in time.
   PROGRESS: refused, with no outline at all. And the gestures that already
   existed must be untouched — reorder within one bucket, pair two rows into a
   new group whose name box opens focused, and rename it.
+
+  Two of those ten failed on first use and are the ones worth repeating after
+  any change to `wireDrag`, because both looked like they had worked. Drop a
+  task anywhere in the IN PROGRESS box — the padding beside the heading, the
+  blank strip around the line, not only on the text — and the whole box must
+  outline. And drag a running task into the *middle* of a bucket rather than
+  onto its heading, then fold something to force a re-render: the task must
+  still be where you put it. It moved on screen and was never written, which
+  no amount of reading the diff would have shown.
 
 ## Parallel features (worktrees)
 

@@ -433,22 +433,36 @@ function dropIntent(event, dragged, draggedIsGroup) {
   const lands = sectionPlacement(section);
   const project = dragged.dataset.project;
 
-  // Headings first: one target, one meaning — "belongs to this list, to no
-  // group". The heading rather than the whole region, because the region is
-  // crossed by accident. A reorder drag passes through the gaps between blocks
-  // constantly and there event.target is the section itself; releasing in one
-  // of those would quietly dissolve the grouping being rearranged.
+  // The WHOLE IN PROGRESS box, not just its heading. It is drawn as a bordered
+  // box with an invitation written inside it, so it has to behave like one —
+  // the dead strip beside the heading and around the line was exactly the
+  // "nothing happened" the box's own text promises against. The affordance is
+  // the box itself for the same reason: a drop zone lights up as a zone.
   //
-  // The empty line counts as the heading. With nothing running it is the
-  // largest thing in the section, and a target you can see but not hit is
-  // worse than no target.
+  // Bucket sections deliberately do NOT do this. A reorder drag crosses their
+  // gaps constantly and there event.target is the section itself, so releasing
+  // in one would quietly dissolve the grouping being rearranged. IN PROGRESS
+  // has no top-level reorder at all, so it has no such gaps to cross.
+  //
+  // Only for something not already running, though. A running row inside a
+  // group would otherwise be dissolved out of it by overshooting the last row
+  // while sorting within it — a few pixels of padding away — and the project
+  // heading is the aimable target for that on purpose.
+  const wholeBox = () => {
+    if (lands.canReorder) return null;
+    const current = draggedState(dragged, draggedIsGroup);
+    if (!current || current.status === 'in-progress') return null;
+    return placement({ bucket: null, group: null, status: 'in-progress' },
+                     dragged, draggedIsGroup, section);
+  };
+
+  // A bucket's heading: one target, one meaning — "belongs to this list, to no
+  // group". The heading rather than the region, for the gaps reason above.
   const sectionTarget = event.target.closest('section > h2, .wip-empty');
   if (sectionTarget && sectionTarget.parentElement === section) {
-    // A bucket section shows one project, so it must match. IN PROGRESS spans
-    // every project and takes each row on its own terms — which is what makes
-    // its heading the target that still works when the dragged row's project
-    // has no heading in there yet.
-    if (lands.bucket && section.dataset.project !== project) return null;
+    if (!lands.bucket) return wholeBox();
+    // A bucket section shows one project, so it must match.
+    if (section.dataset.project !== project) return null;
     return placement({ bucket: lands.bucket, group: null, status: lands.status },
                      dragged, draggedIsGroup, sectionTarget);
   }
@@ -474,10 +488,22 @@ function dropIntent(event, dragged, draggedIsGroup) {
   }
 
   const over = event.target.closest('.task');
+
+  // Over the row being dragged — which is where the pointer ends up as soon as
+  // the live move slides it under the cursor, and it is the whole of the "it
+  // moved on screen and nothing was saved" bug. Returning null here left
+  // `intent` empty at release, so `drop` returned before calling anything: the
+  // DOM showed the row in its new section and the next render put it back,
+  // because nothing had been written. There IS a destination — the row is
+  // already sitting in it — so commit where it sits. `over` is deliberately
+  // absent: there is nothing to insert relative to, only a position to keep.
+  if (over && (over === dragged || dragged.contains(over))) {
+    return lands.canReorder ? { kind: 'move', section } : wholeBox();
+  }
+
   // One project at a time, in every context. Task ids are per-project and so
   // is a group name, so a cross-project drop has nothing coherent to mean.
-  if (!over || over === dragged || dragged.contains(over)
-      || over.dataset.project !== project) return null;
+  if (!over || over.dataset.project !== project) return wholeBox();
 
   const inGroup = over.parentElement.classList.contains('group')
     ? over.parentElement.dataset.group : null;
@@ -492,9 +518,10 @@ function dropIntent(event, dragged, draggedIsGroup) {
 
   if (!lands.canReorder) {
     // IN PROGRESS. A loose row's edge has nothing to reorder — this list's
-    // order is by project and group rather than anything anyone chose — so
-    // claiming a task is the two headings' job, and both are right there.
-    if (!inGroup) return null;
+    // order is by project and group rather than anything anyone chose — so it
+    // falls back to the box, like every other part of it that is not a row of
+    // its own.
+    if (!inGroup) return wholeBox();
     // Inside one group there IS a position to drop into. Its members share a
     // bucket and sit contiguously (invariant 16), so they can trade their own
     // slots without touching the rest of that bucket — which is the only
@@ -539,8 +566,13 @@ function wireDrag() {
     intent = dropIntent(event, dragged, draggedIsGroup);
     if (!intent) return;
     if (intent.kind === 'move' || intent.kind === 'sort') {
-      intent.over.parentElement.insertBefore(
-        dragged, intent.after ? intent.over.nextSibling : intent.over);
+      // No `over` means the pointer is on the dragged row itself: it is
+      // already where it is going, so there is nothing to insert it against
+      // and no affordance to draw — the row under the cursor IS the preview.
+      if (intent.over) {
+        intent.over.parentElement.insertBefore(
+          dragged, intent.after ? intent.over.nextSibling : intent.over);
+      }
     } else {
       // Two outcomes, two looks: solid means "becomes part of this", dashed
       // means "comes loose from what it was in". One outline for both would
