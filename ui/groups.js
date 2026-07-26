@@ -60,6 +60,19 @@ function persistCollapsed() {
   return callApi('set_collapsed', view.projects, view.groups);
 }
 
+// A group that just lost its last member does not exist any more — a group IS
+// its name, so nothing renders it and nothing can unfold it. Drop the entry,
+// or the name comes back folded if it is ever used again. Called BEFORE the
+// refresh, while state.tasks still counts the member on its way out.
+async function forgetFoldIfEmptied(project, name) {
+  if (!name || groupMemberCount(project, name) > 1) return;
+  const folded = collapsedView().groups;
+  const at = folded.findIndex(pair => pair[0] === project && pair[1] === name);
+  if (at === -1) return;
+  folded.splice(at, 1);
+  await persistCollapsed();
+}
+
 // Render from local state first and persist afterwards. A fold that waits for
 // the round trip before it moves reads as a click that missed.
 async function toggleProjectCollapsed(project) {
@@ -292,8 +305,38 @@ function renameInPlace(nameElement, project, current) {
 // the backend places the task and refresh() redraws.
 
 function clearDropAffordance(section) {
-  section.querySelectorAll('.drop-into').forEach(
-    element => element.classList.remove('drop-into'));
+  // The section itself can carry the affordance — querySelectorAll never
+  // returns the element it was called on, so clear it separately.
+  section.classList.remove('drop-into', 'drop-loose');
+  section.querySelectorAll('.drop-into, .drop-loose').forEach(
+    element => element.classList.remove('drop-into', 'drop-loose'));
+}
+
+// Drop a grouped row on a HEADING — the bucket's name, or the project's name
+// in IN PROGRESS — and it comes out of its group. One target, one meaning:
+// "belongs to this list, to no group".
+//
+// The heading rather than the whole region, because the region is crossed by
+// accident. A reorder drag passes through the gaps between blocks constantly,
+// and there `event.target` is the section itself; releasing in one of those
+// would have quietly dissolved the grouping the user was rearranging. A
+// heading has to be aimed at.
+//
+// This is the only way out of the IN PROGRESS section, which has no reorder
+// gaps at all, and the only way out of a bucket whose sole contents ARE the
+// group — there is no top-level gap to drop into there either, so before this
+// its members could not be separated by drag at all.
+function leaveIntent(event, dragged, draggedIsGroup) {
+  if (draggedIsGroup || !groupOf(dragged)) return null;
+
+  const projectHeading = event.target.closest('.project-heading');
+  if (projectHeading) {
+    return projectHeading.parentElement.dataset.project === dragged.dataset.project
+      ? { kind: 'leave', element: projectHeading } : null;
+  }
+  // A bucket section is single-project, so its own heading needs no check.
+  const bucketHeading = event.target.closest('section[data-bucket] > h2');
+  return bucketHeading ? { kind: 'leave', element: bucketHeading } : null;
 }
 
 function groupOf(element) {
@@ -308,14 +351,19 @@ function dropIntent(event, dragged, draggedIsGroup, allowReorder) {
     // so merging silently destroys one of the two names.
     if (draggedIsGroup) return null;
     if (header.parentElement.dataset.project !== dragged.dataset.project) return null;
+    // Already a member — rejoining would only shunt it to the end of its own
+    // group, which is not what aiming at that header meant.
+    if (header.parentElement.dataset.group === groupOf(dragged)) return null;
     return { kind: 'join', group: header.parentElement.dataset.group, element: header };
   }
 
   const over = event.target.closest('.task');
-  if (!over || over === dragged || dragged.contains(over)) return null;
   // One project at a time, in every context. Task ids are per-project and so
   // is a group name, so a cross-project drop has nothing coherent to mean.
-  if (over.dataset.project !== dragged.dataset.project) return null;
+  if (!over || over === dragged || dragged.contains(over)
+      || over.dataset.project !== dragged.dataset.project) {
+    return leaveIntent(event, dragged, draggedIsGroup);
+  }
 
   const inGroup = over.parentElement.classList.contains('group')
     ? over.parentElement.dataset.group : null;
@@ -334,6 +382,8 @@ function dropIntent(event, dragged, draggedIsGroup, allowReorder) {
   // there is no single bucket for reorder_bucket to renumber. Drag there only
   // ever groups. Leaving a group is the editor's Group → none.
   if (!allowReorder) {
+    // Over a loose row's edge, or over its own group's rows: there is nothing
+    // to reorder here, so nothing happens. Leaving is the project heading.
     return inGroup && inGroup !== groupOf(dragged)
       ? { kind: 'join', group: inGroup, element: over } : null;
   }
@@ -375,7 +425,11 @@ function wireDrag(section, bucket) {
       intent.over.parentElement.insertBefore(
         dragged, intent.after ? intent.over.nextSibling : intent.over);
     } else {
-      intent.element.classList.add('drop-into');
+      // Two outcomes, two looks: solid means "this will group", dashed means
+      // "this will come loose". One outline for both would make the gesture
+      // that dissolves a grouping look like the one that makes it.
+      intent.element.classList.add(
+        intent.kind === 'leave' ? 'drop-loose' : 'drop-into');
     }
   });
 
@@ -418,6 +472,14 @@ function wireDrag(section, bucket) {
       return;
     }
 
+    if (settled.kind === 'leave') {
+      if (await callApi('ungroup_tasks', project,
+          [Number(row.dataset.id)]) === API_FAILED) return;
+      await forgetFoldIfEmptied(project, wasInGroup);
+      await refresh();
+      return;
+    }
+
     // A reorder. Where the row landed decides what it belongs to.
     if (!wasGroup) {
       const container = row.closest('.group');
@@ -427,6 +489,7 @@ function wireDrag(section, bucket) {
           ? await callApi('ungroup_tasks', project, [Number(row.dataset.id)])
           : await callApi('group_tasks', project, [Number(row.dataset.id)], landed);
         if (outcome === API_FAILED) return;
+        await forgetFoldIfEmptied(project, wasInGroup);
       }
     }
     // Last writer, and rightly so: the DOM is what the user just saw. Members

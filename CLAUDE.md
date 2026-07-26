@@ -314,7 +314,11 @@ the images arrive, the paths do not resolve.
   must use `opacity`, never `display`) and that clicking the copy button does
   not also open the editor. Fold a group, tick the group's checkbox, and hit
   Spin up: the folded members must still go to the session. In `ui/groups.js`,
-  three more: drag a task onto the
+  four more: drop a grouped row on a bucket's heading, or on a project heading
+  in IN PROGRESS, and it must leave its group — that heading is the only
+  drag-out target, because the gaps a reorder crosses are not aimable and
+  releasing in one must never dissolve a grouping by accident. And three more:
+  drag a task onto the
   middle of another and the new group's name box must open focused with its
   seeded text selected; drag a third onto that group and it must **not** reopen
   (invariant 11); and after moving a group between buckets, `git status` in a
