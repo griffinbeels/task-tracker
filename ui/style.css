@@ -3,7 +3,11 @@ body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12p
 
 header { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
 #toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-#search { flex: 1; }
+/* min-width, because a bare `flex: 1` still refuses to shrink an input below
+   its default ~20-character intrinsic width — which pushed "Spin up Claude"
+   onto a second line and put a horizontal scrollbar under the whole app as
+   soon as the window was narrowed. Same reason #project-picker carries one. */
+#search { flex: 1 1 auto; min-width: 80px; }
 
 /* One height for every text control, so the row lines up and the select's
    caret has room to sit centred instead of being crushed against the edge.
@@ -30,7 +34,7 @@ header button.icon { width: 28px; padding: 0; }
    this the control sits on one alignment and the text on the text baseline,
    which reads as broken however correct the markup is. */
 label { display: flex; align-items: center; gap: 6px; }
-#toolbar label { white-space: nowrap; }
+#toolbar label, #toolbar button { white-space: nowrap; }
 input[type="checkbox"] { margin: 0; flex: none; }
 #group-limit, #stale-days { width: 80px; }
 /* The number is correct and says nothing about what it counts, which reads as
@@ -158,6 +162,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    the baseline the other two sit on. */
 .field-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
                opacity: .4; text-align: right; white-space: nowrap; }
+
+/* Aligned under the chips, not under the label — 56px of label column plus the
+   grid's 9px gap. A hint that starts at the left margin reads as a caption for
+   the whole panel rather than for the row above it. */
+.field-hint { font-size: 10px; opacity: .45; margin: -4px 0 0 65px; }
+.field-hint[hidden] { display: none; }
 
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* .chips and .field both set their own display, so a bare `hidden` attribute
