@@ -197,3 +197,50 @@ def test_set_bucket_rejects_an_unknown_bucket(tmp_path):
 
     with pytest.raises(ValueError):
         groups.set_bucket(tmp_path, "G", "urgent")
+
+
+def test_auto_group_leaves_a_single_task_alone(tmp_path):
+    only, = seed_bucket(tmp_path, ["One"])
+
+    assert groups.auto_group(tmp_path, [only.id]) is None
+    assert by_id(tmp_path)[only.id].group is None
+
+
+def test_auto_group_names_a_new_group_after_the_first_task(tmp_path):
+    first, second = seed_bucket(tmp_path, ["Drops the title", "Rewrites the row"])
+
+    name = groups.auto_group(tmp_path, [first.id, second.id])
+
+    assert name == "Drops the title"
+    assert {t.group for t in store.list_tasks(tmp_path)} == {"Drops the title"}
+
+
+def test_auto_group_never_touches_a_task_outside_the_selection(tmp_path):
+    first, second, bystander = seed_bucket(tmp_path, ["One", "Two", "Three"])
+
+    groups.auto_group(tmp_path, [first.id, second.id])
+
+    assert by_id(tmp_path)[bystander.id].group is None
+
+
+def test_auto_group_folds_loose_tasks_into_the_one_group_present(tmp_path):
+    first, second, loose = seed_bucket(tmp_path, ["One", "Two", "Three"])
+    groups.assign(tmp_path, [first.id, second.id], "Editor polish")
+
+    name = groups.auto_group(tmp_path, [first.id, loose.id])
+
+    assert name == "Editor polish"
+    assert by_id(tmp_path)[loose.id].group == "Editor polish"
+
+
+def test_auto_group_refuses_to_merge_two_named_groups(tmp_path):
+    first, second, loose = seed_bucket(tmp_path, ["One", "Two", "Three"])
+    groups.assign(tmp_path, [first.id], "Editor polish")
+    groups.assign(tmp_path, [second.id], "Drag fixes")
+
+    assert groups.auto_group(tmp_path, [first.id, second.id, loose.id]) is None
+
+    tasks = by_id(tmp_path)
+    assert tasks[first.id].group == "Editor polish"
+    assert tasks[second.id].group == "Drag fixes"
+    assert tasks[loose.id].group is None

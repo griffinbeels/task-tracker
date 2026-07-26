@@ -212,6 +212,41 @@ def set_bucket(project_path: Path, name: str, bucket: str) -> None:
         renumber(project_path, one_bucket)
 
 
+def auto_group(project_path: Path, task_ids) -> str | None:
+    """Record that these tasks were handed to one session — if that is unambiguous.
+
+    Four cases, and the two that do nothing matter as much as the two that act:
+
+    - One task, or none: a group of one needs no name.
+    - None already grouped: a new group, named after the first task's title.
+      `task_ids` arrives in list order, so that is the topmost ticked row.
+    - Exactly one group represented: the loose ones join it. This is the common
+      case — tick a whole group, add the loose task you just remembered.
+    - Two or more groups represented: nothing. A group IS its name, so merging
+      two of them destroys one, and that is a decision to make deliberately
+      rather than a side effect of ticking two boxes.
+
+    Never splits a group either: a partial selection out of one group leaves
+    the rest of it exactly as it was.
+    """
+    tasks = _live_tasks(project_path)
+    selected = _resolve(tasks, task_ids)
+    if len(selected) < 2:
+        return None
+
+    represented = {task.group for task in selected if task.group}
+    if len(represented) > 1:
+        return None
+    if not represented:
+        return create(project_path, [task.id for task in selected], selected[0].title)
+
+    name = represented.pop()
+    loose = [task.id for task in selected if not task.group]
+    if loose:
+        assign(project_path, loose, name)
+    return name
+
+
 def remove(project_path: Path, task_ids) -> None:
     """Take exactly these tasks out of whatever group they are in."""
     tasks = _live_tasks(project_path)
