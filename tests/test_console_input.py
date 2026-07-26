@@ -180,27 +180,45 @@ def test_an_empty_prompt_is_never_typed(monkeypatch):
     assert pasted == []
 
 
-def test_a_submitted_line_is_bracketed_and_followed_by_its_own_enter(monkeypatch):
-    # Bracketed so the "/" command popup never sees a partial token; the Enter
-    # is a separate write so the popup cannot swallow it as a selection.
+class FakeAttach:
+    """A console this process is attached to, without a console existing."""
+
+    def __enter__(self):
+        return True
+
+    def __exit__(self, *exc):
+        return False
+
+
+def ready_console(monkeypatch):
+    """Every write recorded, against a session already showing its prompt box."""
     written = []
     monkeypatch.setattr(console_input, "SETTLE_SECONDS", 0)
     monkeypatch.setattr(console_input, "_write_input",
                         lambda text: written.append(text) or True)
     monkeypatch.setattr(console_input, "_screen_text",
                         lambda: "shift+tab to cycle")
-
-    class FakeAttach:
-        def __enter__(self):
-            return True
-
-        def __exit__(self, *exc):
-            return False
-
     monkeypatch.setattr(console_input, "_attached", lambda pid: FakeAttach())
+    return written
+
+
+def test_a_submitted_line_is_bracketed_and_followed_by_its_own_enter(monkeypatch):
+    # Bracketed so the "/" command popup never sees a partial token; the Enter
+    # is a separate write so the popup cannot swallow it as a selection.
+    written = ready_console(monkeypatch)
 
     assert console_input.submit(7, "/color red") is True
     assert written == [
         console_input.PASTE_START + "/color red" + console_input.PASTE_END,
         "\r",
     ]
+
+
+def test_an_empty_line_is_never_submitted(monkeypatch):
+    # Without the guard this writes empty paste markers and then presses
+    # Enter, submitting a blank prompt to the session — the same reason paste()
+    # refuses empty text.
+    written = ready_console(monkeypatch)
+
+    assert console_input.submit(7, "") is False
+    assert written == []

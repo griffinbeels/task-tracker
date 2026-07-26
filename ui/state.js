@@ -33,7 +33,7 @@ function suggestColor(project) {
   const counts = Object.fromEntries(Object.keys(CLAUDE_COLORS).map(name => [name, 0]));
   state.tasks
     .filter(t => t.project === project && t.status !== 'done')
-    .forEach(t => { if (t.color in counts) counts[t.color]++; });
+    .forEach(t => { if (Object.hasOwn(counts, t.color)) counts[t.color]++; });
   const lowest = Math.min(...Object.values(counts));
   const leastUsed = Object.keys(counts).filter(name => counts[name] === lowest);
   return leastUsed[Math.floor(Math.random() * leastUsed.length)];

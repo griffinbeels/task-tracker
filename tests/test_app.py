@@ -251,7 +251,10 @@ def test_hand_off_without_a_name_passes_nothing(tmp_path, monkeypatch):
 
     app.Api().hand_off("repo", [task.id])
 
-    assert not captured["name"]
+    # Exactly "", not merely falsy: Api.hand_off defaults to "" and always
+    # forwards a string, while launcher.hand_off's own default is None. A
+    # truthiness assertion passes for both and so pins neither.
+    assert captured["name"] == ""
 
 
 def test_suggest_session_name_is_what_hand_off_would_use(tmp_path):

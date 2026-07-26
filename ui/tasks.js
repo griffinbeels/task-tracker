@@ -174,6 +174,17 @@ function nameableSelection() {
   return { project: [...projects][0], ids: selected.map(s => s.id) };
 }
 
+// Hiding the row also empties it. The value outlives the selection it was
+// typed for otherwise: switching project re-renders the task list, dropping
+// every tick, so the row hides with the old project's name still in it — and
+// ticking two tasks in the NEW project shows the row again carrying that name,
+// which spin-up then uses. Every path that hides this row goes through here so
+// there is one answer rather than one per branch.
+function hideHandoffName() {
+  document.getElementById('handoff-name').hidden = true;
+  document.getElementById('handoff-name-input').value = '';
+}
+
 // The suggestion is fetched from the backend, never composed here, so the
 // placeholder shows exactly what hand_off will do with a blank box — a
 // second copy of the naming rule in JS would be free to drift from
@@ -181,7 +192,7 @@ function nameableSelection() {
 async function renderHandoffName() {
   const row = document.getElementById('handoff-name');
   const nameable = nameableSelection();
-  if (!nameable) { row.hidden = true; return; }
+  if (!nameable) { hideHandoffName(); return; }
   const placeholder = await callApi('suggest_session_name', nameable.project, nameable.ids);
   // Selections change faster than a bridge round-trip. Compare the selection
   // this response was fetched for against the selection now, and drop the
@@ -194,12 +205,16 @@ async function renderHandoffName() {
     && stillNameable.ids.length === nameable.ids.length
     && stillNameable.ids.every((id, index) => id === nameable.ids[index]);
   if (!sameSelection) return;
-  if (placeholder === API_FAILED) { row.hidden = true; return; }
-  row.hidden = false;
+  if (placeholder === API_FAILED) { hideHandoffName(); return; }
   // suggest_session_name legitimately returns "" for a selection it cannot
-  // name (e.g. a blank first title) — that is a falsy but valid placeholder,
-  // not a failure, which is why the check above compares against API_FAILED
-  // rather than truthiness.
+  // name (e.g. a blank first title) — a valid answer, not a failure, which is
+  // why the check above compares against API_FAILED rather than truthiness
+  // (invariant 4). It does mean there is no default to show, though, and a
+  // labelled empty box explains nothing about what a blank one will do — it
+  // reads as a broken render. Hide the row instead of inventing a hint for a
+  // default that does not exist.
+  if (!placeholder) { hideHandoffName(); return; }
+  row.hidden = false;
   document.getElementById('handoff-name-input').placeholder = placeholder;
 }
 

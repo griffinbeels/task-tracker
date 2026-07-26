@@ -1,5 +1,6 @@
 """Hand selected tasks to a visible Claude Code session."""
 
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -89,6 +90,30 @@ def spawn_claude(project_path: Path,
 # text, a long one pastes as an attachment.
 SESSION_NAME_LIMIT = 60
 
+# C0 and C1 control characters, including DEL. `str.split()` does not remove
+# these — see _one_line for why a `/rename` argument must not carry one.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _one_line(text: str) -> str:
+    """Collapse whitespace and drop control characters, in that order.
+
+    Everything this returns ends up inside a line that `console_input.submit`
+    writes as `ESC[200~ … ESC[201~` and then presses Enter on, in a session
+    spawned with `--dangerously-skip-permissions`. Titles and names come from a
+    hand-editable YAML file, and a double-quoted scalar can express `\\e`
+    directly — so a title containing `ESC[201~` would close the bracketed paste
+    early, leaving whatever follows it outside the paste for that Enter to
+    submit as a command of its own.
+
+    Whitespace goes first because collapsing is what stops a raw newline
+    submitting the line early; controls go second because `str.split()` removes
+    `\\n`, `\\r` and `\\x1c`-`\\x1f` but leaves ESC, NUL, BEL and backspace
+    untouched. Stripping rather than rejecting: a task with a strange title
+    should still hand off, it just must not be able to submit a line.
+    """
+    return _CONTROL.sub("", " ".join(text.split()))
+
 
 def session_name(tasks: list[store.Task], name: str | None = None) -> str:
     """The `/rename` argument for a session opened on these tasks, or "" for none.
@@ -102,8 +127,11 @@ def session_name(tasks: list[store.Task], name: str | None = None) -> str:
     even when a name was given — an empty spin-up gets no `/rename` at all.
 
     A given name wins outright and carries no type prefix; it is only "given"
-    if something survives whitespace-collapsing, so `None` and blank strings
-    both fall through to naming the first task. Composition on that fallback
+    if something survives `_one_line`, so `None`, blank strings and a string of
+    nothing but control characters all fall through to naming the first task.
+    Every piece of user text on this path — the name, the title and the type
+    that prefixes it — goes through `_one_line`, since all three are typed into
+    a line that then has Enter pressed on it. Composition on that fallback
     path is: build the `TYPE: ` prefix and the `(+n-1)` suffix first, and only
     truncate the title into whatever room is left between them — truncating
     the finished string instead would risk eating the count, which is the most
@@ -113,16 +141,15 @@ def session_name(tasks: list[store.Task], name: str | None = None) -> str:
         return ""
 
     if name is not None:
-        collapsed_name = " ".join(name.split())
-        if collapsed_name:
-            return _cap(collapsed_name)
+        given_name = _one_line(name)
+        if given_name:
+            return _cap(given_name)
 
-    prefix = f"{tasks[0].type}: "
+    prefix = f"{_one_line(tasks[0].type)}: "
     suffix = f" (+{len(tasks) - 1})" if len(tasks) > 1 else ""
-    # Collapse whitespace before measuring room for the title: a task file is
-    # hand-editable, and a raw newline inside a `/rename` argument would submit
-    # the line early and leave the rest sitting in the prompt box as text.
-    title = " ".join(tasks[0].title.split())
+    # Cleaned before the room for it is measured, on both paths, so nothing
+    # removed later can shorten a line that was already capped to fit.
+    title = _one_line(tasks[0].title)
     if not title:
         return ""
 
@@ -141,7 +168,15 @@ def _cap(text: str, limit: int = SESSION_NAME_LIMIT) -> str:
 
     A single `…` rather than three dots, so a capped string is exactly `limit`
     characters long instead of `limit + 2`.
+
+    A limit below 1 has no room even for the ellipsis, so it yields nothing at
+    all. Without that guard `limit == 0` reaches `text[:-1]` — dropping one
+    character and appending an ellipsis, i.e. returning very nearly the whole
+    string for a limit of zero. `session_name`'s own `room < 1` branch means no
+    caller reaches it today; the next one passing a computed limit would.
     """
+    if limit < 1:
+        return ""
     if len(text) <= limit:
         return text
     return text[:limit - 1] + "…"

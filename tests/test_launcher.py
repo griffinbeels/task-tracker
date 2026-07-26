@@ -255,6 +255,65 @@ def test_a_newline_in_a_title_never_reaches_the_command_line():
     assert launcher.session_name([task]) == "FEATURE: Rename the spawned session"
 
 
+def test_an_escape_in_a_title_never_reaches_the_command_line():
+    # str.split() removes \n and \t but not ESC, NUL, BEL or backspace, and a
+    # double-quoted YAML scalar in a hand-edited task file can express \e.
+    task = make_task(1, "Rename\x1bthe \x00spawned\x07 session\x08", "FEATURE", "b")
+
+    name = launcher.session_name([task])
+
+    assert "\x1b" not in name
+    assert name == "FEATURE: Renamethe spawned session"
+
+
+def test_a_title_cannot_close_the_bracketed_paste_it_is_typed_inside():
+    # The line goes out as PASTE_START + line + PASTE_END and is then followed
+    # by its own \r. A title carrying an END marker would close the paste
+    # early, putting everything after it outside the paste for that \r to
+    # submit — into a session spawned with --dangerously-skip-permissions.
+    task = make_task(1, f"Fix it{launcher.console_input.PASTE_END}/exit", "FEATURE", "b")
+
+    name = launcher.session_name([task])
+
+    assert launcher.console_input.PASTE_END not in name
+    assert "\x1b" not in name
+    assert name == "FEATURE: Fix it[201~/exit"
+
+
+def test_a_given_name_is_stripped_of_control_characters_too():
+    # The given-name path returns before the title path is ever reached, so it
+    # needs its own defence rather than inheriting the title's.
+    task = make_task(1, "Short", "FEATURE", "b")
+
+    name = launcher.session_name([task], f"Editor\x1b polish{launcher.console_input.PASTE_END}")
+
+    assert "\x1b" not in name
+    assert name == "Editor polish[201~"
+
+
+def test_a_name_of_nothing_but_control_characters_is_not_a_name():
+    # Nothing survives the clean, so it is not "given" and the first task's
+    # title names the session instead.
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task], "\x1b\x00") == "FEATURE: Rename the spawned session"
+
+
+def test_a_control_character_in_a_type_name_is_stripped_as_well():
+    # Type names are hand-editable settings and prefix the same submitted
+    # line, so they are the same class of input as the title.
+    task = make_task(1, "Replay audio desync", "B\x1bUG", "b")
+
+    assert launcher.session_name([task]) == "BUG: Replay audio desync"
+
+
+def test_capping_to_no_room_at_all_yields_nothing():
+    # text[:limit - 1] with limit 0 is text[:-1] — very nearly the whole
+    # string, for a limit of zero. Unreachable from session_name today; the
+    # next caller passing a computed limit is who this is for.
+    assert launcher._cap("Rename the spawned session", 0) == ""
+
+
 def test_a_long_title_is_capped_but_the_count_survives():
     tasks = [make_task(1, "R" * 200, "FEATURE", "b"),
              make_task(2, "Second", "FEATURE", "b"),

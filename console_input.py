@@ -244,7 +244,14 @@ def submit(pid: int, line: str, timeout: float = COMMAND_TIMEOUT) -> bool:
     event carrying the whole line, so the popup never sees a partial token and
     has nothing to select — only then is the Enter, a separate write, safe to
     send.
+
+    An empty line is nothing to submit: writing empty paste markers and then
+    pressing Enter would send a blank prompt to the session. `setup_commands`
+    never produces one, but this and `paste` are read as a pair and refuse an
+    empty argument the same way.
     """
+    if not line:
+        return False
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with _attached(pid) as attached:
