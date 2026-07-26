@@ -185,7 +185,7 @@ class Api:
 
     def save_settings(self, payload):
         settings = registry.Settings(
-            wip_limit=int(payload["wip_limit"]),
+            group_limit=int(payload["group_limit"]),
             stale_days=int(payload["stale_days"]),
             types=[registry.TaskType(**t) for t in payload["types"]],
         )

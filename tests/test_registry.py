@@ -14,19 +14,19 @@ def isolated_config(tmp_path, monkeypatch):
 def test_settings_default_when_no_file_exists():
     settings = registry.load_settings()
 
-    assert settings.wip_limit == 5
+    assert settings.group_limit == 5
     assert settings.stale_days == 90
     assert [t.name for t in settings.types] == ["BUG", "FEATURE", "ITERATION"]
 
 
 def test_settings_round_trip(tmp_path):
     settings = registry.load_settings()
-    settings.wip_limit = 3
+    settings.group_limit = 3
     settings.types.append(registry.TaskType("CHORE", "#8e8e8e"))
     registry.save_settings(settings)
 
     reloaded = registry.load_settings()
-    assert reloaded.wip_limit == 3
+    assert reloaded.group_limit == 3
     assert [t.name for t in reloaded.types] == ["BUG", "FEATURE", "ITERATION", "CHORE"]
 
 
@@ -98,6 +98,34 @@ def test_corrupt_projects_json_falls_back_to_empty(tmp_path):
     (registry.CONFIG_DIR / "projects.json").write_text("{not json", encoding="utf-8", newline="\n")
 
     assert registry.load_projects() == []
+
+
+def test_an_old_settings_file_carries_its_wip_limit_over(tmp_path):
+    # The limit used to count tasks and was called wip_limit. A user's existing
+    # settings.json must keep their number rather than silently reverting to 5.
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "settings.json").write_text(
+        json.dumps({"wip_limit": 3, "stale_days": 90, "types": []}),
+        encoding="utf-8", newline="\n")
+
+    assert registry.load_settings().group_limit == 3
+
+
+def test_the_new_key_wins_over_the_old_one(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "settings.json").write_text(
+        json.dumps({"group_limit": 7, "wip_limit": 3, "types": []}),
+        encoding="utf-8", newline="\n")
+
+    assert registry.load_settings().group_limit == 7
+
+
+def test_saving_drops_the_old_key(tmp_path):
+    registry.save_settings(registry.Settings(group_limit=4))
+
+    raw = json.loads((registry.CONFIG_DIR / "settings.json").read_text(encoding="utf-8"))
+    assert raw["group_limit"] == 4
+    assert "wip_limit" not in raw
 
 
 def test_unknown_keys_in_projects_json_are_ignored(tmp_path):

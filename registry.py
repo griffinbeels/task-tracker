@@ -33,7 +33,11 @@ def default_types() -> list[TaskType]:
 
 @dataclass
 class Settings:
-    wip_limit: int = 5
+    # Named for what it counts: concurrent Claude sessions, one per group. Ten
+    # tasks handed to one session are one window, not ten — a field called
+    # wip_limit that counted groups would be the kind of quiet mismatch that
+    # costs an hour later, so the key on disk was renamed with it.
+    group_limit: int = 5
     stale_days: int = 90
     types: list[TaskType] = field(default_factory=default_types)
 
@@ -104,7 +108,10 @@ def load_settings() -> Settings:
         return Settings()
     defaults = Settings()
     return Settings(
-        wip_limit=raw.get("wip_limit", defaults.wip_limit),
+        # wip_limit is the pre-groups name for this setting. Reading it as a
+        # fallback is what lets an existing settings.json keep the user's
+        # number; nothing writes it any more, so it drops out on the next save.
+        group_limit=raw.get("group_limit", raw.get("wip_limit", defaults.group_limit)),
         stale_days=raw.get("stale_days", defaults.stale_days),
         types=[TaskType(**t) for t in raw.get("types", [])] or default_types(),
     )
