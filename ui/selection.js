@@ -43,3 +43,22 @@ document.getElementById('selection-clear').onclick = () => {
     .forEach(box => { box.checked = false; });
   renderSelectionBar();
 };
+
+document.getElementById('selection-done').onclick = async () => {
+  const picked = selectedInOneProject();
+  if (!picked || !picked.ids.length) return;
+  if (await callApi('complete_tasks', picked.project, picked.ids) === API_FAILED) return;
+  await refresh();
+};
+
+document.getElementById('selection-delete').onclick = async () => {
+  const picked = selectedInOneProject();
+  if (!picked || !picked.ids.length) return;
+  // confirm() has not been proven to render in this app's WebView2 host — if
+  // it is suppressed it returns false and nothing is deleted, which is the
+  // safe direction.
+  const what = picked.ids.length === 1 ? 'this task' : `these ${picked.ids.length} tasks`;
+  if (!confirm(`Delete ${what}? The markdown file is erased. This cannot be undone.`)) return;
+  if (await callApi('delete_tasks', picked.project, picked.ids) === API_FAILED) return;
+  await refresh();
+};
