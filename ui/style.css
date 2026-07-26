@@ -26,6 +26,16 @@ input[type="checkbox"] { margin: 0; flex: none; }
 
 .empty-hint { opacity: .5; margin: 20px 2px; max-width: 46ch; line-height: 1.7;
               white-space: normal; }
+/* Same trap as .overlay, .chips and .field: this rule sets its own display,
+   so a bare [hidden] attribute loses to it at equal specificity. */
+#handoff-name { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#handoff-name[hidden] { display: none; }
+#handoff-name .field-label { flex: none; }
+#handoff-name-input { flex: 1; font: inherit; height: 28px; padding: 0 8px;
+                       box-sizing: border-box; color: inherit; border-radius: 5px;
+                       background: transparent; border: 1px solid rgba(127, 127, 127, .28); }
+#handoff-name-input:focus { outline: none; background: rgba(127, 127, 127, .10);
+                            border-color: rgba(127, 127, 127, .4); }
 #wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
                font-size: 11px; margin-bottom: 8px; }
 #wip-warning[hidden] { display: none; }

@@ -160,6 +160,59 @@ function selectedIds() {
                   id: Number(el.closest('.task').dataset.id) }));
 }
 
+// Same shape as `selected` below in each caller, extracted so the row's
+// visibility test (two-or-more, one project) is written exactly once. A
+// single ticked task is already named by its own title — a box for it would
+// be redundant chrome in a 420px window — and a mixed-project selection is
+// spin-up's own problem to reject, not this row's: calling
+// suggest_session_name with one project's name against another's ids would
+// raise, so this simply declines to fetch rather than duplicating that check.
+function nameableSelection() {
+  const selected = selectedIds();
+  const projects = new Set(selected.map(s => s.project));
+  if (selected.length < 2 || projects.size > 1) return null;
+  return { project: [...projects][0], ids: selected.map(s => s.id) };
+}
+
+// The suggestion is fetched from the backend, never composed here, so the
+// placeholder shows exactly what hand_off will do with a blank box — a
+// second copy of the naming rule in JS would be free to drift from
+// launcher.session_name (see Api.suggest_session_name's own docstring).
+async function renderHandoffName() {
+  const row = document.getElementById('handoff-name');
+  const nameable = nameableSelection();
+  if (!nameable) { row.hidden = true; return; }
+  const placeholder = await callApi('suggest_session_name', nameable.project, nameable.ids);
+  // Selections change faster than a bridge round-trip. Compare the selection
+  // this response was fetched for against the selection now, and drop the
+  // response if the user ticked or unticked a box while it was in flight —
+  // otherwise a slow response for an old selection could land after a fast
+  // one for a newer selection and silently show the wrong suggestion.
+  const stillNameable = nameableSelection();
+  const sameSelection = stillNameable
+    && stillNameable.project === nameable.project
+    && stillNameable.ids.length === nameable.ids.length
+    && stillNameable.ids.every((id, index) => id === nameable.ids[index]);
+  if (!sameSelection) return;
+  if (placeholder === API_FAILED) { row.hidden = true; return; }
+  row.hidden = false;
+  // suggest_session_name legitimately returns "" for a selection it cannot
+  // name (e.g. a blank first title) — that is a falsy but valid placeholder,
+  // not a failure, which is why the check above compares against API_FAILED
+  // rather than truthiness.
+  document.getElementById('handoff-name-input').placeholder = placeholder;
+}
+
+// Delegated rather than attached per-row: render() rebuilds the task list
+// with replaceChildren on every redraw, which would detach a listener bound
+// to an individual checkbox. Bound once here, at load — inside render()
+// this would stack a duplicate listener on every call. Guarded on .select
+// so a bucket-dropdown change (also a `change` event inside #task-list)
+// does not retrigger this.
+document.getElementById('task-list').addEventListener('change', event => {
+  if (event.target.classList.contains('select')) renderHandoffName();
+});
+
 document.getElementById('spin-up').onclick = async () => {
   const selected = selectedIds();
   // Ids are per-project, so a mixed selection cannot be handed to one
@@ -170,7 +223,15 @@ document.getElementById('spin-up').onclick = async () => {
   // project you are looking at and leave its prompt empty.
   const project = projects.size ? [...projects][0] : currentProject;
   if (!project) return;
-  if (await callApi('hand_off', project, selected.map(s => s.id)) === API_FAILED) return;
+  const nameRow = document.getElementById('handoff-name');
+  const nameInput = document.getElementById('handoff-name-input');
+  // Below two selections the row is hidden and its value may be stale from
+  // an earlier, larger selection — passing it here would silently name a
+  // single-task session after a batch that was since abandoned.
+  const name = nameRow.hidden ? '' : nameInput.value.trim();
+  if (await callApi('hand_off', project, selected.map(s => s.id), name) === API_FAILED) return;
+  // Otherwise the next batch inherits this one's name.
+  nameInput.value = '';
   await refresh();
 };
 
@@ -269,6 +330,7 @@ function render() {
     }
   }
   renderWipWarning();
+  renderHandoffName();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');
   badFiles.hidden = unreadable.length === 0;
