@@ -49,22 +49,27 @@ document.getElementById('selection-clear').onclick = () => {
 // above, Done asks first, in the same shape as Delete's dialog below.
 const DONE_CONFIRM_THRESHOLD = 3;
 
+// Both the selection bar and a group header (ui/groups.js) complete many
+// tasks at once, and they must ask the same question and recover the same
+// way. One function, so they cannot drift.
+async function completeTasksWithConfirm(project, ids) {
+  if (!ids.length) return;
+  if (ids.length >= DONE_CONFIRM_THRESHOLD && !confirm(
+      `Mark ${ids.length} tasks done? They move to .tasks/done/ and `
+      + `the app has no way back.`)) return;
+  // Refresh whether or not the call succeeded: complete_tasks (like
+  // delete_tasks below) validates every id up front but then acts
+  // file-by-file, so a failure partway through can still leave earlier tasks
+  // moved to done/. Refreshing on the failure path too is what stops the
+  // list drawing rows for tasks that already left this bucket.
+  await callApi('complete_tasks', project, ids);
+  await refresh();
+}
+
 document.getElementById('selection-done').onclick = async () => {
   const picked = selectedInOneProject();
-  if (!picked || !picked.ids.length) return;
-  if (picked.ids.length >= DONE_CONFIRM_THRESHOLD && !confirm(
-      `Mark ${picked.ids.length} tasks done? They move to .tasks/done/ and `
-      + `the app has no way back.`)) return;
-  if (await callApi('complete_tasks', picked.project, picked.ids) === API_FAILED) {
-    // Unlike most callApi failures, this one can be partial: complete_tasks
-    // (like delete_tasks below) validates every id up front but then acts
-    // file-by-file, so a failure partway through can still leave earlier
-    // tasks moved to done/. Refresh anyway, so the list stops drawing rows
-    // for tasks that already left this bucket.
-    await refresh();
-    return;
-  }
-  await refresh();
+  if (!picked) return;
+  await completeTasksWithConfirm(picked.project, picked.ids);
 };
 
 document.getElementById('selection-delete').onclick = async () => {
