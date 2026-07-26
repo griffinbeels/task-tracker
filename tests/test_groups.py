@@ -124,3 +124,76 @@ def test_an_unknown_task_id_is_rejected_by_name(tmp_path):
         groups.assign(tmp_path, [999], "G")
 
     assert "999" in str(caught.value)
+
+
+def test_rename_rewrites_every_member(tmp_path):
+    first, second = seed_bucket(tmp_path, ["One", "Two"])
+    groups.assign(tmp_path, [first.id, second.id], "Editor polish")
+
+    groups.rename(tmp_path, "Editor polish", "Editor overhaul")
+
+    assert {t.group for t in store.list_tasks(tmp_path)} == {"Editor overhaul"}
+
+
+def test_rename_refuses_to_collide_with_another_group(tmp_path):
+    first, second = seed_bucket(tmp_path, ["One", "Two"])
+    groups.assign(tmp_path, [first.id], "Editor polish")
+    groups.assign(tmp_path, [second.id], "Drag fixes")
+
+    with pytest.raises(ValueError):
+        groups.rename(tmp_path, "Drag fixes", "editor polish")
+
+    assert by_id(tmp_path)[second.id].group == "Drag fixes"
+
+
+def test_rename_allows_changing_only_the_case_of_its_own_name(tmp_path):
+    first, = seed_bucket(tmp_path, ["One"])
+    groups.assign(tmp_path, [first.id], "editor polish")
+
+    groups.rename(tmp_path, "editor polish", "Editor Polish")
+
+    assert by_id(tmp_path)[first.id].group == "Editor Polish"
+
+
+def test_rename_refuses_an_empty_name(tmp_path):
+    first, = seed_bucket(tmp_path, ["One"])
+    groups.assign(tmp_path, [first.id], "G")
+
+    with pytest.raises(ValueError):
+        groups.rename(tmp_path, "G", "   ")
+
+
+def test_rename_refuses_a_group_with_no_members(tmp_path):
+    with pytest.raises(ValueError):
+        groups.rename(tmp_path, "Never existed", "Something")
+
+
+def test_disband_clears_the_field_and_leaves_the_order_alone(tmp_path):
+    one, two, three = seed_bucket(tmp_path, ["One", "Two", "Three"])
+    groups.assign(tmp_path, [one.id, two.id], "G")
+    before = orders(tmp_path)
+
+    groups.disband(tmp_path, "G")
+
+    assert all(t.group is None for t in store.list_tasks(tmp_path))
+    assert orders(tmp_path) == before
+
+
+def test_set_bucket_moves_every_member_to_the_end_of_the_target(tmp_path):
+    resident, = seed_bucket(tmp_path, ["Already in next"], "next")
+    first, second = seed_bucket(tmp_path, ["One", "Two"], "now")
+    groups.assign(tmp_path, [first.id, second.id], "G")
+
+    groups.set_bucket(tmp_path, "G", "next")
+
+    tasks = by_id(tmp_path)
+    assert {tasks[first.id].bucket, tasks[second.id].bucket} == {"next"}
+    assert orders(tmp_path) == {resident.id: 0, first.id: 1, second.id: 2}
+
+
+def test_set_bucket_rejects_an_unknown_bucket(tmp_path):
+    first, = seed_bucket(tmp_path, ["One"])
+    groups.assign(tmp_path, [first.id], "G")
+
+    with pytest.raises(ValueError):
+        groups.set_bucket(tmp_path, "G", "urgent")

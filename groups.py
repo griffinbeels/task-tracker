@@ -146,6 +146,72 @@ def unique_name(project_path: Path, seed: str) -> str:
     return f"{seed} {suffix}"
 
 
+def rename(project_path: Path, old: str, new: str) -> str:
+    """Give a group a different name, rewriting every member.
+
+    The name is the identity, so a collision would silently merge two groups
+    and destroy one of the names — refused. Changing only the case of a group's
+    own name is allowed, since that is the same group.
+    """
+    new = _clean(new)
+    tasks = _live_tasks(project_path)
+    members = [task for task in tasks if task.group == old]
+    if not members:
+        raise ValueError(f"no group named {old} in this project")
+    if any(task.group and task.group != old
+           and task.group.casefold() == new.casefold() for task in tasks):
+        raise ValueError(f"a group named {new} already exists in this project")
+
+    for task in members:
+        task.group = new
+        store.save_task(task)
+    return new
+
+
+def disband(project_path: Path, name: str) -> None:
+    """Dissolve a group, leaving its members loose and where they were.
+
+    The undo for a mis-drag. Members are already contiguous so the renumber is
+    a no-op, which is why it is called unconditionally rather than reasoned
+    about.
+    """
+    touched = set()
+    for task in _live_tasks(project_path):
+        if task.group != name:
+            continue
+        touched.add(task.bucket)
+        task.group = None
+        store.save_task(task)
+    for one_bucket in touched:
+        renumber(project_path, one_bucket)
+
+
+def set_bucket(project_path: Path, name: str, bucket: str) -> None:
+    """Move a whole group, which is the only way a member changes bucket.
+
+    A group is one unit of work handed to one session; letting a single member
+    drift into another bucket would make it render in two places at once. The
+    group lands at the end of the target bucket, in its own internal order.
+    """
+    if bucket not in store.BUCKETS:
+        raise ValueError(f"unknown bucket: {bucket}")
+    tasks = _live_tasks(project_path)
+    members = [task for task in tasks if task.group == name]
+    if not members:
+        raise ValueError(f"no group named {name} in this project")
+
+    tail = max((task.order for task in tasks
+                if task.bucket == bucket and task.group != name), default=-1) + 1
+    touched = {bucket}
+    for offset, task in enumerate(sorted(members, key=lambda t: (t.order, t.id))):
+        touched.add(task.bucket)
+        task.bucket = bucket
+        task.order = tail + offset
+        store.save_task(task)
+    for one_bucket in touched:
+        renumber(project_path, one_bucket)
+
+
 def remove(project_path: Path, task_ids) -> None:
     """Take exactly these tasks out of whatever group they are in."""
     tasks = _live_tasks(project_path)
