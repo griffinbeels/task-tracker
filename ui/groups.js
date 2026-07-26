@@ -34,6 +34,15 @@ function groupMemberCount(project, name) {
     t => t.project === project && t.group === name && t.status !== 'done').length;
 }
 
+// A <select> or button inside draggable="true" can start a drag instead of
+// doing its own job in Chromium — the dropdown never opens and nothing says
+// why. Suspend the header's draggability while the pointer is on the control.
+function releaseDragWhileUsing(control, header) {
+  control.addEventListener('mousedown', () => { header.draggable = false; });
+  control.addEventListener('mouseup', () => { header.draggable = true; });
+  control.addEventListener('mouseleave', () => { header.draggable = true; });
+}
+
 function groupBlock(block, options = {}) {
   const { showBucket = true, showDisband = true, showReset = false,
           draggable = true } = options;
@@ -68,6 +77,7 @@ function groupBlock(block, options = {}) {
     ? `${total}` : `${block.tasks.length} of ${total}`;
 
   header.append(selectAll, name, count);
+  releaseDragWhileUsing(selectAll, header);
 
   if (showBucket) {
     // The group owns the bucket. Moving it moves every member, which is what
@@ -87,6 +97,7 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(picker);
+    releaseDragWhileUsing(picker, header);
   }
 
   if (showReset) {
@@ -100,6 +111,7 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(reset);
+    releaseDragWhileUsing(reset, header);
   }
 
   if (showDisband) {
@@ -113,6 +125,7 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(disband);
+    releaseDragWhileUsing(disband, header);
   }
 
   const rows = block.tasks.map(task => taskRow(task, {
