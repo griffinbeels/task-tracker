@@ -128,6 +128,12 @@ function openEditor(context) {
   // exist; capture and triage always need it, so reset it visible on every
   // open rather than only ever setting it hidden.
   document.getElementById('editor-projects').hidden = editorContext.mode === 'edit';
+  // "File" is what you do to something that isn't a task yet. Editing one is a
+  // save, and a button that names the wrong action is wrong however correct
+  // the code behind it is. Set on every open so the label can't stick from
+  // whichever mode ran last.
+  document.getElementById('editor-save').textContent =
+    editorContext.mode === 'edit' ? 'Save' : 'File';
 
   if (editorContext.mode === 'capture') {
     showEditorActions(['editor-save', 'editor-later', 'editor-cancel']);
