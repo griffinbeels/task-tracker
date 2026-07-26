@@ -421,6 +421,45 @@ show two unrelated tasks under one id at different points in time.
   not just the button's. Narrow the window and the picker must shrink rather
   than pushing ⚙ off the row.
 
+## Parallel features (worktrees)
+
+`main` is the only long-lived branch and the **primary checkout stays on it**.
+Features are built in worktrees that branch from local `main` HEAD and merge
+back. Sequential solo work can commit straight to `main`.
+
+- **Worktrees live at `.claude/worktrees/<slug>` on `feature/<slug>`**, inside
+  the repo and git-ignored. `/start-feature` creates them; `/wrap-feature`
+  verifies, merges to `main`, and removes them.
+- **Branch from local `main` HEAD, never from `origin`** — origin is usually
+  stale, and never from another feature branch unless the work genuinely
+  depends on it.
+- **Each worktree needs its own `.venv`** (`uv venv --python 3.12 .venv`, then
+  `uv pip install --python ".venv\Scripts\python.exe" pywebview pyperclip
+  pyyaml pytest`). There is no shared one.
+- **Run the suite from the worktree root**, always with a relative path:
+  `Set-Location <worktree>; & ".venv\Scripts\python.exe" -m pytest tests/ -q`.
+  Pointing pytest at another checkout's `tests/` imports *this* tree's modules
+  against *that* tree's tests and reports a wall of assertion failures that
+  reads exactly like the branch being broken.
+
+Three things went wrong on 2026-07-25, building three features in parallel.
+Each is cheap to avoid and expensive to diagnose:
+
+1. **The primary checkout drifted onto a feature branch.** `run.bat` then
+   launched an app built from files that did not contain the feature under
+   test, for an hour, while `main` had it the whole time. If the app behaves
+   as though a merged feature is absent, check `git rev-parse --abbrev-ref
+   HEAD` in the folder you launched from *before* debugging the feature.
+2. **A worktree follows its branch's ref; its files do not.** A merge worktree
+   created at one commit had HEAD resolving to a newer one minutes later,
+   because a sibling advanced the branch — while its working files were still
+   the old ones. `git log --oneline -1` immediately before merging.
+3. **Renames cross branches badly.** A branch cut before `#wip-warning` became
+   `#group-limit-warning` carried a call to a function that no longer existed.
+   There is no JS test runner here, so nothing failed — it would simply have
+   thrown at runtime. After merging any UI branch, grep for the old name and
+   run `node --check ui/*.js`.
+
 ## Known gaps
 
 Three spec behaviours were never implemented, and the deferred findings from the

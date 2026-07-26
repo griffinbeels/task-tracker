@@ -3,3 +3,15 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Parallel-feature worktrees (each is an isolated checkout; never tracked).
+# They live INSIDE the repo on purpose. A worktree parked in a sibling folder
+# is easy to lose track of, and the cost is not theoretical: three features
+# were built in `../task_tracker-worktrees/` on 2026-07-25, the primary
+# checkout drifted onto a feature branch, and the app was launched for an hour
+# from a tree that did not contain the code being tested. Keeping them here
+# means one `git worktree list` from the repo root shows every checkout, and
+# this rule is what stops a nested checkout showing up as untracked junk in
+# the parent's `git status`.
+.claude/worktrees/
+.worktrees/
