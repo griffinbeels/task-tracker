@@ -289,3 +289,56 @@ def test_reset_to_open_refuses_a_completed_task(tmp_path):
 
     with pytest.raises(ValueError):
         store.reset_to_open(task)
+
+
+def test_delete_task_removes_the_file(tmp_path):
+    task = store.create_task(tmp_path, "Gone", "body", "BUG")
+    path = task.path
+
+    store.delete_task(task)
+
+    assert not path.exists()
+    assert store.list_tasks(tmp_path) == []
+
+
+def test_delete_task_leaves_the_other_tasks_alone(tmp_path):
+    keep = store.create_task(tmp_path, "Keep", "body", "BUG")
+    doomed = store.create_task(tmp_path, "Doomed", "body", "BUG")
+
+    store.delete_task(doomed)
+
+    assert [t.id for t in store.list_tasks(tmp_path)] == [keep.id]
+
+
+def test_delete_task_leaves_attachments_behind(tmp_path):
+    # Attachments are deliberately never garbage-collected: reference counting
+    # across hand-editable files is not worth the machinery. Deleting the task
+    # that referenced one must not start doing it by the back door.
+    task = store.create_task(tmp_path, "Has a screenshot", "body", "BUG")
+    pixel = store.save_attachment(
+        tmp_path,
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+
+    store.delete_task(task)
+
+    assert pixel.exists()
+
+
+def test_delete_task_refuses_a_task_with_no_path():
+    task = store.Task(id=1, title="Unsaved", type="BUG", bucket="now",
+                      status="open", order=0, created="2026-07-25",
+                      started=None, done=None, body="body")
+
+    with pytest.raises(ValueError):
+        store.delete_task(task)
+
+
+def test_delete_task_tolerates_a_file_already_gone(tmp_path):
+    task = store.create_task(tmp_path, "Gone twice", "body", "BUG")
+
+    store.delete_task(task)
+    store.delete_task(task)
+
+    assert store.list_tasks(tmp_path) == []

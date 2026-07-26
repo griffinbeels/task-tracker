@@ -288,6 +288,18 @@ def complete_task(task: Task) -> Task:
     return save_task(task)
 
 
+def delete_task(task: Task) -> None:
+    """Unlink the task's file and nothing else.
+
+    No attachment cleanup (they are deliberately never garbage-collected, see
+    save_attachment) and no renumber — that is the caller's job, since
+    store.py must not import groups.py, which imports store.
+    """
+    if task.path is None:
+        raise ValueError("task has no path")
+    task.path.unlink(missing_ok=True)
+
+
 def reset_to_open(task: Task) -> Task:
     """Retract the claim that this task was ever started.
 
