@@ -182,3 +182,75 @@ def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     assert returned.startswith("file:///")
     assert "\\" not in returned
     assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"
+
+
+def test_create_group_dedupes_the_seed(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    third = store.create_task(repo, "Three", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id], "Editor polish")
+
+    name = app.Api().create_group("repo", [second.id, third.id], "Editor polish")
+
+    assert name == "Editor polish 2"
+
+
+def test_rename_group_reports_a_collision(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id], "Editor polish")
+    app.Api().group_tasks("repo", [second.id], "Drag fixes")
+
+    with pytest.raises(ValueError):
+        app.Api().rename_group("repo", "Drag fixes", "Editor polish")
+
+
+def test_set_group_bucket_rejects_an_unknown_bucket(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "One", "body", "BUG")
+    app.Api().group_tasks("repo", [task.id], "G")
+
+    with pytest.raises(ValueError):
+        app.Api().set_group_bucket("repo", "G", "urgent")
+
+
+def test_ungroup_tasks_leaves_the_rest_of_the_group(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "G")
+
+    app.Api().ungroup_tasks("repo", [second.id])
+
+    by_id = {t.id: t for t in store.list_tasks(repo)}
+    assert by_id[first.id].group == "G"
+    assert by_id[second.id].group is None
+
+
+def test_disband_group_loosens_every_member(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "G")
+
+    app.Api().disband_group("repo", "G")
+
+    assert all(t.group is None for t in store.list_tasks(repo))
+
+
+def test_reset_to_open_returns_the_updated_tasks(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "One", "body", "BUG")
+    task.status = "in-progress"
+    task.started = "2026-07-20"
+    store.save_task(task)
+
+    updated = app.Api().reset_to_open("repo", [task.id])
+
+    assert updated[0]["status"] == "open"
+    assert updated[0]["started"] is None
+    assert updated[0]["project"] == "repo"
+    # Task.path is a Path, which does not survive the bridge as JSON.
+    assert "path" not in updated[0]

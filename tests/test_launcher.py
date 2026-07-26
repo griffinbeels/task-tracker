@@ -211,6 +211,32 @@ def test_spawn_skips_permission_prompts_by_default(monkeypatch):
     assert captured["args"] == ["claude", "--dangerously-skip-permissions"]
 
 
+def test_grouping_on_hand_off_does_not_change_what_is_typed(
+        tmp_path, monkeypatch, spawned):
+    """Auto-grouping records intent; it must never touch the prompt.
+
+    It also has to run AFTER launcher.hand_off returns. hand_off saves the Task
+    objects it was handed, so grouping first would leave those objects stale
+    and the save would silently discard the group.
+    """
+    import app
+    import registry
+
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path / "config")
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    registry.add_project("repo", str(repo))
+    first = store.create_task(repo, "First", "body one", "BUG")
+    second = store.create_task(repo, "Second", "body two", "FEATURE")
+
+    prompt = app.Api().hand_off("repo", [first.id, second.id])
+
+    assert prompt == "BUG: body one\nFEATURE: body two"
+    assert {t.group for t in store.list_tasks(repo)} == {"First"}
+    assert {t.status for t in store.list_tasks(repo)} == {"in-progress"}
+
+
 # What the spawned session's environment must look like is tested in
 # tests/test_user_environment.py — it is now rebuilt from Windows rather than
 # filtered out of this process's own environment.

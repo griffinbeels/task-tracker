@@ -7,6 +7,7 @@ from pathlib import Path
 
 import webview
 
+import groups
 import inbox
 import launcher
 import migrate
@@ -22,6 +23,17 @@ def _project(name: str) -> registry.Project:
         if project.name == name:
             return project
     raise ValueError(f"unknown project: {name}")
+
+
+def _text(value, field: str) -> str:
+    """Refuse anything but a string, rather than coercing it.
+
+    A group name arrives from JS, where a number is a perfectly ordinary value.
+    str(5) would create a group called "5" and look like it worked.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    return value
 
 
 def _task_dict(task: store.Task, project_name: str) -> dict:
@@ -163,6 +175,46 @@ class Api:
         project = _project(project_name)
         store.reorder_bucket(Path(project.path), bucket, [int(i) for i in ordered_ids])
 
+    def group_tasks(self, project_name, task_ids, name):
+        """Put these tasks in that EXACT group. Use create_group for a seed."""
+        project = _project(project_name)
+        return groups.assign(Path(project.path), [int(i) for i in task_ids],
+                             _text(name, "name"))
+
+    def create_group(self, project_name, task_ids, seed):
+        """Put these tasks in a NEW group named after `seed`, deduped."""
+        project = _project(project_name)
+        return groups.create(Path(project.path), [int(i) for i in task_ids],
+                             _text(seed, "seed"))
+
+    def ungroup_tasks(self, project_name, task_ids):
+        project = _project(project_name)
+        groups.remove(Path(project.path), [int(i) for i in task_ids])
+
+    def rename_group(self, project_name, old, new):
+        project = _project(project_name)
+        return groups.rename(Path(project.path), _text(old, "old"), _text(new, "new"))
+
+    def disband_group(self, project_name, name):
+        project = _project(project_name)
+        groups.disband(Path(project.path), _text(name, "name"))
+
+    def set_group_bucket(self, project_name, name, bucket):
+        project = _project(project_name)
+        groups.set_bucket(Path(project.path), _text(name, "name"),
+                          _text(bucket, "bucket"))
+
+    def reset_to_open(self, project_name, task_ids):
+        """Retract "in progress" for these tasks — see store.reset_to_open."""
+        project = _project(project_name)
+        wanted = [int(i) for i in task_ids]
+        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
+        missing = [i for i in wanted if i not in by_id]
+        if missing:
+            raise ValueError(f"no such task in {project_name}: {missing}")
+        return [_task_dict(store.reset_to_open(by_id[i]), project_name)
+                for i in wanted]
+
     def copy_task_prompt(self, project_name, task_id):
         """The task's hand-off text, on the clipboard. Nothing is written.
 
@@ -181,7 +233,15 @@ class Api:
         if missing:
             raise ValueError(f"no such task in {project_name}: {missing}")
         tasks = [by_id[i] for i in wanted]
-        return launcher.hand_off(Path(project.path), tasks, project.launch)
+        prompt = launcher.hand_off(Path(project.path), tasks, project.launch)
+        # After the hand-off, never before. launcher.hand_off saves the Task
+        # objects above; grouping first would rewrite those same files and
+        # leave these objects stale, so the save would silently discard the
+        # group. Going second also means a session that failed to start leaves
+        # nothing grouped, matching the guarantee that a failed spawn leaves
+        # tasks untouched.
+        groups.auto_group(Path(project.path), wanted)
+        return prompt
 
     def save_settings(self, payload):
         settings = registry.Settings(
