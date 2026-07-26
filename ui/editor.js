@@ -200,8 +200,18 @@ document.getElementById('editor-title').addEventListener('input', () => { titleI
 document.getElementById('editor-save').onclick = async () => {
   const title = document.getElementById('editor-title').value.trim();
   // A title and a resolved project/type are non-negotiable in every mode;
-  // everything else has a default.
-  if (!title || !editorContext.project || !editorContext.type) return;
+  // everything else has a default. Say so rather than doing nothing — a
+  // button that silently declines to work reads as broken, and the missing
+  // title is not obvious when the body is full of prose.
+  if (!title) {
+    document.getElementById('editor-title').focus();
+    alert('Give it a title first — it is what you will see in the list.');
+    return;
+  }
+  if (!editorContext.project || !editorContext.type) {
+    alert('Pick a project and a type first.');
+    return;
+  }
 
   const body = getEditor().getMarkdown();
 

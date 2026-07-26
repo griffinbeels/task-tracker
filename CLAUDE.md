@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 81 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 107 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve

@@ -38,6 +38,11 @@ async function openTriage() {
   if (notes === API_FAILED) return;
   triageQueue = notes;
   triageIndex = 0;
+  // Carrying picks forward is meant to speed up a run of similar notes within
+  // one pass — not to inherit whatever the last thing you edited happened to
+  // be. A fresh pass starts from the defaults, so clear the context the notes
+  // would otherwise read their starting point from.
+  editorContext = null;
   openTriageNote();
 }
 

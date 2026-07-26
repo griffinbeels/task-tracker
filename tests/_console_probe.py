@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import console_input  # noqa: E402
+import launcher  # noqa: E402
 
 
 def run_child(log_path: str) -> None:
@@ -37,9 +38,13 @@ def run_child(log_path: str) -> None:
 def run_parent() -> None:
     log_path = str(Path(__file__).with_name("_console_probe_log.txt"))
     Path(log_path).unlink(missing_ok=True)
+    # Opened without activating it, for the same reason spawn_claude does —
+    # this window pops up while someone is typing elsewhere, and a test that
+    # steals focus is exactly the behaviour the code under test forbids.
     child = subprocess.Popen(
         [sys.executable, __file__, "child", log_path],
-        creationflags=subprocess.CREATE_NEW_CONSOLE)
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        startupinfo=launcher.unfocused_startup())
     typed = console_input.paste(child.pid, "hello there", timeout=20)
     child.wait(timeout=30)
     received = Path(log_path).read_text(encoding="utf-8")

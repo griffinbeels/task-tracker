@@ -61,7 +61,11 @@ def _parse_block(address: int) -> dict[str, str]:
         # which is bookkeeping cmd.exe owns, not part of the environment.
         if name and separator:
             entries[name] = value
-        address += (len(entry) + 1) * ctypes.sizeof(ctypes.c_wchar)
+        # Advance by UTF-16 code units, not Python characters. Anything
+        # outside the BMP is one character here and two units in the block, so
+        # len() would leave the cursor short and every later entry misread.
+        units = len(entry.encode("utf-16-le", "surrogatepass")) // 2
+        address += (units + 1) * ctypes.sizeof(ctypes.c_wchar)
 
 
 def login_environment() -> dict[str, str]:
