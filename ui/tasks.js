@@ -251,22 +251,18 @@ document.getElementById('task-list').addEventListener('change', event => {
 });
 
 document.getElementById('spin-up').onclick = async () => {
-  const selected = selectedIds();
-  // Ids are per-project, so a mixed selection cannot be handed to one
-  // session — and one session per working tree is the design anyway.
-  const projects = new Set(selected.map(s => s.project));
-  if (projects.size > 1) { alert('Select tasks from one project at a time.'); return; }
-  // Selecting nothing is a real request, not a mistake: open a session in the
-  // project you are looking at and leave its prompt empty.
-  const project = projects.size ? [...projects][0] : currentProject;
-  if (!project) return;
+  // selectedInOneProject (selection.js) owns the per-project rule for every
+  // caller: it falls back to currentProject when nothing is ticked, and
+  // alerts and returns null on a mixed-project selection (invariant 6).
+  const picked = selectedInOneProject();
+  if (!picked) return;
   const nameRow = document.getElementById('handoff-name');
   const nameInput = document.getElementById('handoff-name-input');
   // Below two selections the row is hidden and its value may be stale from
   // an earlier, larger selection — passing it here would silently name a
   // single-task session after a batch that was since abandoned.
   const name = nameRow.hidden ? '' : nameInput.value.trim();
-  if (await callApi('hand_off', project, selected.map(s => s.id), name) === API_FAILED) return;
+  if (await callApi('hand_off', picked.project, picked.ids, name) === API_FAILED) return;
   // Otherwise the next batch inherits this one's name.
   nameInput.value = '';
   await refresh();
@@ -364,6 +360,7 @@ function render() {
     }
   }
   renderGroupLimitWarning();
+  renderSelectionBar();
   renderHandoffName();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');

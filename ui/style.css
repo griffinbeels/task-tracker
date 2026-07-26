@@ -45,7 +45,8 @@ input[type="checkbox"] { margin: 0; flex: none; }
               white-space: normal; }
 /* Same trap as .overlay, .chips and .field: this rule sets its own display,
    so a bare [hidden] attribute loses to it at equal specificity. */
-#handoff-name { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+/* No margin: it is a row inside #selection-bar now, which supplies the gap. */
+#handoff-name { display: flex; align-items: center; gap: 8px; }
 #handoff-name[hidden] { display: none; }
 #handoff-name .field-label { flex: none; }
 #handoff-name-input { flex: 1; font: inherit; height: 28px; padding: 0 8px;
@@ -268,6 +269,24 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
                                border-color: rgba(229, 72, 77, .45); }
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
+
+/* Neutral fill, in the same idiom as every other surface that reads as a
+   plain container rather than a state (see .chip.on, #editor-title) — never
+   #group-limit-warning's orange, which means "warning" in this window and the bar is
+   not one. Without a fill the bar was three unframed buttons and a dim count
+   floating in the gap left by the row below it. */
+/* A column, because the bar carries two rows: the actions, and the session
+   name at two or more selected. The buttons keep .actions on an inner div, so
+   the row idiom and the 28px control height are unchanged. */
+#selection-bar { background: rgba(127, 127, 127, .10); padding: 5px 8px;
+                 border-radius: 5px; margin-bottom: 8px;
+                 display: flex; flex-direction: column; gap: 6px; }
+/* This rule sets display, which a bare `hidden` attribute loses to on equal
+   specificity — the same trap .overlay[hidden] and .chips[hidden] already
+   document above. The nested #handoff-name carries its own copy for the same
+   reason, so the two rows hide independently. */
+#selection-bar[hidden] { display: none; }
+#selection-count { font-size: 11px; opacity: .6; }
 
 /* A screenshot at natural size is a wall in a 420px column — you lose the
    sentence it was pasted into, which is the whole point of pasting it there.

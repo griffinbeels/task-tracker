@@ -143,6 +143,36 @@ class Api:
                 return project, task
         raise ValueError(f"unknown task: {task_id}")
 
+    def _tasks(self, project_name, task_ids):
+        """Task objects for these ids, in the order given, or a ValueError.
+
+        Deduplicates while preserving first-seen order, so a repeated id acts
+        once — the one addition over the four-line block this replaces at
+        every bulk call site.
+
+        Refuses anything but a real sequence of ids, rather than coercing it,
+        following the precedent of _text above. A string is refused
+        specifically even though it is technically a sequence: task_ids="12"
+        would otherwise iterate as the characters "1" and "2" and silently
+        resolve to tasks 1 and 2, which is exactly the wrong two ids for a
+        bridge method (delete_tasks) that cannot be undone.
+        """
+        if isinstance(task_ids, str) or not isinstance(task_ids, (list, tuple)):
+            raise ValueError("task_ids must be a list of ids, not a bare string")
+        project = _project(project_name)
+        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
+        wanted = []
+        seen = set()
+        for task_id in task_ids:
+            task_id = int(task_id)
+            if task_id not in seen:
+                seen.add(task_id)
+                wanted.append(task_id)
+        missing = [task_id for task_id in wanted if task_id not in by_id]
+        if missing:
+            raise ValueError(f"no such task in {project_name}: {missing}")
+        return project, [by_id[task_id] for task_id in wanted]
+
     def update_task(self, project_name, task_id, fields):
         if "bucket" in fields and fields["bucket"] not in store.BUCKETS:
             raise ValueError(f"unknown bucket: {fields['bucket']}")
@@ -240,6 +270,43 @@ class Api:
         _, task = self._find(project_name, task_id)
         return _task_dict(store.complete_task(task), project_name)
 
+    # delete_tasks and complete_tasks below each pair a store.py mutation with
+    # a groups.renumber call for every bucket it touched — a domain rule
+    # ("removing tasks from a bucket obliges a renumber of that bucket"), not
+    # wiring, even though the module docstring says this file is wiring only.
+    # It lives here anyway: store.py must not import groups.py (groups.py
+    # already imports store, and a cycle would follow), and completing a task
+    # is not groups.py's concern either — so this bridge module is the only
+    # one that already imports both and can call across that seam.
+    def delete_tasks(self, project_name, task_ids):
+        """Erase every file in this selection, then repair the buckets it hollowed out.
+
+        The bucket set is captured before any file is touched: after a delete
+        the task object is gone, so its bucket could not be read afterwards.
+        """
+        project, tasks = self._tasks(project_name, task_ids)
+        buckets = {task.bucket for task in tasks}
+        for task in tasks:
+            store.delete_task(task)
+        for bucket in buckets:
+            groups.renumber(Path(project.path), bucket)
+        return len(tasks)
+
+    def complete_tasks(self, project_name, task_ids):
+        """Move every task in this selection to done/, then repair the buckets.
+
+        Same reason as delete_tasks for capturing buckets first: a completed
+        task still reads its old bucket, but it is no longer live, so leaving
+        it out of the renumber pass would leave a hole in the run.
+        """
+        project, tasks = self._tasks(project_name, task_ids)
+        buckets = {task.bucket for task in tasks}
+        for task in tasks:
+            store.complete_task(task)
+        for bucket in buckets:
+            groups.renumber(Path(project.path), bucket)
+        return len(tasks)
+
     def reorder_bucket(self, project_name, bucket, ordered_ids):
         project = _project(project_name)
         store.reorder_bucket(Path(project.path), bucket, [int(i) for i in ordered_ids])
@@ -281,14 +348,9 @@ class Api:
 
     def reset_to_open(self, project_name, task_ids):
         """Retract "in progress" for these tasks — see store.reset_to_open."""
-        project = _project(project_name)
-        wanted = [int(i) for i in task_ids]
-        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
-        missing = [i for i in wanted if i not in by_id]
-        if missing:
-            raise ValueError(f"no such task in {project_name}: {missing}")
-        return [_task_dict(store.reset_to_open(by_id[i]), project_name)
-                for i in wanted]
+        _, tasks = self._tasks(project_name, task_ids)
+        return [_task_dict(store.reset_to_open(task), project_name)
+                for task in tasks]
 
     def copy_task_prompt(self, project_name, task_id):
         """The task's hand-off text, on the clipboard. Nothing is written.
@@ -300,25 +362,10 @@ class Api:
         _, task = self._find(project_name, task_id)
         return launcher.copy_prompt([task])
 
-    def _selected_tasks(self, project_name, task_ids):
-        """The project and its tasks named by id, in the order the ids arrived.
-
-        Shared by hand_off and suggest_session_name so there is exactly one
-        id-to-task lookup — and exactly one unknown-id error — rather than two
-        that could drift apart.
-        """
-        project = _project(project_name)
-        wanted = [int(i) for i in task_ids]
-        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
-        missing = [i for i in wanted if i not in by_id]
-        if missing:
-            raise ValueError(f"no such task in {project_name}: {missing}")
-        return project, [by_id[i] for i in wanted]
-
     def hand_off(self, project_name, task_ids, name=""):
         if not isinstance(name, str):
             raise ValueError("name must be a string")
-        project, tasks = self._selected_tasks(project_name, task_ids)
+        project, tasks = self._tasks(project_name, task_ids)
         # launch is the third positional on launcher.hand_off's own signature —
         # pass name as a keyword, or it lands in `launch` and spawns the wrong
         # process.
@@ -331,11 +378,9 @@ class Api:
         # nothing grouped, matching the guarantee that a failed spawn leaves
         # tasks untouched.
         #
-        # That ordering is also why the group's name is not what renames the
-        # session yet: auto_group cannot run before the name is needed. Wiring
-        # the two together is a designed follow-up, not this merge's job — see
-        # "Relationship to the task-groups design" in
-        # docs/superpowers/specs/2026-07-25-session-identity-design.md.
+        # A group formed HERE cannot name the session, because it does not
+        # exist yet when the name is chosen. A group the user selected already
+        # does — see launcher.session_name, which reads it off the tasks.
         groups.auto_group(Path(project.path), [task.id for task in tasks])
         return prompt
 
@@ -346,7 +391,7 @@ class Api:
         JavaScript would be a second copy of launcher.session_name, free to
         drift from the one hand_off actually uses.
         """
-        _, tasks = self._selected_tasks(project_name, task_ids)
+        _, tasks = self._tasks(project_name, task_ids)
         return launcher.session_name(tasks)
 
     def save_settings(self, payload):

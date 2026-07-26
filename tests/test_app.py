@@ -1,6 +1,7 @@
 import pytest
 
 import app
+import groups
 import registry
 import restart
 import store
@@ -438,3 +439,154 @@ def test_suggest_session_name_raises_on_an_unknown_id(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().suggest_session_name("repo", [99])
+def test_reset_to_open_acts_once_on_a_repeated_id(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    task.status = "in-progress"
+    task.started = "2026-07-25"
+    store.save_task(task)
+
+    returned = app.Api().reset_to_open("repo", [task.id, task.id])
+
+    assert len(returned) == 1
+    assert store.list_tasks(repo)[0].status == "open"
+
+
+def test_reset_to_open_still_raises_on_an_unknown_id(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().reset_to_open("repo", [999])
+
+
+def test_delete_tasks_erases_every_file_and_returns_the_count(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+    kept = store.create_task(repo, "C", "body", "BUG")
+
+    deleted = app.Api().delete_tasks("repo", [first.id, second.id])
+
+    assert deleted == 2
+    assert [t.id for t in store.list_tasks(repo)] == [kept.id]
+
+
+def test_delete_tasks_acts_once_on_a_repeated_id(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    assert app.Api().delete_tasks("repo", [task.id, task.id]) == 1
+    assert store.list_tasks(repo) == []
+
+
+def test_delete_tasks_raises_on_an_unknown_id_and_deletes_nothing(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().delete_tasks("repo", [task.id, 999])
+
+    assert len(store.list_tasks(repo)) == 1
+
+
+def test_delete_tasks_closes_the_hole_it_leaves_in_the_bucket(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    middle = store.create_task(repo, "B", "body", "BUG")
+    last = store.create_task(repo, "C", "body", "BUG")
+    assert [t.order for t in (first, middle, last)] == [0, 1, 2]
+
+    app.Api().delete_tasks("repo", [middle.id])
+
+    remaining = sorted(store.list_tasks(repo), key=lambda t: t.order)
+    assert [t.order for t in remaining] == [0, 1]
+
+
+def test_complete_tasks_moves_them_all_to_the_archive(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+
+    assert app.Api().complete_tasks("repo", [first.id, second.id]) == 2
+
+    assert store.list_tasks(repo, include_done=False) == []
+    assert len(store.list_tasks(repo, include_done=True)) == 2
+    assert all(t.status == "done" for t in store.list_tasks(repo))
+
+
+def test_complete_tasks_raises_on_an_unknown_id(tmp_path):
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().complete_tasks("repo", [999])
+
+
+def test_delete_tasks_rejects_a_bare_string_of_ids(tmp_path):
+    # task_ids="12" iterates as the characters "1" and "2" if it is ever
+    # treated as a plain sequence — which resolve to real ids here, so a
+    # naive `for task_id in task_ids` would silently erase tasks 1 and 2 and
+    # return 2, looking exactly like success. delete_tasks cannot be undone,
+    # so a string must be refused rather than coerced.
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "A", "body", "BUG")
+    store.create_task(repo, "B", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().delete_tasks("repo", "12")
+
+    assert len(store.list_tasks(repo)) == 2
+
+
+def test_complete_tasks_renumbers_the_bucket_when_a_group_loses_a_member(tmp_path):
+    # A group of 3 sits above a loose task in the same bucket, so completing
+    # one member moves both the group's own run and the loose task's
+    # position — this is only exercised if complete_tasks actually calls
+    # groups.renumber for the bucket it touched.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+    third = store.create_task(repo, "C", "body", "BUG")
+    loose = store.create_task(repo, "D", "body", "BUG")
+    groups.assign(repo, [first.id, second.id, third.id], "Some name")
+
+    app.Api().complete_tasks("repo", [second.id])
+
+    remaining = sorted(store.list_tasks(repo, include_done=False), key=lambda t: t.order)
+    assert [t.order for t in remaining] == list(range(len(remaining)))
+    group_orders = sorted(t.order for t in remaining if t.group == "Some name")
+    assert group_orders == list(range(group_orders[0], group_orders[0] + len(group_orders)))
+
+
+def test_delete_tasks_renumbers_the_bucket_when_a_group_loses_a_member(tmp_path):
+    # Same shape as the complete_tasks version above: a group of 3 above a
+    # loose task in the same bucket, so deleting one member moves both the
+    # group's run and the loose task's position.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+    third = store.create_task(repo, "C", "body", "BUG")
+    loose = store.create_task(repo, "D", "body", "BUG")
+    groups.assign(repo, [first.id, second.id, third.id], "Some name")
+
+    app.Api().delete_tasks("repo", [second.id])
+
+    remaining = sorted(store.list_tasks(repo, include_done=False), key=lambda t: t.order)
+    assert [t.order for t in remaining] == list(range(len(remaining)))
+    group_orders = sorted(t.order for t in remaining if t.group == "Some name")
+    assert group_orders == list(range(group_orders[0], group_orders[0] + len(group_orders)))
+
+
+def test_delete_tasks_leaves_another_project_alone(tmp_path):
+    # Ids are per-project (invariant 6): every project has a task 1.
+    repo = make_repo(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    registry.add_project("other", str(other))
+    mine = store.create_task(repo, "Mine", "body", "BUG")
+    theirs = store.create_task(other, "Theirs", "body", "BUG")
+    assert mine.id == theirs.id
+
+    app.Api().delete_tasks("repo", [mine.id])
+
+    assert [t.title for t in store.list_tasks(other)] == ["Theirs"]

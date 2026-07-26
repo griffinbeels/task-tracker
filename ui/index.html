@@ -20,14 +20,23 @@
       <label><input type="checkbox" id="all-projects"> All projects</label>
       <button id="spin-up" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in.">Spin up Claude</button>
     </div>
-    <!-- Temporary in this shape: docs/superpowers/specs/2026-07-25-selection-bar-design.md
-         puts a selection bar in this same strip of window, and when it lands
-         this input moves into #selection-bar as a second line and this div
-         goes away. Whoever builds that absorbs this row rather than stacking
-         a second one beneath it. -->
-    <div id="handoff-name" hidden>
-      <span class="field-label">Name</span>
-      <input id="handoff-name-input">
+    <!-- Two rows in one bar: what you can DO to the selection, and — at two or
+         more — what to name the session it is about to become. The name is a
+         property of the selection, so it lives inside the selection's own
+         component rather than stacking a second bar beneath it. Each row hides
+         independently; the bar hides when nothing is ticked. -->
+    <div id="selection-bar" hidden>
+      <div class="actions">
+        <span id="selection-count"></span>
+        <span class="spacer"></span>
+        <button id="selection-done">Done</button>
+        <button id="selection-delete" class="danger">Delete</button>
+        <button id="selection-clear" class="quiet">Clear</button>
+      </div>
+      <div id="handoff-name" hidden>
+        <span class="field-label">Name</span>
+        <input id="handoff-name-input">
+      </div>
     </div>
     <div id="group-limit-warning" hidden></div>
     <div id="unreadable-warning" hidden></div>
@@ -94,6 +103,7 @@
     <script src="tasks.js"></script>
     <script src="groups.js"></script>
     <script src="inprogress.js"></script>
+    <script src="selection.js"></script>
     <script src="editor.js"></script>
     <script src="triage.js"></script>
     <script src="settings.js"></script>

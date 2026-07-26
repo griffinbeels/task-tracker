@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 231 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 276 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Twelve small Python modules and seven plain `<script>` files, plus one vendored
+Twelve small Python modules and eight plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
@@ -47,19 +47,22 @@ library. No framework, no HTTP server, no bundler.
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
 | `ui/inprogress.js` | The IN PROGRESS section, its per-project split, folding, and the reset actions |
+| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
 The seven scripts **share one global scope** and load in the order
-`state.js`, `tasks.js`, `groups.js`, `inprogress.js`, `editor.js`, `triage.js`,
-`settings.js` (see `ui/index.html`, where the vendored library loads first).
-Functions defined in one are callable from another at runtime — `triage.js`
-calls into `editor.js` and `editor.js` reads `triage.js`'s queue, and
-`state.js` calls `inprogress.js`'s `inProgressGroupKeys()` despite loading
-three files earlier, which all works because every handler resolves its
-references at call time, not at load. This split exists to keep
+`state.js`, `tasks.js`, `groups.js`, `inprogress.js`, `selection.js`,
+`editor.js`, `triage.js`, `settings.js` (see `ui/index.html`, where the
+vendored library loads first). Functions defined in one are callable from
+another at runtime — `triage.js` calls into `editor.js`, `editor.js` reads
+`triage.js`'s queue, `state.js` calls `inprogress.js`'s
+`inProgressGroupKeys()` despite loading three files earlier, and `tasks.js`'s
+Spin up handler calls `selection.js`'s `selectedInOneProject()` from the file
+before it — all of which works because every handler resolves its references
+at call time, not at load. This split exists to keep
 each file under ~300 lines — do not consolidate them, and do not introduce ES
 modules or a build step.
 
@@ -175,6 +178,21 @@ Break one of these and the failure is silent. Each cost a bug.
     Nothing needs the focus it would take — `console_input` writes to the
     console's input buffer, which does not require an active window. Any
     future spawn gets the same treatment.
+
+    **`SW_SHOWNOACTIVATE` is not enough on Windows 11, and CREATE_NO_WINDOW is
+    the only reliable answer.** Windows 11 delegates every *new* console to
+    whatever is set as the default terminal application. When that is Windows
+    Terminal — the default on this machine — the console request is brokered
+    (`svchost` → `OpenConsole.exe`) and **Windows Terminal creates the window
+    itself**, so the spawner's `STARTUPINFO` never reaches it: a full,
+    activated Terminal window opens regardless of `wShowWindow`. Measured
+    2026-07-25 by spawning the same child three ways from a console-less
+    parent: plain and `CREATE_NEW_CONSOLE + SW_SHOWNOACTIVATE` each opened a
+    `CASCADIA_HOSTING_WINDOW_CLASS` window; `CREATE_NO_WINDOW` opened nothing.
+    A console created with `CREATE_NO_WINDOW` is still a real console —
+    `AttachConsole`, `WriteConsoleInput` and the screen buffer all work — so
+    anything that only needs to *reach* a console should use it.
+    `spawn_claude` is the deliberate exception: its window is the point.
 
 11. **A suggested value is written once, into an untouched field.** The title
     suggested from a note's first line is filled when that note first becomes
@@ -335,6 +353,14 @@ machinery here. Their absolute paths also make a task file **non-portable**
 between machines, which only matters for a tracked project cloned elsewhere:
 the images arrive, the paths do not resolve.
 
+`store.next_task_id` is `max(ids, default=0) + 1` over open and done combined.
+Before the selection bar, nothing ever removed a task, so ids only went up for
+a project's whole life. `delete_tasks` unlinks files outright, so deleting the
+newest task frees its id — the next task created can land on the same number.
+Nothing breaks (ids are still unique among live tasks, and only ever meaningful
+paired with a project — invariant 6), but a tracked repo's git history can now
+show two unrelated tasks under one id at different points in time.
+
 ## Adding a feature
 
 - **New bridge method:** add it to `Api` in `app.py` (translate JS args → backend
@@ -354,9 +380,14 @@ the images arrive, the paths do not resolve.
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
   `tests/test_registry.py`. Mock at the boundary — `subprocess.Popen` and
   `launcher.pyperclip.copy` — never spawn a real process. The one exception is
-  `tests/test_console_input.py`, which really does open a console for a second
-  or two: typing into another process's console is OS behaviour, and a mock of
-  it would only assert that the mock was called.
+  `tests/test_console_input.py`, which really does open a console: typing into
+  another process's console is OS behaviour, and a mock of it would only assert
+  that the mock was called. That console is **windowless**
+  (`_console_probe.CONSOLE_FLAGS` is `CREATE_NO_WINDOW`, pinned by a test) —
+  it used to be `CREATE_NEW_CONSOLE`, which meant every run of the suite
+  flashed a Windows Terminal window on whatever the user was doing. See
+  invariant 10. The suite runs while someone else is at the keyboard: **no
+  test may put anything on screen.**
 - **Deliberately untested:** `main()` and window geometry persistence. Driving a
   native window under pytest is not worth the machinery; this is a decision, not
   an oversight.
@@ -368,7 +399,12 @@ the images arrive, the paths do not resolve.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor. Fold a group, tick the group's checkbox, and hit
+  not also open the editor. In `ui/selection.js`, check that ticking a group
+  header's select-all box updates the bar's count (assigning `.checked` on the
+  member rows does not fire a `change` event, so the count silently goes stale
+  without the explicit call this depends on) and that `Clear` empties the
+  header box along with every row's — a header left ticked with no members
+  ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
   Spin up: the folded members must still go to the session. In `ui/groups.js`,
   four more: drop a grouped row on a bucket's heading, or on a project heading
   in IN PROGRESS, and it must leave its group — that heading is the only
