@@ -127,10 +127,11 @@ function caretButton(collapsed, onToggle) {
 // doing its own job in Chromium — the dropdown never opens and nothing says
 // why. Suspend the header's draggability while the pointer is on the control.
 function releaseDragWhileUsing(control, header) {
-  // Restore what the header WAS, not `true`. In the IN PROGRESS section the
-  // header is deliberately not draggable — there is nothing to reorder — and
-  // restoring a hard true would hand it a grab cursor and a drag ghost for a
-  // gesture that can never do anything.
+  // Restore what the header WAS, not `true`. Every header is draggable today,
+  // so the two agree — but they did not when IN PROGRESS could not reorder,
+  // and a hard `true` would have handed that section's headers a grab cursor
+  // and a drag ghost for a gesture that could never do anything. Reading the
+  // old value costs nothing and cannot go stale the way a constant can.
   const wasDraggable = header.draggable;
   const restore = () => { header.draggable = wasDraggable; };
   control.addEventListener('mousedown', () => { header.draggable = false; });

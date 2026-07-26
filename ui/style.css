@@ -145,8 +145,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* Brighter than the .85 above, never dimmer: the base opacity grew with the
    heading and a hover that lands below it fades the thing the pointer is on. */
 .project-heading:hover { opacity: 1; }
-/* A header that cannot be dragged must not offer the grab cursor — IN PROGRESS
-   headers are static, since that section groups but never reorders. */
+/* A header that cannot be dragged must not offer the grab cursor. Every header
+   is draggable now — IN PROGRESS's became so when that section learned to
+   reorder — so this is no longer about a static section. It fires while
+   draggability is suspended: over a control inside the header, and for as long
+   as the rename box is open, both of which set draggable="false" on the way
+   in and restore it on the way out. */
 .group-header[draggable="false"] { cursor: default; }
 /* font-size and font-weight stated explicitly, not inherited: .project-heading
    just grew to 12px/700 to outrank the group headers below it, and without

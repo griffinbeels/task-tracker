@@ -873,12 +873,11 @@ the tracker, select this project, and they are the backlog. Highlights:
   rather than guess which name survives. If that becomes wanted it needs an
   explicit gesture with an explicit choice.
 - **Groups are one level deep** and never span projects.
-- **IN PROGRESS never reorders.** Its rows sort by project and then by group,
-  and they can sit in three different buckets, so there is no one bucket for
-  `reorder_bucket` to renumber. Sorting *within* one group there does work —
-  its members share a bucket and are contiguous, so they can trade their own
-  slots. Dropping on a loose running row's edge therefore does nothing;
-  claiming a task is the section heading's job, or a project heading's.
+- **IN PROGRESS reorders, but its order is not the tasks'.** It ranks blocks in
+  `session.json` (see invariant 28), because `Task.order` is a per-bucket
+  position and running tasks can sit in three different buckets. The
+  consequence worth knowing: that order is view state, so it is per-machine and
+  invisible to git, unlike every other thing a drag changes.
 - **A group header drag moves every member**, including any the header did not
   draw — a header in IN PROGRESS can read `2 of 5`. A group lives in one
   bucket (invariant 16), so there is no such thing as moving part of one. This
@@ -916,8 +915,12 @@ Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
-code and these invariants are.** Five things in them are known-wrong and were
-corrected during implementation. `2026-07-25-restore-and-group-block.md:169`
+code and these invariants are.** Six things in them are known-wrong and were
+corrected during implementation. `2026-07-26-drag-recategorization-design.md`
+says under "Deliberately not in scope" that **IN PROGRESS still never
+reorders** — it does, and the design of how is invariant 28, not that file:
+the section learned to reorder the same day, once its order moved to
+`session.json` where a per-bucket `Task.order` could not express it. `2026-07-25-restore-and-group-block.md:169`
 still shows `task.order = len(siblings)` for a restored task; that is only "the
 end" of a contiguous run, and `Api.complete_task` does not renumber, so it
 hands a restored task an order another task already holds. The code uses
