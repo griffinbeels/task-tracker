@@ -26,8 +26,8 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Nine small Python modules and four plain `<script>` files. No framework, no HTTP
-server, no bundler.
+Nine small Python modules and five plain `<script>` files, plus one vendored
+library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
@@ -42,14 +42,28 @@ server, no bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
 | `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, WIP |
-| `ui/triage.js` | Capture and triage overlays |
+| `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
+| `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
+| `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
-The four scripts **share one global scope** and load in the order
-`state.js`, `tasks.js`, `triage.js`, `settings.js` (see `ui/index.html`).
-Functions defined in one are callable from another at runtime. This split exists
-to keep each file under ~300 lines — do not consolidate them, and do not
-introduce ES modules or a build step.
+The five scripts **share one global scope** and load in the order
+`state.js`, `tasks.js`, `editor.js`, `triage.js`, `settings.js` (see
+`ui/index.html`, where the vendored library loads first). Functions defined in
+one are callable from another at runtime — `triage.js` calls into `editor.js`
+and `editor.js` reads `triage.js`'s queue, which works because every handler
+resolves its references at call time, not at load. This split exists to keep
+each file under ~300 lines — do not consolidate them, and do not introduce ES
+modules or a build step.
+
+**`ui/vendor/` is committed, not fetched.** The UI is served from `file://` and
+has to work with no network, so the editor is vendored rather than loaded from
+a CDN. `tests/test_conventions.py` fails the build if the assets go missing or
+if a CDN URL appears in `index.html`. Use the core `toastui-editor.min.js`; the
+`-all` bundle is half a megabyte larger and adds chart and UML plugins nothing
+here wants. Note the library's last release was February 2023 — it will not
+receive fixes, which is a reason to keep it pinned and vendored rather than a
+reason to keep it current.
 
 If you find yourself writing business logic in `app.py`, it belongs in a backend
 module instead.
@@ -130,6 +144,38 @@ Break one of these and the failure is silent. Each cost a bug.
     console's input buffer, which does not require an active window. Any
     future spawn gets the same treatment.
 
+11. **A suggested value is written once, into an untouched field.** The title
+    suggested from a note's first line is filled when that note first becomes
+    current and never again; one keystroke marks the box yours for the life of
+    that note. Capture has no note to key off, so an identity-less open takes a
+    fresh `Symbol` — which can never equal a previous or future
+    `titleFilledFor`, so every capture starts blank instead of inheriting the
+    last one's title. Both halves shipped as bugs first.
+
+12. **Choosing a chip re-renders chips and nothing else.** `renderChips()`
+    touches the three chip rows and nothing else, and every chip's `onclick`
+    calls exactly that. The bug this replaced was a single render function that
+    also rewrote the title, so picking a type after typing a title silently
+    discarded it. Never route a chip click through a broader render.
+
+13. **A body is written only when it changed — and "changed" is measured
+    against the editor's own baseline, not the file.** Toast UI normalises
+    markdown on every round-trip, so `setMarkdown(body)` then `getMarkdown()`
+    can differ from what went in with nobody typing anything. Comparing against
+    the loaded text would therefore report "changed" for every hand-written
+    task and silently reformat prose no one touched. `openEditor` records
+    `normalisedBody` — what this load's round-trip produced from the untouched
+    content — and the save path omits `body` from the update entirely when the
+    two match, so the file keeps its original bytes.
+
+14. **Attachment paths come from the backend and are `file://` URLs.** The
+    renderer never builds a path. `Api.save_attachment` returns `as_uri()`, not
+    `as_posix()`: a bare `C:/repos/x/a.png` is not a URL — the leading `C:`
+    parses as a *scheme*, so the browser never resolves it as a path and the
+    image silently fails to load. The design spec called for the bare form and
+    was wrong about this. The absolute form is also what lets a handed-off
+    Claude session open the screenshot the body refers to.
+
 ## Data on disk
 
 ```
@@ -140,19 +186,37 @@ Break one of these and the failure is silent. Each cost a bug.
 <project>/.tasks/.gitignore     contains `*` — the folder is invisible to git
 <project>/.tasks/open/          NNNN-slug.md
 <project>/.tasks/done/          the archive, and the progress view's source
+<project>/.tasks/attachments/   pasted screenshots, YYYY-MM-DD-HHMMSS.png
 ```
 
 `.tasks/` is **untracked by default** because several tracked repos are public
 and committing would publish raw backlog prose. A per-project `tracked` flag
 flips it (settings → the tracked checkboxes), which deletes that `.gitignore`.
+Attachments live under the same `.gitignore` on the same terms, which is why
+`store.save_attachment` calls `ensure_tasks_dir` before writing: creating the
+directory tree without that file would publish a pasted screenshot on the next
+commit.
+
+Attachments are **never garbage-collected** — deleting a task leaves its images
+behind. Reference counting across hand-editable files is not worth the
+machinery here. Their absolute paths also make a task file **non-portable**
+between machines, which only matters for a tracked project cloned elsewhere:
+the images arrive, the paths do not resolve.
 
 ## Adding a feature
 
 - **New bridge method:** add it to `Api` in `app.py` (translate JS args → backend
   call → JSON-safe return; run `Task` objects through `_task_dict`, which strips
   the non-serialisable `Path`), then call it from JS via `callApi`.
-- **New UI surface:** put it in whichever of the four scripts owns that concern;
+- **New UI surface:** put it in whichever of the five scripts owns that concern;
   add its `<script>` tag only if you create a new file.
+- **Anything that edits a task** goes through `openEditor()` in `ui/editor.js`
+  rather than a new overlay. It is one component with three entry points —
+  capture, triage, and clicking a row — precisely so the no-clobber rules
+  (invariants 11–13) hold in all three rather than being reimplemented and
+  half-forgotten in each.
+- **Never add a CDN reference.** The editor is vendored so the app works
+  offline; a convention test enforces it.
 - **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`
   and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
@@ -164,7 +228,12 @@ flips it (settings → the tracked checkboxes), which deletes that `.gitignore`.
 - **Deliberately untested:** `main()` and window geometry persistence. Driving a
   native window under pytest is not worth the machinery; this is a decision, not
   an oversight.
-- **No JS test runner.** Frontend changes are checked by running the app.
+- **No JS test runner.** Frontend changes are checked by running the app. Two
+  editor behaviours are worth checking by hand every time `ui/editor.js` is
+  touched, because both are silent when broken: type a title then click a
+  different type chip (the title must not change), and edit *only* a task's
+  bucket in a tracked project then run `git status` (the `.md` file must show a
+  frontmatter change and **no body diff**).
 
 ## Known gaps
 
@@ -172,10 +241,20 @@ Three spec behaviours were never implemented, and the deferred findings from the
 whole-branch review are filed as tasks in this repo's own `.tasks/open/` — open
 the tracker, select this project, and they are the backlog. Highlights:
 
-- Cross-project rows do not click through to their project.
+- Cross-project rows do not click through to their project, and deliberately do
+  not open the editor either — ids are per-project, so a row in the search or
+  all-projects view names an ambiguous task (invariant 6).
 - Triage chips are mouse-only; the spec called for single-key assignment.
 - Nothing ever writes `## Outcome`; the progress view renders it but it can only
   arrive by hand-editing.
 
-Design spec: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`
-Implementation plan: `docs/superpowers/plans/2026-07-25-task-tracker.md`
+Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
+`docs/superpowers/specs/2026-07-25-task-editor-design.md`
+Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
+`docs/superpowers/plans/2026-07-25-task-editor.md`
+
+Two things in the editor spec were wrong and are corrected in the code, not in
+that document: `file_note` had no way to receive an edited body (so triage
+silently discarded prose edits), and image references were specified as bare
+`C:/...` paths, which are not URLs and never render. Invariants 13 and 14 are
+the record of what the code actually does.

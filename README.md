@@ -26,6 +26,29 @@ To run it directly instead:
     uv pip install --python ".venv\Scripts\python.exe" pywebview pyperclip pyyaml
     & ".venv\Scripts\python.exe" app.py
 
+## Writing a task
+
+One editor, reached three ways: **Capture** for a new thought, the **Inbox**
+button to work through untriaged notes, and clicking any task row to change it.
+All three give you the same thing — a title, a rich-text body, and chips for
+project, type and bucket.
+
+The body is a real editor: bullets, numbered lists, checkboxes, bold, italic,
+quotes and code, formatted as you type rather than as markdown you have to
+read. It is still markdown on disk. **Ctrl+V pastes a screenshot straight in at
+the cursor**, exactly where you put it — the image is written into the
+project's `.tasks/attachments/` and the note keeps a link to it, so a session
+you hand the task to can open the picture you were describing.
+
+Capture asks nothing of you: type and hit **Later** and it goes to the inbox
+undecided, the way it always did. The chips are there when you already know
+where something belongs and want to file it in one gesture instead of two.
+
+Two things it will not do, both on purpose. It never overwrites what you typed
+— picking a type after writing a title leaves the title alone. And it never
+rewrites a body you did not edit, so opening an old task to change its bucket
+does not quietly reformat prose you wrote by hand.
+
 ## Handing tasks to Claude
 
 Select tasks and hit **Spin up Claude**. A terminal opens in that project's
@@ -53,8 +76,14 @@ example a project that needs a wrapper script or a different flag set.
     ~/.task-tracker/inbox/          untriaged notes
     <project>/.tasks/open/          active tasks
     <project>/.tasks/done/          the archive, and the progress view's source
+    <project>/.tasks/attachments/   pasted screenshots
 
-`.tasks/` is gitignored by default. Toggle per project in settings.
+`.tasks/` is gitignored by default, screenshots included — several of these
+repos are public and a backlog is not meant to be published. Toggle per project
+in settings.
+
+The editor itself is vendored in `ui/vendor/` rather than loaded from a CDN, so
+the app works with no network.
 
 ## Tests
 
