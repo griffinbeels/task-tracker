@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 301 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 308 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -36,7 +36,7 @@ library. No framework, no HTTP server, no bundler.
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
-| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
+| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn — inside a `conhost.exe` the tracker asks for by name, so the window is never the machine default terminal's to draw — session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | The spawned session's console: typing that prompt into it, submitting the `/rename`/`/color` commands ahead of it, pacing every write against what the prompt box shows, and the font it renders in |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
@@ -194,6 +194,34 @@ Break one of these and the failure is silent. Each cost a bug.
     anything that only needs to *reach* a console should use it.
     `spawn_claude` is the deliberate exception: its window is the point.
 
+    **For that one window, the answer is to launch through `conhost.exe`.**
+    A console the tracker asks for by name is not delegated, so it is a
+    classic console whatever the default terminal is, and `SW_SHOWNOACTIVATE`
+    reaches it again. Measured 2026-07-26 with the default terminal set to
+    Windows Terminal, from a console-less parent: spawning the command
+    directly moved the foreground to `CASCADIA_HOSTING_WINDOW_CLASS` inside
+    400 ms and kept it; the same command through `conhost.exe` left the
+    foreground untouched for the whole run. This pins **only** the tracker's
+    own window — the user's terminal choice for everything else is theirs, and
+    the tracker no longer depends on what it happens to be, which is what
+    broke the day the setting changed underneath it.
+
+    The cost is one more hop: `Popen` now names the host, and `AttachConsole`
+    refuses a host's pid, so `launcher.session_pid` resolves conhost's child
+    before anything is typed. Get that wrong and the rename, the colour, the
+    prompt and the font all fail at once and all silently.
+
+    **Asking is still not a guarantee, so the ask is checked.** Even through
+    conhost, two spawns in ten took the foreground anyway (measured
+    2026-07-26 over ten), apparently depending on how promptly whatever was in
+    front was answering messages — a flake, which is worse than a rule,
+    because it survives testing. `launcher.hold_focus` records the foreground
+    *before* the spawn and hands it back if this session's console turns out
+    to be holding it. It hands back only to that window, only when the thief
+    is this console, and only once inside 1.5 s: deliberately clicking the new
+    session is a human gesture and keeps its focus — what gets reversed is
+    focus nobody asked for.
+
 11. **A suggested value is written once, into an untouched field.** The title
     suggested from a note's first line is filled when that note first becomes
     current and never again; one keystroke marks the box yours for the life of
@@ -341,32 +369,31 @@ Break one of these and the failure is silent. Each cost a bug.
     Escape, the obvious guess, does nothing to a typed line at all.
 
 25. **The spawned console is put on a font that has the glyphs Claude Code
-    paints.** This machine's default terminal application is **Windows Console
-    Host** (`HKCU\Console\%%Startup`, `{B23D10C0-…}`), which is what makes
-    invariant 10 work at all — conhost honours `SW_SHOWNOACTIVATE`; Windows
-    Terminal creates its own window and ignores it. The cost is the renderer:
-    conhost font-links *some* missing glyphs but not the quadrant block
-    elements `U+2596`–`U+259F`, and Consolas — what `__DefaultTTFont__`
-    resolves to — has none of them. Those eight characters are what Claude
-    Code's logo is drawn from, so a handed-off session opened on a row of
-    boxes with the code point printed inside. `console_input.use_font` puts
-    the console on **Cascadia Mono**, which ships with Windows 11 and has
-    them, using the attach the module already performs — no registry, nothing
-    machine-wide, and the size stays whatever the console had. It reads the
-    face back and reverts if it did not take: an unknown face is not refused,
-    conhost just picks something of its own, which on a machine without this
-    font would be a downgrade rather than a fix. Setting it late is fine — the
-    console repaints its whole buffer — so it runs first in `deliver`, before
-    the wait for a prompt box, which is also why a hand-off with nothing
-    selected still starts that thread.
+    paints.** Pinning the host (invariant 10) means the tracker's window is
+    always a classic console, and conhost's renderer font-links *some* missing
+    glyphs but not the quadrant block elements `U+2596`–`U+259F` — which is
+    exactly what Claude Code's logo is drawn from, and Consolas (what
+    `__DefaultTTFont__` resolves to) has none of them. So the session opened
+    on a row of boxes with the code point printed inside.
+    `console_input.use_font` puts the console on **Cascadia Mono**, which
+    ships with Windows 11 and has all eight, using the attach the module
+    already performs — no registry, nothing machine-wide, and the size stays
+    whatever the console had. It reads the face back and reverts if it did not
+    take: an unknown face is not refused, conhost just picks something of its
+    own, which on a machine without this font would be a downgrade rather than
+    a fix. Setting it late is fine — the console repaints its whole buffer —
+    so it runs first in `deliver`, before the wait for a prompt box, which is
+    also why a hand-off with nothing selected still starts that thread.
 
-    Two things were measured and did **not** work, so that nobody spends the
+    Two things were measured and did **not** work, so nobody spends the
     afternoon again: `HKCU\Console\UseDx` at 1 and 2 (conhost's DirectWrite
     renderer) changed the rendering not at all, and `⎿` (`U+23BF`, the
     tool-result elbow, on every tool call) still draws as a box — under
-    Consolas too, so the font change costs nothing there. Windows Terminal
-    renders it, because it falls back per glyph. That is the whole trade:
-    correct glyphs, or a window that does not steal the keyboard.
+    Consolas too, so the font change costs nothing there. No monospace font on
+    the machine has both that and the quadrants; Windows Terminal renders it
+    only because it falls back per glyph, and a WT-hosted window is the one
+    thing invariant 10 rules out. If the elbow ever matters enough, the lever
+    is a wider-coverage font, not a different host.
 
 ## Data on disk
 
