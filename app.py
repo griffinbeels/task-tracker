@@ -84,11 +84,16 @@ class Api:
     def delete_note(self, note_id):
         inbox.delete_note(note_id)
 
-    def file_note(self, note_id, project_name, title, type, bucket, body=None):
+    def file_note(self, note_id, project_name, title, type, bucket, body=None, color=""):
         if body is not None and not isinstance(body, str):
             raise ValueError("body must be a string")
+        # "" means the caller has no preference and the backend should derive
+        # one, same as create_task — only a non-empty value Claude Code's
+        # /color would reject is an error.
+        if color and color not in store.CLAUDE_COLORS:
+            raise ValueError(f"unknown color: {color}")
         project = _project(project_name)
-        task = inbox.file_note(note_id, Path(project.path), title, type, bucket, body)
+        task = inbox.file_note(note_id, Path(project.path), title, type, bucket, body, color=color)
         return _task_dict(task, project_name)
 
     def _find(self, project_name, task_id):
@@ -103,26 +108,36 @@ class Api:
             raise ValueError(f"unknown bucket: {fields['bucket']}")
         if "status" in fields and fields["status"] not in store.STATUSES:
             raise ValueError(f"unknown status: {fields['status']}")
+        # store.Task.__post_init__ silently repairs a bad colour, which is
+        # right for a hand-edited file — here a bad value means the JS caller
+        # is broken, so raise instead of letting that repair hide it.
+        if "color" in fields and fields["color"] not in store.CLAUDE_COLORS:
+            raise ValueError(f"unknown color: {fields['color']}")
         if "order" in fields:
             fields = {**fields, "order": int(fields["order"])}
-        for key in ("title", "type", "body"):
+        for key in ("title", "type", "body", "color"):
             if key in fields and not isinstance(fields[key], str):
                 raise ValueError(f"{key} must be a string")
         _, task = self._find(project_name, task_id)
-        for key in ("title", "type", "bucket", "status", "order", "body"):
+        for key in ("title", "type", "bucket", "status", "order", "body", "color"):
             if key in fields:
                 setattr(task, key, fields[key])
         store.save_task(task)
         return _task_dict(task, project_name)
 
-    def create_task(self, project_name, title, body, type, bucket):
+    def create_task(self, project_name, title, body, type, bucket, color=""):
         if bucket not in store.BUCKETS:
             raise ValueError(f"unknown bucket: {bucket}")
+        # "" means no preference, let the backend derive one (store.create_task
+        # already does this) — only a colour Claude Code's /color would reject
+        # is an error.
+        if color and color not in store.CLAUDE_COLORS:
+            raise ValueError(f"unknown color: {color}")
         for key, value in (("title", title), ("body", body), ("type", type)):
             if not isinstance(value, str):
                 raise ValueError(f"{key} must be a string")
         project = _project(project_name)
-        task = store.create_task(Path(project.path), title, body, type, bucket)
+        task = store.create_task(Path(project.path), title, body, type, bucket, color=color)
         return _task_dict(task, project_name)
 
     def save_attachment(self, project_name, data_url):
@@ -173,15 +188,39 @@ class Api:
         _, task = self._find(project_name, task_id)
         return launcher.copy_prompt([task])
 
-    def hand_off(self, project_name, task_ids):
+    def _selected_tasks(self, project_name, task_ids):
+        """The project and its tasks named by id, in the order the ids arrived.
+
+        Shared by hand_off and suggest_session_name so there is exactly one
+        id-to-task lookup — and exactly one unknown-id error — rather than two
+        that could drift apart.
+        """
         project = _project(project_name)
         wanted = [int(i) for i in task_ids]
         by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
         missing = [i for i in wanted if i not in by_id]
         if missing:
             raise ValueError(f"no such task in {project_name}: {missing}")
-        tasks = [by_id[i] for i in wanted]
-        return launcher.hand_off(Path(project.path), tasks, project.launch)
+        return project, [by_id[i] for i in wanted]
+
+    def hand_off(self, project_name, task_ids, name=""):
+        if not isinstance(name, str):
+            raise ValueError("name must be a string")
+        project, tasks = self._selected_tasks(project_name, task_ids)
+        # name is the third positional on launcher.hand_off's own signature —
+        # pass it as a keyword or it lands in `launch` and spawns the wrong
+        # process.
+        return launcher.hand_off(Path(project.path), tasks, project.launch, name=name)
+
+    def suggest_session_name(self, project_name, task_ids):
+        """What hand_off would `/rename` the session to if given no name.
+
+        The frontend needs this for a placeholder, and computing the rule in
+        JavaScript would be a second copy of launcher.session_name, free to
+        drift from the one hand_off actually uses.
+        """
+        _, tasks = self._selected_tasks(project_name, task_ids)
+        return launcher.session_name(tasks)
 
     def save_settings(self, payload):
         settings = registry.Settings(

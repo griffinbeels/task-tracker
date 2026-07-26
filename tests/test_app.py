@@ -182,3 +182,90 @@ def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     assert returned.startswith("file:///")
     assert "\\" not in returned
     assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"
+
+
+def test_update_task_rejects_a_colour_claude_does_not_accept(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG", color="cyan")
+
+    with pytest.raises(ValueError):
+        app.Api().update_task("repo", task.id, {"color": "chartreuse"})
+
+    assert store.list_tasks(repo)[0].color == "cyan"
+
+
+def test_update_task_applies_a_valid_colour(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG", color="cyan")
+
+    app.Api().update_task("repo", task.id, {"color": "purple"})
+
+    assert store.list_tasks(repo)[0].color == "purple"
+
+
+def test_create_task_takes_a_colour(tmp_path):
+    make_repo(tmp_path)
+
+    payload = app.Api().create_task("repo", "A", "body", "BUG", "now", "pink")
+
+    assert payload["color"] == "pink"
+
+
+def test_create_task_rejects_a_colour_claude_does_not_accept(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().create_task("repo", "A", "body", "BUG", "now", "chartreuse")
+
+
+def test_a_task_crosses_the_bridge_carrying_its_colour(tmp_path):
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "A", "body", "BUG", color="orange")
+
+    payload = app.Api().get_state()["tasks"][0]
+
+    assert payload["color"] == "orange"
+
+
+def test_hand_off_passes_the_name_it_was_given(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+    captured = {}
+    monkeypatch.setattr(
+        app.launcher, "hand_off",
+        lambda path, tasks, launch=None, name=None: captured.update(name=name) or "")
+
+    app.Api().hand_off("repo", [first.id, second.id], "Editor polish")
+
+    assert captured["name"] == "Editor polish"
+
+
+def test_hand_off_without_a_name_passes_nothing(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    captured = {}
+    monkeypatch.setattr(
+        app.launcher, "hand_off",
+        lambda path, tasks, launch=None, name=None: captured.update(name=name) or "")
+
+    app.Api().hand_off("repo", [task.id])
+
+    assert not captured["name"]
+
+
+def test_suggest_session_name_is_what_hand_off_would_use(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "Rename the spawned session", "b", "FEATURE")
+    second = store.create_task(repo, "Colour it too", "b", "FEATURE")
+
+    suggested = app.Api().suggest_session_name("repo", [first.id, second.id])
+
+    assert suggested == "FEATURE: Rename the spawned session (+1)"
+
+
+def test_suggest_session_name_raises_on_an_unknown_id(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().suggest_session_name("repo", [99])

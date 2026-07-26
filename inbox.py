@@ -65,7 +65,7 @@ def delete_note(note_id: str) -> None:
 
 
 def file_note(note_id: str, project_path: Path, title: str, type: str,
-              bucket: str, body: str | None = None) -> store.Task:
+              bucket: str, body: str | None = None, color: str = "") -> store.Task:
     path = _note_path(note_id)
     if not path.exists():
         raise FileNotFoundError(f"unknown note: {note_id}")
@@ -76,6 +76,6 @@ def file_note(note_id: str, project_path: Path, title: str, type: str,
     # working unchanged.
     if body is None:
         body = path.read_text(encoding="utf-8")
-    task = store.create_task(Path(project_path), title, body, type, bucket)
+    task = store.create_task(Path(project_path), title, body, type, bucket, color=color)
     delete_note(note_id)
     return task

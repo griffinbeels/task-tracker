@@ -97,3 +97,14 @@ def test_list_notes_tolerates_a_file_that_is_not_a_note_id():
     (directory / "some-stray-file-name.md").write_text("stray", encoding="utf-8", newline="\n")
 
     assert [n.text for n in inbox.list_notes()] == ["stray"]
+
+
+def test_filing_a_note_carries_the_colour_that_was_picked(tmp_path):
+    note = inbox.save_note("some prose")
+    project = tmp_path / "repo"
+    project.mkdir()
+
+    task = inbox.file_note(note.id, project, "A title", "BUG", "now",
+                           color="pink")
+
+    assert task.color == "pink"
