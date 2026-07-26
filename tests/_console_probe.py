@@ -16,7 +16,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import console_input  # noqa: E402
-import launcher  # noqa: E402
+
+# A real console for the child, with no window on screen. CREATE_NO_WINDOW still
+# allocates a genuine console — AttachConsole, WriteConsoleInput and the screen
+# buffer all behave exactly as they do for a visible one — it just never shows
+# the host window, which is the whole of what this test needs.
+#
+# It used to be CREATE_NEW_CONSOLE plus launcher.unfocused_startup(), on the
+# theory that SW_SHOWNOACTIVATE made the window harmless. It does not, because
+# Windows 11 delegates new consoles to whatever is set as the default terminal
+# application. When that is Windows Terminal, WT creates the window itself and
+# the spawner's STARTUPINFO never reaches it: a full Terminal window opens,
+# activated, for as long as the child lives. Measured 2026-07-25 — every run of
+# this suite flashed one, which is most of what "random windows keep popping up
+# while Claude works" turned out to be.
+CONSOLE_FLAGS = subprocess.CREATE_NO_WINDOW
 
 
 def run_child(log_path: str) -> None:
@@ -38,13 +52,11 @@ def run_child(log_path: str) -> None:
 def run_parent() -> None:
     log_path = str(Path(__file__).with_name("_console_probe_log.txt"))
     Path(log_path).unlink(missing_ok=True)
-    # Opened without activating it, for the same reason spawn_claude does —
-    # this window pops up while someone is typing elsewhere, and a test that
-    # steals focus is exactly the behaviour the code under test forbids.
+    # Windowless: a test that puts anything on screen is exactly the behaviour
+    # the code under test forbids, and this one ran on every suite invocation.
     child = subprocess.Popen(
         [sys.executable, __file__, "child", log_path],
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
-        startupinfo=launcher.unfocused_startup())
+        creationflags=CONSOLE_FLAGS)
     typed = console_input.paste(child.pid, "hello there", timeout=20)
     child.wait(timeout=30)
     received = Path(log_path).read_text(encoding="utf-8")

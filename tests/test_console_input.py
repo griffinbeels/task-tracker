@@ -4,7 +4,19 @@ from pathlib import Path
 
 import console_input
 
+import _console_probe
+
 PROBE = str(Path(__file__).with_name("_console_probe.py"))
+
+
+def test_the_probe_console_never_reaches_the_screen():
+    # The suite runs constantly while someone else is using the machine, so the
+    # one test that opens a real console must open a windowless one. Under a
+    # Windows 11 default terminal of Windows Terminal, CREATE_NEW_CONSOLE opens
+    # a full Terminal window and the spawner's SW_SHOWNOACTIVATE is discarded —
+    # WT creates that window, not us, so there is no flag to soften it with.
+    # CREATE_NO_WINDOW is the only spelling that stays off screen.
+    assert _console_probe.CONSOLE_FLAGS == subprocess.CREATE_NO_WINDOW
 
 
 def characters_of(records):
@@ -87,7 +99,7 @@ def test_nothing_is_typed_for_empty_text():
 def test_text_is_typed_into_another_process_console():
     """The whole mechanism, against a real console this process does not own.
 
-    Flashes a console window for a second or two — that window *is* the test.
+    The console is real; its window is never shown. See `_console_probe`.
     """
     probe = subprocess.run([sys.executable, PROBE, "parent"],
                            capture_output=True, text=True, timeout=90)

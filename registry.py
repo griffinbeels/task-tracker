@@ -130,11 +130,49 @@ def save_settings(settings: Settings) -> None:
 # Settings — Api.save_settings rebuilds that dataclass from the three fields the
 # settings overlay sends, and a key kept there would be silently wiped every
 # time those settings were saved.
-def last_project() -> str | None:
+def _read_session() -> dict:
     stored = _read_json(_session_file(), {})
-    return stored.get("last_project") if isinstance(stored, dict) else None
+    return stored if isinstance(stored, dict) else {}
+
+
+def _update_session(**changes) -> None:
+    """Read, change, write. session.json holds several unrelated keys now, and
+    replacing the file to set one of them silently drops the rest."""
+    _write_json(_session_file(), {**_read_session(), **changes})
+
+
+def last_project() -> str | None:
+    value = _read_session().get("last_project")
+    return value if isinstance(value, str) else None
 
 
 def set_last_project(name: str | None) -> None:
     """Written on every change, so a crash cannot lose the selection."""
-    _write_json(_session_file(), {"last_project": name})
+    _update_session(last_project=name)
+
+
+# Which group blocks and project headings the user has folded away. View state
+# like last_project, and hand-editable like every other file here — so it is
+# filtered rather than trusted on the way out. The renderer indexes each group
+# entry by position, and a bare string where a list belongs is iterable, which
+# would turn "sm64_tracker" into eleven collapsed projects.
+def collapsed_view() -> dict:
+    raw = _read_session().get("collapsed")
+    if not isinstance(raw, dict):
+        return {"projects": [], "groups": []}
+    names, pairs = raw.get("projects"), raw.get("groups")
+    return {
+        "projects": [n for n in names if isinstance(n, str)]
+                    if isinstance(names, list) else [],
+        "groups": [[pair[0], pair[1]] for pair in pairs
+                   if isinstance(pair, list) and len(pair) == 2
+                   and all(isinstance(part, str) for part in pair)]
+                  if isinstance(pairs, list) else [],
+    }
+
+
+def set_collapsed_view(projects, groups) -> None:
+    _update_session(collapsed={
+        "projects": [str(name) for name in projects],
+        "groups": [[str(pair[0]), str(pair[1])] for pair in groups],
+    })

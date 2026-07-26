@@ -212,6 +212,43 @@ def set_bucket(project_path: Path, name: str, bucket: str) -> None:
         renumber(project_path, one_bucket)
 
 
+def reorder_members(project_path: Path, name: str, ordered_ids) -> None:
+    """Rearrange tasks WITHIN one group, leaving the rest of the bucket alone.
+
+    store.reorder_bucket cannot do this job from the IN PROGRESS section: that
+    view renders only part of a bucket, and reorder_bucket assigns position
+    0..n-1 to whatever it is handed, so a partial list would stamp the group's
+    members over whatever else occupied those positions.
+
+    The rule instead is a permutation: the tasks named here trade the `order`
+    slots they already occupy, in the sequence given. Everything else in the
+    bucket keeps its slot — including members of this same group that the
+    caller did not name, which is what makes a half-visible group (some members
+    in progress, some not) safe to drag around.
+    """
+    tasks = _live_tasks(project_path)
+    members = {task.id: task for task in tasks if task.group == name}
+    if not members:
+        raise ValueError(f"no group named {name} in this project")
+
+    wanted = [int(task_id) for task_id in ordered_ids]
+    strangers = [task_id for task_id in wanted if task_id not in members]
+    if strangers:
+        raise ValueError(f"not in {name}: {strangers}")
+
+    # Read every slot before writing any of them; mid-loop the two sequences
+    # overlap, and a slot read after a write would be the new value.
+    slots = sorted(members[task_id].order for task_id in wanted)
+    touched = set()
+    for slot, task_id in zip(slots, wanted):
+        task = members[task_id]
+        task.order = slot
+        touched.add(task.bucket)
+        store.save_task(task)
+    for one_bucket in touched:
+        renumber(project_path, one_bucket)
+
+
 def auto_group(project_path: Path, task_ids) -> str | None:
     """Record that these tasks were handed to one session — if that is unambiguous.
 

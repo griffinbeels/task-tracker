@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Eleven small Python modules and seven plain `<script>` files, plus one vendored
+Twelve small Python modules and seven plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
@@ -35,17 +35,18 @@ library. No framework, no HTTP server, no bundler.
 | `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
-| `groups.py` | Group membership: assign/create/rename/disband/move, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
+| `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | Typing that prompt into the spawned session's console, and submitting the `/rename`/`/color` commands ahead of it |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
+| `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor` |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
-| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, and the reset actions |
+| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, folding, and the reset actions |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
@@ -135,8 +136,11 @@ Break one of these and the failure is silent. Each cost a bug.
    monkeypatch it; binding it into a module-level constant at import captures
    the real home directory and makes the suite write to the user's actual
    config. `_projects_file()` / `_settings_file()` / `inbox_dir()` are functions
-   for this reason. (`app.WINDOW_STATE` is the sole exception, safe only because
-   `app.py` is never imported by a test — do not copy that pattern.)
+   for this reason, and so is `window_state._state_file()`. There is no
+   exception: `app.WINDOW_STATE` used to be one, and it was never as safe as its
+   note claimed — `tests/test_app.py` does import `app.py`, and only a
+   `monkeypatch.setattr(app, "WINDOW_STATE", ...)` in its fixture kept the suite
+   off the real `~/.task-tracker/`.
 
 8. **A spawned session's environment is rebuilt, never filtered.** `Popen`
    inherits the tracker's environment, and the tracker is normally started
@@ -228,14 +232,54 @@ Break one of these and the failure is silent. Each cost a bug.
     group's bucket and position come from its **lowest-order member**, and
     every member draws inside that block whatever its own `bucket:` line says.
 
-17. **`auto_group` runs after `launcher.hand_off`, never before.**
+17. **`session.json` is read-modify-write.** It holds `last_project` and the
+    fold state, and it will hold the next piece of view state too. Replacing
+    the file to set one key drops the others — `set_last_project` did exactly
+    that, so a project switch would have silently unfolded everything. Go
+    through `registry._update_session`.
+
+18. **A folded block keeps its rows in the DOM; CSS hides them.** Three things
+    read the rendered list rather than `state`: select-the-group ticks
+    `.select` inside the container, `selectedIds()` collects checked rows
+    document-wide, and the drag's drop handler builds `reorder_bucket`'s id
+    list from `section.querySelectorAll('.task')`. Drop the rows and that last
+    one hands the backend a bucket with a hole in it, leaving the folded
+    members on stale `order` values that collide with the renumbered ones.
+
+19. **`auto_group` runs after `launcher.hand_off`, never before.**
     `launcher.hand_off` saves the `Task` objects `Api.hand_off` handed it, so
     grouping first would rewrite those same files and leave those objects
     stale — the save would then silently discard the group. Going second also
     means a session that failed to start leaves nothing grouped, which is the
     same guarantee the spawn failure path already gives for `status` and
     `started`.
-18. **Commands are submitted before the prompt is typed.** `console_input.deliver`
+20. **Window geometry is only trusted if a monitor can show it.** While a
+    window is minimized Windows parks it at a sentinel rectangle — measured
+    here as -32000,-32000 at 237x39 — and that is what pywebview reports for
+    `window.x/y/width/height`. Saving it is unrecoverable rather than merely
+    wrong: the next launch opens somewhere the user cannot reach, so they
+    cannot move it anywhere better, and closing re-saves the same value
+    forever. The only exit is deleting a JSON file nobody knows exists.
+    `window_state.on_screen` is therefore checked on **both** sides of the
+    trip: `save` keeps the previous position instead of overwriting it with the
+    sentinel, and `load` discards a rectangle that overlaps no screen, which is
+    what repairs a `window.json` that is already poisoned. The load-side check
+    also covers a window left on a monitor that has since been unplugged —
+    different cause, identical symptom. Overlapping a screen by any amount
+    passes, and a negative coordinate is normal, not suspicious: a monitor to
+    the left of the primary starts at a negative x.
+
+21. **The selected project is reconciled against the project list on every
+    refresh.** `projects.json` is hand-editable and `refresh()` re-reads it, so
+    the selection can go stale after it is made, not just before. When
+    `currentProject` names a project that is no longer registered, no
+    `<option>` matches and the browser silently selects the first one — the
+    picker then shows one project while the list below renders another, which
+    reads as the tasks having been lost. The check is the same one that
+    restores `last_project` at launch; it just runs unconditionally rather than
+    only when `currentProject` is unset.
+
+22. **Commands are submitted before the prompt is typed.** `console_input.deliver`
     calls `submit()` — which presses Enter — for every `/rename`/`/color` line
     first, and only then `paste()`s the prompt, which never presses Enter. Get
     the order backwards and a command's Enter would land on top of the
@@ -247,7 +291,7 @@ Break one of these and the failure is silent. Each cost a bug.
     where a hand-off without this feature always has — task text sitting
     editable in the box.
 
-19. **`Task.color` is always one of the eight `CLAUDE_COLORS` — parsing repairs
+23. **`Task.color` is always one of the eight `CLAUDE_COLORS` — parsing repairs
     it, the bridge refuses to.** `Task.__post_init__` replaces a missing,
     empty, or hand-edited-into-garbage colour with `CLAUDE_COLORS[id % 8]`, so
     nothing downstream — the `/color` argument, the renderer's hex lookup —
@@ -262,6 +306,7 @@ Break one of these and the failure is silent. Each cost a bug.
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
 ~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
+~/.task-tracker/session.json    last_project, and which groups/projects are folded
 ~/.task-tracker/inbox/          untriaged raw notes
 ~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
@@ -323,7 +368,13 @@ the images arrive, the paths do not resolve.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor. In `ui/groups.js`, three more: drag a task onto the
+  not also open the editor. Fold a group, tick the group's checkbox, and hit
+  Spin up: the folded members must still go to the session. In `ui/groups.js`,
+  four more: drop a grouped row on a bucket's heading, or on a project heading
+  in IN PROGRESS, and it must leave its group — that heading is the only
+  drag-out target, because the gaps a reorder crosses are not aimable and
+  releasing in one must never dissolve a grouping by accident. And three more:
+  drag a task onto the
   middle of another and the new group's name box must open focused with its
   seeded text selected; drag a third onto that group and it must **not** reopen
   (invariant 11); and after moving a group between buckets, `git status` in a

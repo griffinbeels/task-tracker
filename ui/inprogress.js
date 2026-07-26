@@ -35,27 +35,59 @@ function inProgressSection() {
   for (const project of state.projects) {
     const mine = running.filter(task => task.project === project.name);
     if (!mine.length) continue;
+    const blocks = groupBlocks(mine);
+    const folded = isProjectCollapsed(project.name);
 
-    const label = document.createElement('div');
-    label.className = 'project-heading';
-    // Project names are user-authored (they default to a folder name but can
-    // be typed) — textContent, never innerHTML.
-    label.textContent = project.name;
-    section.append(label);
+    // One wrapper per project, so folding one hides its blocks without
+    // touching the next project's.
+    const wrapper = document.createElement('div');
+    wrapper.className = folded ? 'project-block collapsed' : 'project-block';
+    wrapper.dataset.project = project.name;
+    wrapper.append(projectHeading(project.name, blocks.length, mine.length, folded));
 
     // No bucket picker and no disband here: a running session's bucket is not
     // a useful control, and dissolving a group mid-flight is not the gesture
-    // anyone reaches for. Reordering means nothing either, so nothing drags.
-    for (const block of groupBlocks(mine)) {
+    // anyone reaches for. Rows drag — that is how two running tasks become one
+    // group — but the header does not, since there is nothing to reorder.
+    for (const block of blocks) {
       const element = block.group
         ? groupBlock(block, { showBucket: false, showDisband: false,
-                              showReset: true, draggable: false })
-        : taskRow(block.tasks[0], { showBucket: false, showReset: true,
-                                    draggable: false });
-      section.append(nameForeignRows(element));
+                              showReset: true, headerDraggable: false })
+        : taskRow(block.tasks[0], { showBucket: false, showReset: true });
+      wrapper.append(nameForeignRows(element));
     }
+    section.append(wrapper);
   }
+  // null bucket: this section groups but never reorders — its rows are sorted
+  // by project and group, and they can sit in three different buckets, so
+  // there is no one bucket for reorder_bucket to renumber.
+  wireDrag(section, null);
   return section;
+}
+
+// The heading is also the fold control, and it says what folding away hides —
+// a collapsed project that showed only its name would be a row you have to
+// open to find out whether it matters.
+function projectHeading(name, groupCount, taskCount, folded) {
+  const heading = document.createElement('div');
+  heading.className = 'project-heading';
+
+  const label = document.createElement('span');
+  // Project names are user-authored (they default to a folder name but can be
+  // typed) — textContent, never innerHTML.
+  label.textContent = name;
+
+  const summary = document.createElement('span');
+  summary.className = 'project-count';
+  summary.textContent = `${groupCount} ${groupCount === 1 ? 'group' : 'groups'}`
+    + ` · ${taskCount} ${taskCount === 1 ? 'task' : 'tasks'}`;
+
+  heading.append(caretButton(folded, () => toggleProjectCollapsed(name)),
+                 label, summary);
+  // The whole heading folds it, not just the caret. A 9px triangle is a target
+  // you have to aim at, and there is nothing else on this row to click.
+  heading.onclick = () => toggleProjectCollapsed(name);
+  return heading;
 }
 
 // A row from a project other than the selected one says which project it is.

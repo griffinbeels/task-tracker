@@ -9,7 +9,6 @@ import store
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path / "config")
-    monkeypatch.setattr(app, "WINDOW_STATE", tmp_path / "config" / "window.json")
 
 
 def make_repo(tmp_path):
@@ -117,16 +116,6 @@ def test_pick_project_folder_returns_none_without_a_window():
     # No window means no native dialog to open — it must return cleanly rather
     # than indexing into an empty webview.windows.
     assert app.Api().pick_project_folder() is None
-
-
-def test_corrupt_window_state_falls_back_to_defaults():
-    app.WINDOW_STATE.parent.mkdir(parents=True, exist_ok=True)
-    app.WINDOW_STATE.write_text("{not json", encoding="utf-8")
-
-    state = app._load_window_state()
-
-    assert state["width"] == 420
-    assert state["on_top"] is True
 
 
 def test_create_task_writes_a_task_and_returns_it_serialised(tmp_path):
@@ -242,6 +231,27 @@ def test_editing_a_completed_task_does_not_drag_its_old_group_around(tmp_path):
 
     survivor = [t for t in store.list_tasks(repo) if t.id == still_open.id][0]
     assert survivor.bucket == "now"
+
+
+def test_get_state_carries_the_collapsed_view(tmp_path):
+    make_repo(tmp_path)
+    app.Api().set_collapsed(["repo"], [["repo", "Editor polish"]])
+
+    assert app.Api().get_state()["collapsed"] == {
+        "projects": ["repo"],
+        "groups": [["repo", "Editor polish"]],
+    }
+
+
+def test_set_collapsed_rejects_a_malformed_group_entry(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_collapsed([], [["repo"]])
+    with pytest.raises(ValueError):
+        app.Api().set_collapsed([], [["repo", 7]])
+
+    assert app.Api().get_state()["collapsed"] == {"projects": [], "groups": []}
 
 
 def test_create_group_dedupes_the_seed(tmp_path):
