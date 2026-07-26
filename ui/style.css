@@ -66,6 +66,28 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    everything else open the editor. */
 .copy svg { pointer-events: none; display: block; }
 
+/* A group is a parent/child relationship, so the children are indented exactly
+   one level and the rail draws the span they belong to. One level only —
+   groups do not nest. */
+.group { border-left: 2px solid rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
+         margin: 2px 0; }
+.group > .task { margin-left: 14px; }
+.group-header { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+                cursor: grab; }
+.group-header:hover { background: rgba(127, 127, 127, .08); }
+.group-name { flex: 1; font-weight: 600; cursor: text; }
+.group-name-input { flex: 1; font: inherit; font-weight: 600; min-width: 0;
+                    color: inherit; background: rgba(127, 127, 127, .15);
+                    border: 1px solid rgba(127, 127, 127, .4); border-radius: 4px;
+                    padding: 1px 5px; }
+.group-count { font-size: 10px; opacity: .45; }
+/* Hover-revealed with opacity, never display: a control that appears from
+   nothing shifts everything beside it sideways as the pointer arrives. */
+.group-disband { opacity: 0; font-size: 12px; line-height: 1; }
+.group-header:hover .group-disband { opacity: .6; }
+.reset { opacity: 0; font-size: 11px; line-height: 1; }
+.task:hover .reset, .group-header:hover .reset { opacity: .6; }
+
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }

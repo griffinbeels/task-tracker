@@ -20,10 +20,16 @@ function tasksFor(project, bucket) {
     .sort((a, b) => a.order - b.order);
 }
 
-function taskRow(task) {
+// options tune the row for the three places it appears. A grouped row has no
+// bucket picker because its group header owns the bucket — a member that could
+// drift into another bucket on its own would render in two places at once.
+// showReset adds the "not actually in progress" control, which only means
+// anything in the IN PROGRESS section.
+function taskRow(task, options = {}) {
+  const { showBucket = true, showReset = false, draggable = true } = options;
   const row = document.createElement('div');
   row.className = 'task';
-  row.draggable = true;
+  row.draggable = draggable;
   row.dataset.id = task.id;
   row.dataset.project = task.project;
   row.innerHTML = `
@@ -65,26 +71,43 @@ function taskRow(task) {
     });
   };
 
-  const bucketPicker = document.createElement('select');
-  bucketPicker.className = 'bucket';
-  BUCKETS.forEach(name => {
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = name;
-    option.selected = name === task.bucket;
-    bucketPicker.append(option);
-  });
-  bucketPicker.onchange = async event => {
-    const target = event.target.value;
-    // Land it at the end of the target bucket rather than keeping an order
-    // that means nothing there.
-    const order = state.tasks.filter(
-      t => t.project === task.project && t.bucket === target && t.status !== 'done').length;
-    if (await callApi('update_task', task.project, task.id,
-        { bucket: target, order }) === API_FAILED) return;
-    await refresh();
-  };
-  row.querySelector('.copy').before(bucketPicker);
+  if (showBucket) {
+    const bucketPicker = document.createElement('select');
+    bucketPicker.className = 'bucket';
+    BUCKETS.forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      option.selected = name === task.bucket;
+      bucketPicker.append(option);
+    });
+    bucketPicker.onchange = async event => {
+      const target = event.target.value;
+      // Land it at the end of the target bucket rather than keeping an order
+      // that means nothing there.
+      const order = state.tasks.filter(
+        t => t.project === task.project && t.bucket === target && t.status !== 'done').length;
+      if (await callApi('update_task', task.project, task.id,
+          { bucket: target, order }) === API_FAILED) return;
+      await refresh();
+    };
+    row.querySelector('.copy').before(bucketPicker);
+  }
+
+  if (showReset) {
+    // Retracting "in progress" is the way out of a session you abandoned.
+    // Hover-revealed with opacity, never display, so the title beside it does
+    // not shift sideways when the pointer arrives.
+    const reset = document.createElement('button');
+    reset.className = 'reset';
+    reset.textContent = '↩';
+    reset.title = 'Not actually in progress';
+    reset.onclick = async () => {
+      if (await callApi('reset_to_open', task.project, [task.id]) === API_FAILED) return;
+      await refresh();
+    };
+    row.querySelector('.done').before(reset);
+  }
 
   // The whole task, as the text you would have typed to start it: exactly what
   // "Spin up Claude" would send, built by the same backend function so the two
@@ -126,7 +149,10 @@ function bucketSection(bucket) {
   const section = document.createElement('section');
   section.dataset.bucket = bucket;
   section.innerHTML = `<h2>${bucket.toUpperCase()}</h2>`;
-  tasksFor(currentProject, bucket).forEach(t => section.append(taskRow(t)));
+  // A loose task gets no container: drawing one around a single row would
+  // claim a grouping that does not exist.
+  groupBlocks(tasksFor(currentProject, bucket)).forEach(block => section.append(
+    block.group ? groupBlock(block) : taskRow(block.tasks[0])));
   wireDrag(section, bucket);
   return section;
 }
