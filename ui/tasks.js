@@ -57,7 +57,13 @@ function taskRow(task, options = {}) {
   const typeTag = row.querySelector('.type');
   typeTag.style.background = typeColor(task.type);
   typeTag.textContent = task.type;
-  row.querySelector('.title').textContent = task.title;
+  const titleElement = row.querySelector('.title');
+  titleElement.textContent = task.title;
+  titleElement.title = 'Double-click to rename';
+  titleElement.ondblclick = event => {
+    event.stopPropagation();
+    renameTaskInPlace(titleElement, task);
+  };
 
   // Clicking the row opens it for editing. The row already contains a
   // checkbox, a bucket select and a done button, each with its own click
@@ -69,6 +75,15 @@ function taskRow(task, options = {}) {
   // .select for why those two views must not open the editor at all.
   row.onclick = event => {
     if (event.target.closest('input, select, button')) return;
+    // The title text is the rename target, so a click on it is not an "open".
+    // Single-click-to-open and double-click-to-rename cannot share an element:
+    // a double click fires two clicks first, so the editor would already be
+    // open — over the row — by the time the second one arrived. Splitting the
+    // two targets is what avoids that, and it needs no timer, so opening a
+    // task stays instant. The title is sized to its own text (see .title in
+    // style.css), so the space after a short one still opens the task, as do
+    // the dot, the type tag and the rest of the row.
+    if (event.target.closest('.title')) return;
     openEditor({
       mode: 'edit',
       taskId: task.id,
@@ -164,6 +179,72 @@ function taskRow(task, options = {}) {
     row.append(marker);
   }
   return row;
+}
+
+// Rename where the name already is, without the editor overlay — the same
+// gesture the group header uses one level up, and for the same reason:
+// renaming is frequent enough to want a shortcut and small enough that a
+// full-screen overlay is the wrong weight for it. Commits on Enter or blur;
+// Escape and an empty value both put the old title back.
+//
+// Seeded from the TASK, never from the element's text. Search, the
+// all-projects view and IN PROGRESS all decorate a foreign row's title with
+// its project name, so reading the DOM would offer "sm64_tracker · Doc Pass"
+// as the name to edit and then save that as the title.
+//
+// task.project, never currentProject (invariant 6): every one of those three
+// views can show a row from a project other than the selected one.
+function renameTaskInPlace(titleElement, task) {
+  const row = titleElement.closest('.task');
+  // A text box inside draggable="true" cannot be selected with the mouse in
+  // Chromium — the drag starts instead. Same trap as renameInPlace.
+  const wasDraggable = row.draggable;
+  row.draggable = false;
+  const restore = () => { row.draggable = wasDraggable; };
+
+  const input = document.createElement('input');
+  input.className = 'title-input';
+  input.value = task.title;
+  titleElement.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let committing = false;
+  const commit = async () => {
+    if (committing) return;
+    const wanted = input.value.trim();
+    if (!wanted || wanted === task.title) {
+      input.replaceWith(titleElement);
+      restore();
+      return;
+    }
+    committing = true;
+    if (await callApi('update_task', task.project, task.id,
+        { title: wanted }) === API_FAILED) {
+      // Keep what was typed and the focus, so a rejected name can be fixed
+      // rather than retyped.
+      committing = false;
+      input.focus();
+      input.select();
+      return;
+    }
+    await refresh();
+  };
+
+  input.onblur = commit;
+  // The row opens the editor on click, and Escape closes the topmost overlay.
+  // Neither should hear anything that happens inside this box.
+  input.onclick = event => event.stopPropagation();
+  input.ondblclick = event => event.stopPropagation();
+  input.onkeydown = event => {
+    event.stopPropagation();
+    if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+    if (event.key === 'Escape') {
+      input.onblur = null;
+      input.replaceWith(titleElement);
+      restore();
+    }
+  };
 }
 
 function bucketSection(bucket) {

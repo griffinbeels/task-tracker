@@ -79,7 +79,21 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .type { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
         color: #fff; }
-.title { flex: 1; }
+/* Sized to its text, like .group-name below and for the same reason: the title
+   is the rename target now, so its box must be the text and not the rest of
+   the row. `flex: 1` made every pixel out to the bucket picker part of the
+   title, which would have handed the whole row to rename and left nothing to
+   open the task with. `margin-right: auto` pushes the controls right exactly
+   as the old flex did, without claiming the space between.
+   No nowrap or ellipsis, unlike a group name: a task title is prose and is
+   meant to wrap to a second line. And no user-select: none — titles are worth
+   selecting to copy, and a drag started on one has always worked. */
+.title { flex: 0 1 auto; margin-right: auto; min-width: 0; cursor: text; }
+/* The inline rename box. Grows to the row, unlike the title it replaces, so a
+   long name has somewhere to go while it is being typed. */
+.title-input { flex: 1; font: inherit; min-width: 0; background: #1b1b1b;
+               color: inherit; border: 1px solid #3a3a3a; border-radius: 3px;
+               padding: 1px 4px; }
 .bucket { font-size: 10px; opacity: .5; }
 .task:hover .bucket { opacity: 1; }
 .done { opacity: 0; font-size: 10px; }

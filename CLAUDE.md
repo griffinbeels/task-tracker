@@ -686,7 +686,15 @@ show two unrelated tasks under one id at different points in time.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor. In `ui/selection.js`, check that ticking a group
+  not also open the editor. Five for inline rename, which splits one row
+  between two gestures: double-click a task's title — it becomes a box, Enter
+  commits and Escape puts the old title back; single-click that same title must
+  do **nothing**, while the dot, the type tag and the space after a short title
+  all still open the editor; dragging a row by its title must still work;
+  rename a row in the **search** view, where a title is drawn as `project ·
+  title` — the box must contain the bare title, or the decoration gets saved as
+  the name; and rename in a tracked project, then `git status` — a frontmatter
+  change and **no body diff**. In `ui/selection.js`, check that ticking a group
   header's select-all box updates the bar's count (assigning `.checked` on the
   member rows does not fire a `change` event, so the count silently goes stale
   without the explicit call this depends on) and that `Clear` empties the
