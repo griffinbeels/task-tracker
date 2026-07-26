@@ -78,7 +78,7 @@ example a project that needs a wrapper script or a different flag set.
 ## Layout
 
     ~/.task-tracker/projects.json   registered projects
-    ~/.task-tracker/settings.json   WIP limit, staleness, task types
+    ~/.task-tracker/settings.json   group limit, staleness, task types
     ~/.task-tracker/inbox/          untriaged notes
     <project>/.tasks/open/          active tasks
     <project>/.tasks/done/          the archive, and the progress view's source
