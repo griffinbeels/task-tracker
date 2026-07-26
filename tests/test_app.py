@@ -254,3 +254,23 @@ def test_reset_to_open_returns_the_updated_tasks(tmp_path):
     assert updated[0]["project"] == "repo"
     # Task.path is a Path, which does not survive the bridge as JSON.
     assert "path" not in updated[0]
+
+
+def test_reset_to_open_acts_once_on_a_repeated_id(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    task.status = "in-progress"
+    task.started = "2026-07-25"
+    store.save_task(task)
+
+    returned = app.Api().reset_to_open("repo", [task.id, task.id])
+
+    assert len(returned) == 1
+    assert store.list_tasks(repo)[0].status == "open"
+
+
+def test_reset_to_open_still_raises_on_an_unknown_id(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().reset_to_open("repo", [999])

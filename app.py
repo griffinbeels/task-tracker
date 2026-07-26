@@ -110,6 +110,27 @@ class Api:
                 return project, task
         raise ValueError(f"unknown task: {task_id}")
 
+    def _tasks(self, project_name, task_ids):
+        """Task objects for these ids, in the order given, or a ValueError.
+
+        Deduplicates while preserving first-seen order, so a repeated id acts
+        once — the one addition over the four-line block this replaces at
+        every bulk call site.
+        """
+        project = _project(project_name)
+        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
+        wanted = []
+        seen = set()
+        for task_id in task_ids:
+            task_id = int(task_id)
+            if task_id not in seen:
+                seen.add(task_id)
+                wanted.append(task_id)
+        missing = [task_id for task_id in wanted if task_id not in by_id]
+        if missing:
+            raise ValueError(f"no such task in {project_name}: {missing}")
+        return project, [by_id[task_id] for task_id in wanted]
+
     def update_task(self, project_name, task_id, fields):
         if "bucket" in fields and fields["bucket"] not in store.BUCKETS:
             raise ValueError(f"unknown bucket: {fields['bucket']}")
@@ -206,14 +227,9 @@ class Api:
 
     def reset_to_open(self, project_name, task_ids):
         """Retract "in progress" for these tasks — see store.reset_to_open."""
-        project = _project(project_name)
-        wanted = [int(i) for i in task_ids]
-        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
-        missing = [i for i in wanted if i not in by_id]
-        if missing:
-            raise ValueError(f"no such task in {project_name}: {missing}")
-        return [_task_dict(store.reset_to_open(by_id[i]), project_name)
-                for i in wanted]
+        _, tasks = self._tasks(project_name, task_ids)
+        return [_task_dict(store.reset_to_open(task), project_name)
+                for task in tasks]
 
     def copy_task_prompt(self, project_name, task_id):
         """The task's hand-off text, on the clipboard. Nothing is written.
@@ -226,13 +242,7 @@ class Api:
         return launcher.copy_prompt([task])
 
     def hand_off(self, project_name, task_ids):
-        project = _project(project_name)
-        wanted = [int(i) for i in task_ids]
-        by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
-        missing = [i for i in wanted if i not in by_id]
-        if missing:
-            raise ValueError(f"no such task in {project_name}: {missing}")
-        tasks = [by_id[i] for i in wanted]
+        project, tasks = self._tasks(project_name, task_ids)
         prompt = launcher.hand_off(Path(project.path), tasks, project.launch)
         # After the hand-off, never before. launcher.hand_off saves the Task
         # objects above; grouping first would rewrite those same files and
@@ -240,7 +250,7 @@ class Api:
         # group. Going second also means a session that failed to start leaves
         # nothing grouped, matching the guarantee that a failed spawn leaves
         # tasks untouched.
-        groups.auto_group(Path(project.path), wanted)
+        groups.auto_group(Path(project.path), [task.id for task in tasks])
         return prompt
 
     def save_settings(self, payload):
