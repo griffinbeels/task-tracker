@@ -217,7 +217,13 @@ function groupMembers(project, name) {
 function renderGroupChips() {
   const field = document.getElementById('editor-group-field');
   const hint = document.getElementById('editor-bucket-hint');
-  field.hidden = editorContext.mode !== 'edit';
+  // Hidden for a completed task as well as outside edit mode. A done task
+  // keeps its `group` string in done/ but is not part of the group any more
+  // (invariant 15), so groups.assign/remove — which resolve ids against the
+  // live tasks — raise "no such task" for it. The save regroups BEFORE
+  // update_task and returns on the failure, so one chip click here would
+  // discard the title, type, bucket, colour and body edits made beside it.
+  field.hidden = editorContext.mode !== 'edit' || editorContext.status === 'done';
   if (field.hidden) { hint.hidden = true; return; }
 
   const project = editorContext.project;

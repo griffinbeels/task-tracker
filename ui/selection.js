@@ -57,6 +57,12 @@ async function completeTasksWithConfirm(project, ids) {
   if (ids.length >= DONE_CONFIRM_THRESHOLD && !confirm(
       `Mark ${ids.length} tasks done? They move to .tasks/done/ and `
       + `the app has no way back.`)) return;
+  // Here rather than in either caller: the group header's `done` completes a
+  // whole group in one click and the bar's Done can do the same to a ticked
+  // one, so the rule that a vanished group must not keep its fold entry
+  // belongs to the function they share — the same reason this function exists
+  // at all. After the confirm, so declining leaves the fold alone.
+  await forgetFoldsEmptiedBy(project, ids);
   // Refresh whether or not the call succeeded: complete_tasks (like
   // delete_tasks below) validates every id up front but then acts
   // file-by-file, so a failure partway through can still leave earlier tasks

@@ -616,6 +616,29 @@ def test_a_restored_task_is_open_on_disk(tmp_path):
     assert store.list_tasks(repo)[0].status == "open"
 
 
+def test_restore_task_closes_the_hole_the_completion_left(tmp_path):
+    # complete_task does not renumber, so the bucket a restore lands in has a
+    # gap in its order run — the one bucket in the app that reliably does.
+    # Without the renumber here the run stays 0, 2, 3 rather than 0, 1, 2, and
+    # a grouped restore into it can leave a loose task wedged between a
+    # group's members (invariant 16).
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "First", "body", "BUG")
+    middle = store.create_task(repo, "Middle", "body", "BUG")
+    store.create_task(repo, "Last", "body", "BUG")
+    app.Api().complete_task("repo", middle.id)
+
+    payload = app.Api().restore_task("repo", middle.id)
+
+    orders = {task.title: task.order
+              for task in store.list_tasks(repo, include_done=False)}
+    assert sorted(orders.values()) == [0, 1, 2]
+    assert orders["Middle"] == 2
+    # The payload is what the bridge hands the renderer: it must say what the
+    # file says, not what the store returned before the renumber moved it.
+    assert payload["order"] == orders["Middle"]
+
+
 def test_restore_task_raises_on_an_unknown_id(tmp_path):
     make_repo(tmp_path)
 

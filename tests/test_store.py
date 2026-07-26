@@ -468,6 +468,27 @@ def test_restore_task_lands_at_the_end_of_its_bucket(tmp_path):
     assert by_title["First"].order > by_title["Third"].order
 
 
+def test_restore_task_lands_last_even_when_the_bucket_has_a_hole(tmp_path):
+    # The test above completes the bucket's only task, so the orders it
+    # rebuilds are contiguous by construction and it never meets the case that
+    # actually happens: the row's `done` button completes without renumbering,
+    # so finishing a MIDDLE task leaves 0 and 2 with nothing at 1. Counting
+    # siblings there returns 2 — an order a live task already holds — and the
+    # restored task renders in the middle of the bucket it was promised the
+    # end of.
+    store.create_task(tmp_path, "First", "body", "BUG")
+    middle = store.create_task(tmp_path, "Middle", "body", "BUG")
+    store.create_task(tmp_path, "Last", "body", "BUG")
+    store.complete_task(middle)
+
+    store.restore_task(middle)
+
+    live = store.list_tasks(tmp_path, include_done=False)
+    orders = [task.order for task in live]
+    assert len(set(orders)) == len(orders), "two tasks share an order"
+    assert {task.title: task.order for task in live}["Middle"] == max(orders)
+
+
 def test_restore_task_does_not_disturb_the_tasks_already_there(tmp_path):
     first = store.create_task(tmp_path, "First", "body", "BUG")
     store.complete_task(first)

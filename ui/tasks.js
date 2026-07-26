@@ -147,6 +147,11 @@ function taskRow(task, options = {}) {
   };
 
   row.querySelector('.done').onclick = async () => {
+    // The third way a group can be emptied — a one-member group finished from
+    // its own row — and the same reason the other two clear the fold entry
+    // first: nothing renders a group with no members, so the entry would sit
+    // there until the name is used again and then fold it.
+    await forgetFoldIfEmptied(task.project, task.group);
     await callApi('complete_task', task.project, task.id);
     await refresh();
   };

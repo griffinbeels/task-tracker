@@ -271,9 +271,20 @@ class Api:
         return _task_dict(store.complete_task(task), project_name)
 
     def restore_task(self, project_name, task_id):
-        """Undo a completion — see store.restore_task for where it lands."""
-        _, task = self._find(project_name, task_id)
-        return _task_dict(store.restore_task(task), project_name)
+        """Undo a completion — see store.restore_task for where it lands.
+
+        Renumbered afterwards for the same domain rule delete_tasks and
+        complete_tasks below spell out, arrived at from the other direction:
+        those two hollow a bucket out, this one adds into a bucket already
+        hollowed out by the completion it is undoing. Reread rather than
+        returned straight from the store call, because the renumber can move
+        the task's order again and the payload must say what is on disk.
+        """
+        project, task = self._find(project_name, task_id)
+        restored = store.restore_task(task)
+        groups.renumber(Path(project.path), restored.bucket)
+        _, reloaded = self._find(project_name, task_id)
+        return _task_dict(reloaded, project_name)
 
     # delete_tasks and complete_tasks below each pair a store.py mutation with
     # a groups.renumber call for every bucket it touched — a domain rule

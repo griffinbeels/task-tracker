@@ -121,7 +121,9 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
                    font-weight: 700; letter-spacing: .04em; opacity: .85; margin: 8px 0 2px;
                    position: relative; padding-left: calc(6px + var(--caret-gutter));
                    cursor: pointer; }
-.project-heading:hover { opacity: .75; }
+/* Brighter than the .85 above, never dimmer: the base opacity grew with the
+   heading and a hover that lands below it fades the thing the pointer is on. */
+.project-heading:hover { opacity: 1; }
 /* A header that cannot be dragged must not offer the grab cursor — IN PROGRESS
    headers are static, since that section groups but never reorders. */
 .group-header[draggable="false"] { cursor: default; }
@@ -216,6 +218,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }
+/* The editor is the one overlay that opens on top of another: a completed
+   entry in the Progress list opens it with #progress still up. Every overlay
+   is position: fixed at z-index: auto, so they paint in DOM order and the
+   later div wins however late the earlier one was opened — #progress sits
+   below #editor in index.html, so without a rank here the editor opens
+   invisible underneath an opaque panel, holding focus, with Cancel
+   unreachable. Any overlay added later needs a rank of its own, not a place
+   in the markup. */
+#editor { z-index: 1; }
 /* min-height: 0 overrides the flex item's content-based auto height — without
    it a tall rendered document pushes #editor-body past the overlay's fixed
    bounds instead of scrolling inside itself, and the page scrolls (the exact
@@ -338,18 +349,32 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
                             border-radius: 6px; }
 .toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
-#progress-body { flex: 1; overflow: auto; }
+/* The 6px belongs to the scroll container, never to the rows inside it. A row
+   that hangs past its own overflow: auto parent is scrollable overflow, and
+   `.entry { margin: 0 -6px }` is what gave this list a horizontal scrollbar
+   that moved 6px and revealed nothing — the left half of that pull was
+   clipped and unreachable, so the whole rule bought a scrollbar and showed
+   nothing for it. Out here the -6px is absorbed by .overlay's 12px padding,
+   and .overlay is not a scroll container, so the overflow stops there.
+   No padding to go with it: the pull is what lets a row's hover fill run 6px
+   past the text on both sides, which is the effect .entry's margin was after
+   and never achieved. Every child that is text rather than fill pays the 6px
+   back below, so the month headings, the titles and the outcome notes keep
+   the one left column they have always shared — the scrollbar is the bug
+   here, and a fix that moves the text is a second one. */
+#progress-body { flex: 1; overflow: auto; margin: 0 -6px; }
+#progress-body h2 { padding-left: 6px; }
 /* A completed entry opens the editor, same as a task row — cursor and hover
-   are what say so before the click. Horizontal padding plus a matching
-   negative margin: the hover fill extends 6px past the text on both sides,
-   in line with .task's own 5px 6px, while the text itself stays exactly
-   where it was — plain padding with no compensating margin would shift it
-   right of the .outcome note sitting below it. */
+   are what say so before the click. The horizontal padding is the fill's, in
+   line with .task's own 5px 6px, and it is what puts the title back on the
+   column the heading above it starts. */
 .entry { display: flex; align-items: center; gap: 6px; padding: 3px 6px;
-         margin: 0 -6px; cursor: pointer; border-radius: 5px; }
+         cursor: pointer; border-radius: 5px; }
 .entry:hover { background: rgba(127, 127, 127, .12); }
+/* 8px = the 6px the container pulled back, plus the 2px optical nudge this
+   note has always carried against the title above it. */
 .outcome { font-size: 12px; opacity: .7; white-space: pre-wrap;
-           margin: 2px 0 10px; padding-left: 2px; }
+           margin: 2px 0 10px; padding-left: 8px; }
 
 #settings { overflow: auto; }
 .type-row, .tracked-row { display: flex; align-items: center; gap: 6px; }

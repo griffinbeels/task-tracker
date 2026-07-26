@@ -63,14 +63,37 @@ function persistCollapsed() {
 // A group that just lost its last member does not exist any more — a group IS
 // its name, so nothing renders it and nothing can unfold it. Drop the entry,
 // or the name comes back folded if it is ever used again. Called BEFORE the
-// refresh, while state.tasks still counts the member on its way out.
-async function forgetFoldIfEmptied(project, name) {
-  if (!name || groupMemberCount(project, name) > 1) return;
+// refresh, while state.tasks still counts the members on their way out.
+//
+// `leaving` is how many of them are going: 1 for a task dragged out of a
+// group, all of them for a group completed from its header. Without it the
+// count of what remains is compared against the wrong number, and every group
+// larger than one member keeps its fold entry through being emptied.
+async function forgetFoldIfEmptied(project, name, leaving = 1) {
+  if (!name || groupMemberCount(project, name) > leaving) return;
   const folded = collapsedView().groups;
   const at = folded.findIndex(pair => pair[0] === project && pair[1] === name);
   if (at === -1) return;
   folded.splice(at, 1);
   await persistCollapsed();
+}
+
+// The same rule for a batch: completing tasks is the other way a group can be
+// emptied, and the ids can span several groups at once (a selection is not
+// obliged to sit in one). Counted per group, from state.tasks, so it must run
+// BEFORE the completion — afterwards the members are gone and there is
+// nothing left to tell an emptied group from a group that never had these
+// tasks. Restore from Progress is what makes the leak visible: without this,
+// a group completed and then restored comes back folded with nothing on
+// screen to say why.
+async function forgetFoldsEmptiedBy(project, ids) {
+  const leaving = new Map();
+  for (const task of state.tasks) {
+    if (task.project !== project || !task.group || task.status === 'done') continue;
+    if (!ids.includes(task.id)) continue;
+    leaving.set(task.group, (leaving.get(task.group) || 0) + 1);
+  }
+  for (const [name, count] of leaving) await forgetFoldIfEmptied(project, name, count);
 }
 
 // Render from local state first and persist afterwards. A fold that waits for

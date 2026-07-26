@@ -265,6 +265,41 @@ def test_an_unrecognisable_screen_reads_as_an_empty_box():
     assert console_input.prompt_box("no prompt here\n  indented > quote") == ""
 
 
+# The same session with nothing typed in it, captured the same way — the one
+# rendering the pacing scheme turns on and the only one the repo had never
+# held. `submit` waits for its line to LEAVE the box, and that wait can only
+# clear if an empty box still draws a row of its own: with no marker there,
+# `prompt_box` would fall back to the transcript's own "> …" and every command
+# would time out and be dropped in silence. It does draw one. Filler rows
+# between the banner and the status area are dropped, as in LIVE_SCREEN above;
+# nothing else is edited.
+EMPTY_SCREEN = """
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 with xhigh effort · Claude Max
+  ▘▘ ▝▝    ~\\Desktop\\code\\task_tracker
+
+                                                                                                      ◉ xhigh · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent                                                       focus
+"""
+
+
+def test_an_empty_prompt_box_still_draws_its_marker_row():
+    # Measured, not assumed: every pacing test below runs through FakeSession,
+    # whose screen() returns f"> {self.box}" and so emits "> " for an empty
+    # box by construction. The fake would look identical if Claude Code drew
+    # nothing at all.
+    assert console_input.prompt_box(EMPTY_SCREEN) == ""
+
+
+def test_the_empty_capture_is_a_session_that_is_accepting_input():
+    # Same screen, so one capture is evidence for both halves — this is what a
+    # session past its startup dialogs looks like with nothing typed.
+    assert console_input.is_ready(EMPTY_SCREEN)
+
+
 class FakeSession:
     """A console that answers writes the way a live session was measured to.
 
