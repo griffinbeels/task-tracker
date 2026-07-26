@@ -113,9 +113,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 #in-progress h2 { color: #4cc38a; opacity: .85; }
 /* One heading per project, because a row's project has to be visible for the
    row to be unambiguous — ids are per-project. It doubles as the fold control,
-   so it is a row rather than a bare label. */
-.project-heading { display: flex; align-items: center; gap: 5px; font-size: 10px;
-                   letter-spacing: .08em; opacity: .45; margin: 8px 0 2px;
+   so it is a row rather than a bare label. Sized to outrank the group headers
+   nested under it: a project is the coarsest grouping in the tree, and the
+   old 10px at .45 opacity made it read as the smallest label on screen —
+   backwards from the hierarchy it names. */
+.project-heading { display: flex; align-items: center; gap: 5px; font-size: 12px;
+                   font-weight: 700; letter-spacing: .04em; opacity: .85; margin: 8px 0 2px;
                    position: relative; padding-left: calc(6px + var(--caret-gutter));
                    cursor: pointer; }
 .project-heading:hover { opacity: .75; }
@@ -140,8 +143,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 
 /* A group is a parent/child relationship, so the children are indented exactly
    one level and the rail draws the span they belong to. One level only —
-   groups do not nest. */
-.group { border-left: 2px solid rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
+   groups do not nest. box-shadow, not border-left: a real border is box-model
+   width, and .group-header's padding-left already targets the same 21px
+   offset as a top-level .task's — 2px of border would push the group's
+   checkbox 2px past that, undoing the caret gutter's whole point of keeping
+   every row's checkbox on one column. An inset shadow paints the identical
+   line while claiming no layout space, so the padding alone lines them up. */
+.group { box-shadow: inset 2px 0 0 rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
          margin: 2px 0; }
 /* One caret column of indent, so a member's checkbox sits exactly one notch
    right of its group header's — the same rhythm as the gutter above it, and
@@ -151,8 +159,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
                 padding-left: calc(6px + var(--caret-gutter));
                 position: relative; cursor: grab; }
 .group-header:hover { background: rgba(127, 127, 127, .08); }
-.group-name { flex: 1; font-weight: 600; cursor: text; }
-.group-name-input { flex: 1; font: inherit; font-weight: 600; min-width: 0;
+/* Below the task titles it labels, which are content and sit outside the
+   label chain's shrink-with-depth scale on purpose — otherwise "smaller as
+   you go deeper" ends with the text you actually read being the smallest
+   thing on screen. */
+.group-name { flex: 1; font-size: 11px; font-weight: 600; opacity: .7; cursor: text; }
+/* font-size stated explicitly: font: inherit alone picks up the body's 13px,
+   so renaming a group would visibly resize its own text the moment this input
+   replaces the label it's editing. */
+.group-name-input { flex: 1; font: inherit; font-size: 11px; font-weight: 600; min-width: 0;
                     color: inherit; background: rgba(127, 127, 127, .15);
                     border: 1px solid rgba(127, 127, 127, .4); border-radius: 4px;
                     padding: 1px 5px; }
@@ -307,9 +322,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 
 #progress-body { flex: 1; overflow: auto; }
 /* A completed entry opens the editor, same as a task row — cursor and hover
-   are what say so before the click. */
-.entry { display: flex; align-items: center; gap: 6px; padding: 3px 0;
-         cursor: pointer; border-radius: 5px; }
+   are what say so before the click. Horizontal padding plus a matching
+   negative margin: the hover fill extends 6px past the text on both sides,
+   in line with .task's own 5px 6px, while the text itself stays exactly
+   where it was — plain padding with no compensating margin would shift it
+   right of the .outcome note sitting below it. */
+.entry { display: flex; align-items: center; gap: 6px; padding: 3px 6px;
+         margin: 0 -6px; cursor: pointer; border-radius: 5px; }
 .entry:hover { background: rgba(127, 127, 127, .12); }
 .outcome { font-size: 12px; opacity: .7; white-space: pre-wrap;
            margin: 2px 0 10px; padding-left: 2px; }
