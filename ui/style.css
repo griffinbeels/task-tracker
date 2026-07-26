@@ -125,7 +125,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* A header that cannot be dragged must not offer the grab cursor — IN PROGRESS
    headers are static, since that section groups but never reorders. */
 .group-header[draggable="false"] { cursor: default; }
-.project-count { margin-left: auto; letter-spacing: 0; opacity: .7; }
+/* font-size and font-weight stated explicitly, not inherited: .project-heading
+   just grew to 12px/700 to outrank the group headers below it, and without
+   its own values here the count would grow right along with it — secondary
+   information competing at equal weight with the name it is annotating,
+   the same inversion this task exists to fix, one level down. */
+.project-count { margin-left: auto; letter-spacing: 0; opacity: .7;
+                 font-size: 10px; font-weight: 400; }
 
 /* Folding hides the contents and keeps the heading, which carries the counts
    of what is now out of sight. display:none is safe here — unlike the
