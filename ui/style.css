@@ -56,14 +56,76 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    height: '100%' at construction time, which only resolves to a real number
    because flex: 1 gives this element one. */
 #editor-body { flex: 1; min-height: 0; }
+
+/* The editor reads as two zones, not six stacked rows: everything above the
+   rule is the thought, everything below it describes the thought. The rule is
+   the whole hierarchy — without it, a title, three chip rows and five buttons
+   all carry equal weight and the eye has nowhere to start. */
+#editor-meta { display: flex; flex-direction: column; gap: 7px; padding-top: 10px;
+               border-top: 1px solid rgba(127, 127, 127, .18); }
+#editor-progress { font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+                   opacity: .4; }
+#editor-progress[hidden] { display: none; }
+
+#editor-title { font: inherit; font-size: 15px; font-weight: 600; padding: 6px 8px;
+                color: inherit; border: 1px solid transparent; border-radius: 5px;
+                background: rgba(127, 127, 127, .10); }
+#editor-title:focus { outline: none; background: rgba(127, 127, 127, .15);
+                      border-color: rgba(127, 127, 127, .4); }
+#editor-title::placeholder { font-size: 13px; font-weight: 400; opacity: .35; }
+
+/* A fixed label column, so the three chip rows start on one edge instead of
+   each beginning wherever its own label ended. Three unlabelled rows of
+   identical pills is the actual clutter — you cannot tell project from type
+   from bucket without reading the values. */
+.field { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 9px; }
+.field[hidden] { display: none; }
+/* nowrap and a column wide enough for the longest label ("Project" at this
+   letter-spacing) — a label that wraps to two lines drags its whole row off
+   the baseline the other two sit on. */
+.field-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+               opacity: .4; text-align: right; white-space: nowrap; }
+
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-/* .chips sets its own display, so the bare `hidden` attribute alone loses to
-   it on equal specificity (same reasoning as .overlay[hidden] above) — edit
-   mode hides #editor-projects and needs this to actually take effect. */
+/* .chips and .field both set their own display, so a bare `hidden` attribute
+   loses to them on equal specificity (same reasoning as .overlay[hidden]) —
+   edit mode hides the project field and needs this to take effect. */
 .chips[hidden] { display: none; }
-.chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; opacity: .55; }
-.chip.on { opacity: 1; outline: 1px solid currentColor; }
-.actions { display: flex; gap: 6px; }
+.chip { font: inherit; font-size: 11px; line-height: 1.45; padding: 2px 9px;
+        border-radius: 11px; color: inherit; cursor: pointer;
+        background: transparent; border: 1px solid rgba(127, 127, 127, .25);
+        opacity: .5; }
+.chip:hover { opacity: .85; }
+/* Selected is a fill, not an outline. An outline against a dim pill is a
+   difference you have to look for; a filled pill is one you see. */
+.chip.on { opacity: 1; font-weight: 600; border-color: transparent;
+           background: rgba(127, 127, 127, .3); }
+
+.actions { display: flex; gap: 6px; align-items: center; }
+.actions .spacer { flex: 1; }
+/* Unstyled <button> is what read as lazy — these are the same 28px control
+   height the header already uses, so the two rows agree. Three weights: the
+   action you came here for, the ones you might take instead, and the way out. */
+.actions button { font: inherit; font-size: 12px; height: 28px; padding: 0 12px;
+                  box-sizing: border-box; border-radius: 5px; color: inherit;
+                  cursor: pointer; background: transparent;
+                  border: 1px solid rgba(127, 127, 127, .28); }
+.actions button:hover { background: rgba(127, 127, 127, .14); }
+.actions button.primary { font-weight: 600; color: #fff; border-color: transparent;
+                          background: #2f7d55; }
+.actions button.primary:hover { background: #389464; }
+.actions button.danger:hover { background: rgba(229, 72, 77, .16);
+                               border-color: rgba(229, 72, 77, .45); }
+.actions button.quiet { border-color: transparent; opacity: .5; }
+.actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
+
+/* Two conservative softenings of the library's own chrome, which is boxier
+   than anything else in the window. Nothing here changes behaviour: if a
+   future version drops these class names the editor simply looks default
+   again. */
+.toastui-editor-defaultUI { border: 1px solid rgba(127, 127, 127, .18) !important;
+                            border-radius: 6px; }
+.toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
 #progress-body { flex: 1; overflow: auto; }
 .entry { display: flex; align-items: center; gap: 6px; padding: 3px 0; }

@@ -33,11 +33,20 @@ let normalisedBody = '';
 // see the save handler.
 let loadedBucket = null;
 
-function chip(label, selected, onClick) {
+function chip(label, selected, onClick, color) {
   const button = document.createElement('button');
   button.className = 'chip' + (selected ? ' on' : '');
   button.textContent = label;
   button.onclick = onClick;
+  // A selected type wears its own colour, the same one the task list tags rows
+  // with — so the chip you picked and the row you'll see afterwards are
+  // recognisably the same thing. Set via .style, never interpolated into
+  // markup: a type's colour is unvalidated text from a hand-editable file
+  // (invariant 5).
+  if (selected && color) {
+    button.style.background = color;
+    button.style.color = '#fff';
+  }
   return button;
 }
 
@@ -95,7 +104,7 @@ function renderChips() {
       () => { editorContext.project = p.name; renderChips(); })));
   document.getElementById('editor-types').replaceChildren(
     ...state.settings.types.map(t => chip(t.name, editorContext.type === t.name,
-      () => { editorContext.type = t.name; renderChips(); })));
+      () => { editorContext.type = t.name; renderChips(); }, t.color)));
   document.getElementById('editor-buckets').replaceChildren(
     ...BUCKETS.map(b => chip(b, editorContext.bucket === b,
       () => { editorContext.bucket = b; renderChips(); })));
@@ -163,7 +172,9 @@ function openEditor(context) {
   // than disabling it keeps edit mode from suggesting a choice that doesn't
   // exist; capture and triage always need it, so reset it visible on every
   // open rather than only ever setting it hidden.
-  document.getElementById('editor-projects').hidden = editorContext.mode === 'edit';
+  // Hide the whole field, label included — hiding only the chip row would
+  // leave a "Project" label captioning nothing.
+  document.getElementById('editor-project-field').hidden = editorContext.mode === 'edit';
   // "File" is what you do to something that isn't a task yet. Editing one is a
   // save, and a button that names the wrong action is wrong however correct
   // the code behind it is. Set on every open so the label can't stick from

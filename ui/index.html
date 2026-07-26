@@ -23,19 +23,34 @@
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
 
+    <!-- Write first, name it second. The title sits BELOW the body because you
+         do not know what a thought is called until you have finished having
+         it. -->
     <div id="editor" class="overlay" hidden>
       <div id="editor-progress"></div>
-      <input id="editor-title" placeholder="Title">
       <div id="editor-body"></div>
-      <div id="editor-projects" class="chips"></div>
-      <div id="editor-types" class="chips"></div>
-      <div id="editor-buckets" class="chips"></div>
+      <div id="editor-meta">
+        <input id="editor-title" placeholder="Name it — this is what you'll see in the list">
+        <div class="field" id="editor-project-field">
+          <span class="field-label">Project</span>
+          <div id="editor-projects" class="chips"></div>
+        </div>
+        <div class="field">
+          <span class="field-label">Type</span>
+          <div id="editor-types" class="chips"></div>
+        </div>
+        <div class="field">
+          <span class="field-label">When</span>
+          <div id="editor-buckets" class="chips"></div>
+        </div>
+      </div>
       <div class="actions">
-        <button id="editor-save">File</button>
+        <button id="editor-save" class="primary">File</button>
         <button id="editor-later">Later</button>
         <button id="editor-skip">Skip</button>
-        <button id="editor-discard">Discard</button>
-        <button id="editor-cancel">Cancel</button>
+        <button id="editor-discard" class="danger">Discard</button>
+        <span class="spacer"></span>
+        <button id="editor-cancel" class="quiet">Cancel</button>
       </div>
     </div>
 
