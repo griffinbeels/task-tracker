@@ -1,6 +1,5 @@
 """pywebview window and the JS bridge. This module is wiring only."""
 
-import json
 import os
 from dataclasses import asdict
 from pathlib import Path
@@ -15,8 +14,7 @@ import registry
 import restart
 import singleton
 import store
-
-WINDOW_STATE = registry.CONFIG_DIR / "window.json"
+import window_state
 
 
 def _project(name: str) -> registry.Project:
@@ -255,6 +253,12 @@ class Api:
         project = _project(project_name)
         groups.disband(Path(project.path), _text(name, "name"))
 
+    def reorder_group(self, project_name, name, ordered_ids):
+        """Rearrange tasks inside one group — see groups.reorder_members."""
+        project = _project(project_name)
+        groups.reorder_members(Path(project.path), _text(name, "name"),
+                               [int(i) for i in ordered_ids])
+
     def set_group_bucket(self, project_name, name, bucket):
         project = _project(project_name)
         groups.set_bucket(Path(project.path), _text(name, "name"),
@@ -318,24 +322,6 @@ class Api:
         return asdict(migrate.delete_type(name, replacement))
 
 
-def _load_window_state() -> dict:
-    defaults = {"width": 420, "height": 900, "x": None, "y": None, "on_top": True}
-    if not WINDOW_STATE.exists():
-        return defaults
-    try:
-        return json.loads(WINDOW_STATE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return defaults
-
-
-def _save_window_state(window) -> None:
-    WINDOW_STATE.parent.mkdir(parents=True, exist_ok=True)
-    WINDOW_STATE.write_text(json.dumps({
-        "width": window.width, "height": window.height,
-        "x": window.x, "y": window.y, "on_top": window.on_top,
-    }, indent=2), encoding="utf-8", newline="\n")
-
-
 def _report_fatal(message: str) -> None:
     """Surface a startup failure even when launched without a console.
 
@@ -363,16 +349,23 @@ def main() -> None:
         )
         return
 
-    state = _load_window_state()
+    # webview.screens initialises the GUI backend on first access, so it is
+    # readable here, before there is a window to place. It is read again at
+    # closing rather than reused: a monitor can be attached or unplugged while
+    # the window is open, and what counts as a reachable position moves with it.
+    geometry = window_state.load(webview.screens)
     window = webview.create_window(
         "Tasks",
         str(Path(__file__).parent / "ui" / "index.html"),
         js_api=Api(),
-        width=state["width"], height=state["height"],
-        x=state["x"], y=state["y"],
-        on_top=state["on_top"],
+        width=geometry["width"], height=geometry["height"],
+        x=geometry["x"], y=geometry["y"],
+        on_top=geometry["on_top"],
     )
-    window.events.closing += lambda: _save_window_state(window)
+    window.events.closing += lambda: window_state.save({
+        "width": window.width, "height": window.height,
+        "x": window.x, "y": window.y, "on_top": window.on_top,
+    }, webview.screens)
     # destroy() closes the window, which fires `closing` on the UI thread and
     # saves geometry there — the socket thread must not read window.x/width
     # itself, those properties are only safe to touch on the UI thread.

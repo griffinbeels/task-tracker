@@ -98,9 +98,16 @@ async function refresh() {
   // selecting nothing at all. A stale name is left on disk rather than
   // corrected here: the next selection overwrites it, and rewriting config as
   // a side effect of reading it is worse than a dead key.
-  if (!currentProject && state.projects.length) {
+  //
+  // The same check runs on EVERY refresh, not just the first, because the
+  // selection can go stale after it is made: projects.json is hand-editable
+  // and every refresh re-reads it. With currentProject naming a project that
+  // is no longer registered, no <option> matches, so the browser silently
+  // selects the first — and the list below then renders a different project
+  // from the one the picker is showing, which reads as the tasks being gone.
+  if (!state.projects.some(p => p.name === currentProject)) {
     const remembered = state.projects.some(p => p.name === state.last_project);
-    currentProject = remembered ? state.last_project : state.projects[0].name;
+    currentProject = remembered ? state.last_project : (state.projects[0]?.name ?? null);
   }
   renderProjectPicker();
   render();

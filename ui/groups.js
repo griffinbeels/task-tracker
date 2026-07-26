@@ -382,10 +382,16 @@ function dropIntent(event, dragged, draggedIsGroup, allowReorder) {
   // there is no single bucket for reorder_bucket to renumber. Drag there only
   // ever groups. Leaving a group is the editor's Group → none.
   if (!allowReorder) {
-    // Over a loose row's edge, or over its own group's rows: there is nothing
-    // to reorder here, so nothing happens. Leaving is the project heading.
-    return inGroup && inGroup !== groupOf(dragged)
-      ? { kind: 'join', group: inGroup, element: over } : null;
+    // Over a loose row's edge: nothing to reorder, since this list's order is
+    // by project and group rather than anything anyone chose. Leaving a group
+    // is the project heading.
+    if (!inGroup) return null;
+    // Inside one group there IS a position to drop into. Its members share a
+    // bucket and sit contiguously (invariant 16), so they can trade their own
+    // slots without touching the rest of that bucket — which is the only
+    // reason a section rendering part of a bucket can reorder anything at all.
+    if (inGroup === groupOf(dragged)) return { kind: 'sort', over, after: offset > 0.5 };
+    return { kind: 'join', group: inGroup, element: over };
   }
   return { kind: 'move', over, after: offset > 0.5 };
 }
@@ -421,7 +427,7 @@ function wireDrag(section, bucket) {
     clearDropAffordance(section);
     intent = dropIntent(event, dragged, draggedIsGroup, allowReorder);
     if (!intent) return;
-    if (intent.kind === 'move') {
+    if (intent.kind === 'move' || intent.kind === 'sort') {
       intent.over.parentElement.insertBefore(
         dragged, intent.after ? intent.over.nextSibling : intent.over);
     } else {
@@ -468,6 +474,21 @@ function wireDrag(section, bucket) {
     if (settled.kind === 'join') {
       if (await callApi('group_tasks', project,
           [Number(row.dataset.id)], settled.group) === API_FAILED) return;
+      await refresh();
+      return;
+    }
+
+    if (settled.kind === 'sort') {
+      // Only the rows inside this one container, and only this group's name:
+      // reorder_group permutes the slots these tasks already hold, so a
+      // section showing part of a bucket — or part of a group — can reorder
+      // without stamping over anything it cannot see.
+      const container = row.closest('.group');
+      if (!container) return;
+      const ids = [...container.querySelectorAll('.task')].map(
+        element => Number(element.dataset.id));
+      if (await callApi('reorder_group', project,
+          container.dataset.group, ids) === API_FAILED) return;
       await refresh();
       return;
     }

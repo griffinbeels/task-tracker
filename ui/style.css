@@ -52,7 +52,14 @@ input[type="checkbox"] { margin: 0; flex: none; }
 .age { font-size: 10px; opacity: .35; }
 .archived .title { opacity: .45; text-decoration: line-through; }
 h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
+/* One gutter to the left of everything, reserved for a fold caret whether or
+   not this row has one. Without it a group header's own triangle sits in the
+   checkbox column and shoves its checkbox one notch right of every loose row's
+   — the header and the rows below it then read as two different columns. */
+:root { --caret-gutter: 15px; }
+
 .task { display: flex; align-items: center; gap: 6px; padding: 5px 6px;
+        padding-left: calc(6px + var(--caret-gutter));
         border-radius: 5px; cursor: grab; }
 .task:hover { background: rgba(127,127,127,.12); }
 .type { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
@@ -94,6 +101,7 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    so it is a row rather than a bare label. */
 .project-heading { display: flex; align-items: center; gap: 5px; font-size: 10px;
                    letter-spacing: .08em; opacity: .45; margin: 8px 0 2px;
+                   position: relative; padding-left: calc(6px + var(--caret-gutter));
                    cursor: pointer; }
 .project-heading:hover { opacity: .75; }
 /* A header that cannot be dragged must not offer the grab cursor — IN PROGRESS
@@ -106,7 +114,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    hover-revealed row controls, nothing is laid out against these. */
 .project-block.collapsed > :not(.project-heading) { display: none; }
 .group.collapsed > .task { display: none; }
-.caret { opacity: .55; font-size: 9px; line-height: 1; padding: 0 1px;
+/* Out of the flow, into the gutter. In the flow it would push everything after
+   it sideways, which is exactly the misalignment the gutter exists to remove.
+   Full gutter width so the click target is the whole column, not the glyph. */
+.caret { position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
+         width: var(--caret-gutter); text-align: center;
+         opacity: .55; font-size: 9px; line-height: 1; padding: 0;
          color: inherit; background: none; border: none; cursor: pointer; }
 .caret:hover { opacity: 1; }
 
@@ -115,9 +128,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    groups do not nest. */
 .group { border-left: 2px solid rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
          margin: 2px 0; }
-.group > .task { margin-left: 14px; }
+/* One caret column of indent, so a member's checkbox sits exactly one notch
+   right of its group header's — the same rhythm as the gutter above it, and
+   the thing that says these rows belong to that header. */
+.group > .task { margin-left: var(--caret-gutter); }
 .group-header { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
-                cursor: grab; }
+                padding-left: calc(6px + var(--caret-gutter));
+                position: relative; cursor: grab; }
 .group-header:hover { background: rgba(127, 127, 127, .08); }
 .group-name { flex: 1; font-weight: 600; cursor: text; }
 .group-name-input { flex: 1; font: inherit; font-weight: 600; min-width: 0;

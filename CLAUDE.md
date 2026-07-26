@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Eleven small Python modules and seven plain `<script>` files, plus one vendored
+Twelve small Python modules and seven plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
@@ -35,12 +35,13 @@ library. No framework, no HTTP server, no bundler.
 | `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
-| `groups.py` | Group membership: assign/create/rename/disband/move, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
+| `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | Typing that prompt into the spawned session's console |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
+| `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED` |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt |
@@ -135,8 +136,11 @@ Break one of these and the failure is silent. Each cost a bug.
    monkeypatch it; binding it into a module-level constant at import captures
    the real home directory and makes the suite write to the user's actual
    config. `_projects_file()` / `_settings_file()` / `inbox_dir()` are functions
-   for this reason. (`app.WINDOW_STATE` is the sole exception, safe only because
-   `app.py` is never imported by a test — do not copy that pattern.)
+   for this reason, and so is `window_state._state_file()`. There is no
+   exception: `app.WINDOW_STATE` used to be one, and it was never as safe as its
+   note claimed — `tests/test_app.py` does import `app.py`, and only a
+   `monkeypatch.setattr(app, "WINDOW_STATE", ...)` in its fixture kept the suite
+   off the real `~/.task-tracker/`.
 
 8. **A spawned session's environment is rebuilt, never filtered.** `Popen`
    inherits the tracker's environment, and the tracker is normally started

@@ -199,6 +199,41 @@ def test_set_bucket_rejects_an_unknown_bucket(tmp_path):
         groups.set_bucket(tmp_path, "G", "urgent")
 
 
+def test_reorder_members_permutes_within_the_group(tmp_path):
+    one, two, three, four = seed_bucket(tmp_path, ["One", "Two", "Three", "Four"])
+    groups.assign(tmp_path, [two.id, three.id, four.id], "G")
+
+    groups.reorder_members(tmp_path, "G", [four.id, two.id, three.id])
+
+    # One keeps position 0; the group's own three slots are permuted inside it.
+    assert orders(tmp_path) == {one.id: 0, four.id: 1, two.id: 2, three.id: 3}
+
+
+def test_reorder_members_of_a_partly_visible_group_leaves_the_rest_put(tmp_path):
+    # The IN PROGRESS section shows only a group's in-progress members, so the
+    # id list it sends is a subset. Those tasks trade the slots they already
+    # occupy; the members not on screen must not move.
+    one, two, three, four = seed_bucket(tmp_path, ["One", "Two", "Three", "Four"])
+    groups.assign(tmp_path, [one.id, two.id, three.id, four.id], "G")
+
+    groups.reorder_members(tmp_path, "G", [three.id, one.id])
+
+    assert orders(tmp_path) == {three.id: 0, two.id: 1, one.id: 2, four.id: 3}
+
+
+def test_reorder_members_rejects_a_task_that_is_not_in_the_group(tmp_path):
+    inside, outside = seed_bucket(tmp_path, ["In", "Out"])
+    groups.assign(tmp_path, [inside.id], "G")
+
+    with pytest.raises(ValueError):
+        groups.reorder_members(tmp_path, "G", [inside.id, outside.id])
+
+
+def test_reorder_members_rejects_a_group_with_no_members(tmp_path):
+    with pytest.raises(ValueError):
+        groups.reorder_members(tmp_path, "Never existed", [])
+
+
 def test_auto_group_leaves_a_single_task_alone(tmp_path):
     only, = seed_bucket(tmp_path, ["One"])
 
