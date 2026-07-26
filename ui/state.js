@@ -7,6 +7,38 @@ function typeColor(name) {
   return found ? found.color : '#8e8e8e';
 }
 
+// The eight legal Claude Code session colours, on the same Radix scale as the
+// default type colours above — a dot and a type tag read as one system, not
+// two competing palettes.
+const CLAUDE_COLORS = {
+  red: '#e5484d', blue: '#0090ff', green: '#30a46c', yellow: '#f5d90a',
+  purple: '#8e4ec6', orange: '#f76b15', pink: '#d6409f', cyan: '#00a2c7',
+};
+
+// Mirrors typeColor's shape. Task.__post_init__ guarantees every task.color is
+// one of the eight names above, so the fallback should never fire — it exists
+// so an unrecognised name fails quietly instead of two lookup functions
+// disagreeing on how to fail.
+function colorHex(name) {
+  return CLAUDE_COLORS[name] || '#8e8e8e';
+}
+
+// The "avoid colours already in use" heuristic for a freshly captured task —
+// lives only here, never in the backend, because it is a suggestion the user
+// can override, not a rule anything enforces. Counts each colour's use among
+// the project's non-done tasks and picks at random among the names tied for
+// fewest, so it spreads new tasks across the palette instead of always
+// handing out the same one first.
+function suggestColor(project) {
+  const counts = Object.fromEntries(Object.keys(CLAUDE_COLORS).map(name => [name, 0]));
+  state.tasks
+    .filter(t => t.project === project && t.status !== 'done')
+    .forEach(t => { if (t.color in counts) counts[t.color]++; });
+  const lowest = Math.min(...Object.values(counts));
+  const leastUsed = Object.keys(counts).filter(name => counts[name] === lowest);
+  return leastUsed[Math.floor(Math.random() * leastUsed.length)];
+}
+
 function daysSince(isoDate) {
   return Math.floor((Date.now() - new Date(isoDate).getTime()) / 86400000);
 }

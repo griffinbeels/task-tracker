@@ -28,6 +28,7 @@ function taskRow(task) {
   row.dataset.project = task.project;
   row.innerHTML = `
     <input type="checkbox" class="select">
+    <span class="dot"></span>
     <span class="type"></span>
     <span class="title"></span>
     <button class="copy" title="Copy as a prompt">${COPY_ICON}</button>
@@ -38,7 +39,11 @@ function taskRow(task) {
   // content on the already-built elements instead. The type's background
   // color is likewise unvalidated user text (registry.TaskType.color) — set
   // via .style.background rather than interpolated into the innerHTML above,
-  // which would let it escape into markup with full pywebview.api access.
+  // which would let it escape into markup with full pywebview.api access. The
+  // dot's background is task.color, which is backend-validated rather than
+  // free text, but it gets the same treatment for the same reason: nothing
+  // derived from a hand-editable file goes into the template string.
+  row.querySelector('.dot').style.background = colorHex(task.color);
   const typeTag = row.querySelector('.type');
   typeTag.style.background = typeColor(task.type);
   typeTag.textContent = task.type;
