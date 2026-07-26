@@ -16,8 +16,13 @@ def make_task(task_id, title, type, body, color="", group=None):
 
 
 class FakeSession:
-    """Stands in for the Popen of a spawned session."""
+    """Stands in for the Popen of the console host a session is spawned in."""
     pid = 4242
+
+
+# The session inside that host — conhost's child, and the pid anything typing
+# into the window has to attach to.
+CLIENT_PID = 9999
 
 
 @pytest.fixture
@@ -25,6 +30,11 @@ def spawned(monkeypatch):
     """Swallow the process spawn and record what would have been sent to it."""
     typed = {}
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeSession())
+    monkeypatch.setattr(launcher, "_children_of", lambda pid: [CLIENT_PID])
+    # Left running, this attaches to a console — and attaching means leaving
+    # pytest's own. The one test that wants it puts its own recorder here.
+    monkeypatch.setattr(launcher, "hold_focus_in_background",
+                        lambda previous, session: None)
     monkeypatch.setattr(
         launcher.console_input, "deliver_when_ready",
         lambda pid, commands, text: typed.update(
@@ -119,9 +129,93 @@ def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
 
     launcher.spawn_claude(Path("C:/repos/sm64_tracker"))
 
-    assert captured["args"] == launcher.DEFAULT_LAUNCH
+    assert captured["args"] == [launcher.CONSOLE_HOST] + launcher.DEFAULT_LAUNCH
     assert captured["kwargs"]["cwd"] == Path("C:/repos/sm64_tracker")
     assert captured["kwargs"]["creationflags"] == launcher.NEW_CONSOLE
+
+
+def test_the_session_is_launched_through_a_console_host_this_app_controls():
+    """Otherwise the window belongs to whatever the machine's default terminal is.
+
+    Windows delegates every new console to that setting. When it names Windows
+    Terminal, WT creates the window and `SW_SHOWNOACTIVATE` is discarded, so
+    the hand-off takes the keyboard — measured 2026-07-26, foreground moved
+    within 400 ms and stayed. Going through conhost.exe opts out of the
+    delegation and leaves the user's own terminal choice alone.
+    """
+    assert launcher.CONSOLE_HOST == "conhost.exe"
+
+
+def test_the_typist_is_given_the_process_inside_the_console(monkeypatch):
+    # AttachConsole refuses a console host's own pid, and every consumer of it
+    # fails quietly — so the wrong pid here costs the rename, the colour, the
+    # prompt and the font, with nothing said.
+    monkeypatch.setattr(launcher, "_children_of", lambda pid: [CLIENT_PID])
+
+    assert launcher.session_pid(FakeSession()) == CLIENT_PID
+
+
+def test_a_console_that_never_starts_a_session_falls_back_to_the_host(monkeypatch):
+    # Quietly, like everything else on this path: the window is open and the
+    # prompt is on the clipboard, which is the whole fallback contract.
+    monkeypatch.setattr(launcher, "_children_of", lambda pid: [])
+
+    assert launcher.session_pid(FakeSession(), timeout=0) == FakeSession.pid
+
+
+CONSOLE_WINDOW = 55
+
+
+def watching(monkeypatch, foreground, window=CONSOLE_WINDOW):
+    """A hand-off whose console window is `window` and foreground `foreground`."""
+    handed = []
+    monkeypatch.setattr(launcher.console_input, "console_window",
+                        lambda pid: window)
+    monkeypatch.setattr(launcher, "foreground_window", lambda: foreground)
+    monkeypatch.setattr(launcher, "_activate", handed.append)
+    return handed
+
+
+def test_the_keyboard_is_handed_back_if_the_new_console_takes_it(monkeypatch):
+    # Asking for an unactivated window is not a guarantee: measured 2026-07-26,
+    # two spawns in ten took the foreground anyway. Invariant 10 says nothing
+    # this app opens may take focus, so the ask is checked and undone.
+    handed = watching(monkeypatch, foreground=CONSOLE_WINDOW)
+
+    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is True
+    assert handed == [11]
+
+
+def test_a_window_the_user_moved_to_themselves_is_left_alone(monkeypatch):
+    # Only this session's console counts as a thief. Someone who clicked away
+    # to something else in the meantime keeps what they clicked on.
+    handed = watching(monkeypatch, foreground=77)
+
+    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is False
+    assert handed == []
+
+
+def test_nothing_is_handed_back_before_the_console_has_a_window(monkeypatch):
+    handed = watching(monkeypatch, foreground=CONSOLE_WINDOW, window=0)
+
+    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is False
+    assert handed == []
+
+
+def test_hand_off_watches_the_window_that_had_focus_before_the_spawn(
+        tmp_path, monkeypatch, spawned):
+    # Captured before, because after the spawn the window holding the keyboard
+    # may already be the one we would be handing it back from.
+    watched = {}
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    monkeypatch.setattr(launcher, "foreground_window", lambda: 4321)
+    monkeypatch.setattr(launcher, "hold_focus_in_background",
+                        lambda previous, session: watched.update(
+                            previous=previous, session=session))
+
+    launcher.hand_off(tmp_path, [])
+
+    assert watched == {"previous": 4321, "session": CLIENT_PID}
 
 
 def test_the_new_console_opens_without_taking_focus(monkeypatch):
@@ -146,7 +240,7 @@ def test_spawn_honours_a_per_project_launch_override(monkeypatch):
 
     launcher.spawn_claude(Path("C:/repos/x"), launch=["pwsh", "-c", "claude"])
 
-    assert captured["args"] == ["pwsh", "-c", "claude"]
+    assert captured["args"] == [launcher.CONSOLE_HOST, "pwsh", "-c", "claude"]
 
 
 def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(
@@ -171,7 +265,8 @@ def test_hand_off_types_the_prompt_into_the_session_it_opened(
 
     prompt = launcher.hand_off(tmp_path, [task])
 
-    assert spawned["pid"] == FakeSession.pid
+    # The session inside the console, not the console host that Popen named.
+    assert spawned["pid"] == CLIENT_PID
     assert spawned["text"] == prompt
 
 
@@ -187,7 +282,7 @@ def test_hand_off_with_nothing_selected_opens_a_bare_session(
     # background thread still starts — with nothing to type it is there for
     # the console font alone, which this session needs as much as any other.
     assert prompt == ""
-    assert spawned == {"pid": FakeSession.pid, "commands": [], "text": ""}
+    assert spawned == {"pid": CLIENT_PID, "commands": [], "text": ""}
     assert copied == {}
 
 
@@ -214,7 +309,8 @@ def test_spawn_skips_permission_prompts_by_default(monkeypatch):
 
     launcher.spawn_claude(Path("C:/repos/x"))
 
-    assert captured["args"] == ["claude", "--dangerously-skip-permissions"]
+    assert captured["args"] == [launcher.CONSOLE_HOST, "claude",
+                                "--dangerously-skip-permissions"]
 
 
 def test_grouping_on_hand_off_does_not_change_what_is_typed(

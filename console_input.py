@@ -354,6 +354,17 @@ def prompt_box(screen: str) -> str:
     return ""
 
 
+def console_window(pid: int) -> int:
+    """The window handle of the session's console, or 0 if there is not one yet.
+
+    Exposed because the console is this module's to reach — `launcher` needs
+    the handle to tell its own window apart from any other that might take the
+    foreground, and attaching is the only way to ask for it.
+    """
+    with _attached(pid) as attached:
+        return kernel32.GetConsoleWindow() if attached else 0
+
+
 def _write(pid: int, text: str) -> bool:
     with _attached(pid) as attached:
         return bool(attached and _write_input(text))
