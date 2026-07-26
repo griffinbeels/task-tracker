@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 294 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 301 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -37,7 +37,7 @@ library. No framework, no HTTP server, no bundler.
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
-| `console_input.py` | Typing that prompt into the spawned session's console, and submitting the `/rename`/`/color` commands ahead of it |
+| `console_input.py` | The spawned session's console: typing that prompt into it, submitting the `/rename`/`/color` commands ahead of it, pacing every write against what the prompt box shows, and the font it renders in |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
@@ -307,7 +307,8 @@ Break one of these and the failure is silent. Each cost a bug.
     remaining commands are abandoned, but the prompt is attempted regardless,
     so a hand-off whose `/rename` was too slow to land still ends exactly
     where a hand-off without this feature always has — task text sitting
-    editable in the box.
+    editable in the box. Invariant 24 is what makes each of those writes
+    actually land as its own event.
 
 23. **`Task.color` is always one of the eight `CLAUDE_COLORS` — parsing repairs
     it, the bridge refuses to.** `Task.__post_init__` replaces a missing,
@@ -318,6 +319,54 @@ Break one of these and the failure is silent. Each cost a bug.
     means the JS caller sent something wrong, not that a file was hand-edited,
     so they raise instead of silently repairing it — repairing it there would
     hide the bug that produced it.
+
+24. **Nothing is written to a session's console until the prompt box shows the
+    last thing that was.** Two writes a session reads in one pass are not two
+    events to it. `WriteConsoleInput` only queues records; whether they arrive
+    as one read depends on when the session next drains the buffer, which is
+    the session's business and not the writer's. Measured against a live one:
+    with the whole hand-off written back to back, a `\r` sitting between two
+    bracketed pastes is read as *part of the paste* — `/rename …` and
+    `/color green` merged onto a single line, both Enters vanished, and the
+    task prose landed on the end of that line. So `submit` writes the line,
+    waits for it to appear in `prompt_box`, writes `\r`, and waits for it to
+    leave again. Only a wait on the screen proves anything: a `time.sleep`
+    measures the writer, not the reader, which is why the 0.5 s
+    `SETTLE_SECONDS` this replaced could not fix it — no constant can, since a
+    session busy with its own startup reads when it reads. (The condition-based
+    version is also *faster*: 0.42 s for two commands and a prompt, against
+    1.0 s of unconditional sleeping.) A command that times out has its text
+    still sitting in the box, so `deliver` calls `clear` before pasting the
+    prompt onto it — **Ctrl+U**, the one keystroke measured to empty the box.
+    Escape, the obvious guess, does nothing to a typed line at all.
+
+25. **The spawned console is put on a font that has the glyphs Claude Code
+    paints.** This machine's default terminal application is **Windows Console
+    Host** (`HKCU\Console\%%Startup`, `{B23D10C0-…}`), which is what makes
+    invariant 10 work at all — conhost honours `SW_SHOWNOACTIVATE`; Windows
+    Terminal creates its own window and ignores it. The cost is the renderer:
+    conhost font-links *some* missing glyphs but not the quadrant block
+    elements `U+2596`–`U+259F`, and Consolas — what `__DefaultTTFont__`
+    resolves to — has none of them. Those eight characters are what Claude
+    Code's logo is drawn from, so a handed-off session opened on a row of
+    boxes with the code point printed inside. `console_input.use_font` puts
+    the console on **Cascadia Mono**, which ships with Windows 11 and has
+    them, using the attach the module already performs — no registry, nothing
+    machine-wide, and the size stays whatever the console had. It reads the
+    face back and reverts if it did not take: an unknown face is not refused,
+    conhost just picks something of its own, which on a machine without this
+    font would be a downgrade rather than a fix. Setting it late is fine — the
+    console repaints its whole buffer — so it runs first in `deliver`, before
+    the wait for a prompt box, which is also why a hand-off with nothing
+    selected still starts that thread.
+
+    Two things were measured and did **not** work, so that nobody spends the
+    afternoon again: `HKCU\Console\UseDx` at 1 and 2 (conhost's DirectWrite
+    renderer) changed the rendering not at all, and `⎿` (`U+23BF`, the
+    tool-result elbow, on every tool call) still draws as a box — under
+    Consolas too, so the font change costs nothing there. Windows Terminal
+    renders it, because it falls back per glyph. That is the whole trade:
+    correct glyphs, or a window that does not steal the keyboard.
 
 ## Data on disk
 
@@ -497,28 +546,14 @@ the tracker, select this project, and they are the backlog. Highlights:
   still lists completed tasks flat.
 
 Session identity (naming and colouring a handed-off window, see
-`docs/superpowers/specs/2026-07-25-session-identity-design.md`) ships with two
-gaps of its own:
+`docs/superpowers/specs/2026-07-25-session-identity-design.md`) **was verified
+against a live session on 2026-07-25** — the gap that used to sit here is gone.
+A bracketed `/rename` and `/color` are read as commands, not as chat text; the
+`\r` written after them is read as Enter; and the prompt is left editable
+afterwards. What that verification *found* is invariant 24: the failure was
+never in how the line is written, it was in writing the next thing before the
+session had read the last one. It ships with one gap of its own:
 
-- **It is unverified against a live session.** Nobody has yet watched a real
-  Claude Code window receive a bracketed-paste `/rename` and `/color` and
-  confirmed it treats them as commands rather than as literal text. Detection
-  is supposed to happen on the input buffer's contents at submit time, so it
-  should work — but that is a claim about someone else's UI, not this
-  codebase, which is why it is a known gap here rather than an invariant.
-  Symptoms and fixes, for whoever runs it first:
-  - the command line shows up in the transcript as a user message Claude
-    answers → the paste was read as chat text, not command input → write the
-    line unbracketed and lengthen `SETTLE_SECONDS` in `console_input.py`.
-  - the line sits in the prompt box but never submits → the `\r` write is not
-    being read as Enter → set `wVirtualKeyCode = 0x0D` on that `INPUT_RECORD`.
-  - the first command runs but the second is swallowed → raise
-    `SETTLE_SECONDS`.
-  In any of these cases the fallback must *also* clear the input line before
-  pasting the prompt — otherwise the unsubmitted command text and the task
-  prose end up concatenated on one line. That came out of the whole-branch
-  review, not the design spec. Whoever verifies this against a real session
-  should replace this gap with a real invariant.
 - **`#handoff-name` is a placeholder for a component that does not exist yet.**
   When the selection-bar design
   (`docs/superpowers/specs/2026-07-25-selection-bar-design.md`) lands, this row

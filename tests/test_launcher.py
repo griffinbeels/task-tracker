@@ -183,9 +183,11 @@ def test_hand_off_with_nothing_selected_opens_a_bare_session(
     prompt = launcher.hand_off(tmp_path, [])
 
     # A session in the right directory, and nothing else touched: no text
-    # typed, and whatever the user had on their clipboard still there.
+    # typed, and whatever the user had on their clipboard still there. The
+    # background thread still starts — with nothing to type it is there for
+    # the console font alone, which this session needs as much as any other.
     assert prompt == ""
-    assert spawned == {}
+    assert spawned == {"pid": FakeSession.pid, "commands": [], "text": ""}
     assert copied == {}
 
 
@@ -520,4 +522,5 @@ def test_hand_off_with_nothing_selected_sends_no_commands(
 
     launcher.hand_off(tmp_path, [])
 
-    assert spawned == {}
+    assert spawned["commands"] == []
+    assert spawned["text"] == ""

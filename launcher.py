@@ -249,15 +249,16 @@ def hand_off(project_path: Path, tasks: list[store.Task],
     is allowed to fail silently.
 
     With nothing selected this is simply "open Claude in this project" —
-    nothing is typed, and the clipboard is left alone.
+    nothing is typed, and the clipboard is left alone. The background thread
+    still starts, because the one thing that session does need is a console
+    font its logo renders in (`console_input.use_font`).
     """
     prompt = build_prompt(tasks)
     commands = setup_commands(tasks, name)
     session = spawn_claude(project_path, launch)
     if prompt:
         pyperclip.copy(prompt)
-    if prompt or commands:
-        console_input.deliver_when_ready(session.pid, commands, prompt)
+    console_input.deliver_when_ready(session.pid, commands, prompt)
 
     today = datetime.now(timezone.utc).date().isoformat()
     for task in tasks:

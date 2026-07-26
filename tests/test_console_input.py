@@ -2,11 +2,39 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import console_input
 
 import _console_probe
 
 PROBE = str(Path(__file__).with_name("_console_probe.py"))
+
+
+class NoConsole:
+    """An attach that fails, the way it does before a session has a console."""
+
+    def __enter__(self):
+        return False
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture(autouse=True)
+def no_test_reaches_a_real_console(monkeypatch):
+    """Nothing in this file may touch a console, and the default is refusal.
+
+    `_attached` frees the calling process's console in order to attach
+    elsewhere — and the calling process here is pytest, so a call that slips
+    through takes pytest's own console with it. `use_font` is worse again:
+    with nothing attached, `CONOUT$` is the *user's* terminal, and it would
+    be the one that changed font. Tests that want a console opt in by
+    patching over this.
+    """
+    monkeypatch.setattr(console_input, "_attached", lambda pid: NoConsole())
+    monkeypatch.setattr(console_input, "FONT_TIMEOUT", 0)
+    monkeypatch.setattr(console_input, "POLL_SECONDS", 0)
 
 
 def test_the_probe_console_never_reaches_the_screen():
@@ -131,9 +159,12 @@ def test_deliver_submits_every_command_before_typing_the_prompt(monkeypatch):
 
 def test_a_command_that_fails_does_not_cost_the_prompt(monkeypatch):
     # The commands are decoration; the editable prompt text is the hand-off.
+    # `clear` is stubbed along with the rest: unstubbed it would attach to a
+    # console, and attaching means leaving pytest's own.
     pasted = {}
     monkeypatch.setattr(console_input, "submit",
                         lambda pid, line, timeout=None: False)
+    monkeypatch.setattr(console_input, "clear", lambda pid, line: True)
     monkeypatch.setattr(console_input, "paste",
                         lambda pid, text: pasted.update(text=text))
 
@@ -150,6 +181,7 @@ def test_the_first_failed_command_abandons_the_rest(monkeypatch):
         return False
 
     monkeypatch.setattr(console_input, "submit", failing_submit)
+    monkeypatch.setattr(console_input, "clear", lambda pid, line: True)
     monkeypatch.setattr(console_input, "paste", lambda pid, text: None)
 
     console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
@@ -202,35 +234,173 @@ class FakeAttach:
         return False
 
 
-def ready_console(monkeypatch):
-    """Every write recorded, against a session already showing its prompt box."""
-    written = []
-    monkeypatch.setattr(console_input, "SETTLE_SECONDS", 0)
-    monkeypatch.setattr(console_input, "_write_input",
-                        lambda text: written.append(text) or True)
-    monkeypatch.setattr(console_input, "_screen_text",
-                        lambda: "shift+tab to cycle")
+# One real screen, captured from a live session, so the layout `prompt_box`
+# reads is the layout Claude Code actually draws rather than one invented here.
+LIVE_SCREEN = """
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 with xhigh effort · Claude Max
+  ▘▘ ▝▝    ~\\Desktop\\code\\task_tracker
+
+> /rename GAP0
+  ⎿  Session renamed to: GAP0
+
+                                            ◉ xhigh · /effort
+─────────────────────────────────────────────────────── GAP0 ──
+> /color green
+────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+"""
+
+
+def test_the_prompt_box_is_read_from_below_the_transcript():
+    # Both the box and an already-sent message start with ">", and the box is
+    # always the lower of the two: read the wrong one and a command looks
+    # submitted the moment it is echoed into the transcript.
+    assert console_input.prompt_box(LIVE_SCREEN) == "/color green"
+
+
+def test_an_unrecognisable_screen_reads_as_an_empty_box():
+    # The same fail-safe as READY_MARKERS: a layout this does not understand
+    # must not look like a session that took the text.
+    assert console_input.prompt_box("no prompt here\n  indented > quote") == ""
+
+
+class FakeSession:
+    """A console that answers writes the way a live session was measured to.
+
+    A bracketed paste lands in the prompt box; Enter and Escape empty it. The
+    screen comes back in the real layout, so `prompt_box` is exercised rather
+    than stubbed out.
+
+    `reads_input` and `ignores_enter` are the two ways a real session stops
+    keeping up — the whole reason the writes have to be paced by what the box
+    shows rather than by a sleep.
+    """
+
+    def __init__(self, reads_input=True, ignores_enter=False):
+        self.box = ""
+        self.reads_input = reads_input
+        self.ignores_enter = ignores_enter
+        self.writes = []
+        self.boxes = []
+        self.font = None
+
+    def apply_face(self, face):
+        # Recorded with the number of writes so far, so a test can say not
+        # just that the face was set but that it was set before any typing.
+        self.font = (face, len(self.writes))
+        return True
+
+    def write(self, text):
+        self.writes.append(text)
+        self.boxes.append(self.box)
+        if not self.reads_input:
+            return True
+        if text == console_input.CLEAR_LINE or (text == "\r"
+                                                and not self.ignores_enter):
+            self.box = ""
+        elif text != "\r":
+            self.box += text.replace(console_input.PASTE_START, "").replace(
+                console_input.PASTE_END, "")
+        return True
+
+    def screen(self):
+        return ("> a message already sent\n"
+                "──────────────────────────\n"
+                f"> {self.box}\n"
+                "──────────────────────────\n"
+                "  ⏵⏵ bypass permissions on (shift+tab to cycle)")
+
+
+def live_session(monkeypatch, **behaviour):
+    session = FakeSession(**behaviour)
+    monkeypatch.setattr(console_input, "ECHO_TIMEOUT", 0.05)
+    monkeypatch.setattr(console_input, "ECHO_POLL", 0)
+    monkeypatch.setattr(console_input, "_write_input", session.write)
+    monkeypatch.setattr(console_input, "_screen_text", session.screen)
+    monkeypatch.setattr(console_input, "_apply_face", session.apply_face)
     monkeypatch.setattr(console_input, "_attached", lambda pid: FakeAttach())
-    return written
+    return session
 
 
 def test_a_submitted_line_is_bracketed_and_followed_by_its_own_enter(monkeypatch):
     # Bracketed so the "/" command popup never sees a partial token; the Enter
     # is a separate write so the popup cannot swallow it as a selection.
-    written = ready_console(monkeypatch)
+    session = live_session(monkeypatch)
 
     assert console_input.submit(7, "/color red") is True
-    assert written == [
+    assert session.writes == [
         console_input.PASTE_START + "/color red" + console_input.PASTE_END,
         "\r",
     ]
+
+
+def test_the_enter_waits_for_the_line_to_reach_the_prompt_box(monkeypatch):
+    """The measured bug: two writes a session reads in one pass are one event.
+
+    Written back to back against a session that had not drained its console
+    input buffer, `/rename …` and `/color green` arrived as a single line with
+    both Enters discarded — a `\\r` between two bracketed pastes is read as
+    part of the paste. So the Enter is not written at all until the line is
+    visible in the box, which is the only proof the paste was consumed.
+    """
+    session = live_session(monkeypatch, reads_input=False)
+
+    assert console_input.submit(7, "/color red") is False
+    assert session.writes == [
+        console_input.PASTE_START + "/color red" + console_input.PASTE_END]
+
+
+def test_a_command_is_never_typed_on_top_of_one_still_in_the_box(monkeypatch):
+    session = live_session(monkeypatch)
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    pastes = [box for text, box in zip(session.writes, session.boxes)
+              if text.startswith(console_input.PASTE_START)]
+    assert pastes == ["", "", ""]
+
+
+def test_a_command_that_never_submits_is_cleared_before_the_prompt(monkeypatch):
+    # Otherwise the task prose is pasted onto the end of the unsubmitted
+    # command and handed over as one line, which breaks invariant 2 on the
+    # body without touching the body.
+    session = live_session(monkeypatch, ignores_enter=True)
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    assert session.writes == [
+        console_input.PASTE_START + "/rename A" + console_input.PASTE_END,
+        "\r",
+        console_input.CLEAR_LINE,
+        console_input.PASTE_START + "BUG: body" + console_input.PASTE_END,
+    ]
+
+
+def test_the_console_font_is_set_before_anything_is_typed(monkeypatch):
+    # The logo is painted the moment the session starts, in whatever face the
+    # console came up in — Consolas, which has none of the block elements it
+    # is drawn from. The face has to be swapped before the wait for a prompt
+    # box, not after it: a session that never becomes ready still has a logo.
+    session = live_session(monkeypatch)
+
+    console_input.deliver(7, ["/color red"], "BUG: body")
+
+    assert session.font == (console_input.SESSION_FACE, 0)
+
+
+def test_the_font_is_given_up_on_if_the_console_never_appears(monkeypatch):
+    # The console does not exist for the moments after Popen returns, so the
+    # attach is retried — but a session that never gets one must not hold the
+    # hand-off's thread open waiting for it.
+    assert console_input.use_font(7, timeout=0.05) is False
 
 
 def test_an_empty_line_is_never_submitted(monkeypatch):
     # Without the guard this writes empty paste markers and then presses
     # Enter, submitting a blank prompt to the session — the same reason paste()
     # refuses empty text.
-    written = ready_console(monkeypatch)
+    session = live_session(monkeypatch)
 
     assert console_input.submit(7, "") is False
-    assert written == []
+    assert session.writes == []
