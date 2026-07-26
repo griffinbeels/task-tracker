@@ -428,3 +428,78 @@ def test_delete_task_tolerates_a_file_already_gone(tmp_path):
     store.delete_task(task)
 
     assert store.list_tasks(tmp_path) == []
+
+
+def test_restore_task_moves_the_file_back_into_open(tmp_path):
+    task = store.create_task(tmp_path, "Finished", "body", "BUG")
+    store.complete_task(task)
+    done_path = task.path
+    assert done_path.parent.name == "done"
+
+    store.restore_task(task)
+
+    assert not done_path.exists()
+    assert task.path.parent.name == "open"
+    assert task.path.exists()
+
+
+def test_restore_task_reopens_it_and_clears_the_done_date(tmp_path):
+    task = store.create_task(tmp_path, "Finished", "body", "BUG")
+    store.complete_task(task)
+
+    store.restore_task(task)
+
+    reloaded = store.list_tasks(tmp_path)[0]
+    assert reloaded.status == "open"
+    assert reloaded.done is None
+
+
+def test_restore_task_lands_at_the_end_of_its_bucket(tmp_path):
+    # The tasks it sat among moved on without it; reclaiming its old order
+    # would re-insert it into the middle of a list the user has since changed.
+    first = store.create_task(tmp_path, "First", "body", "BUG")
+    store.complete_task(first)
+    store.create_task(tmp_path, "Second", "body", "BUG")
+    store.create_task(tmp_path, "Third", "body", "BUG")
+
+    store.restore_task(first)
+
+    by_title = {t.title: t for t in store.list_tasks(tmp_path)}
+    assert by_title["First"].order > by_title["Third"].order
+
+
+def test_restore_task_does_not_disturb_the_tasks_already_there(tmp_path):
+    first = store.create_task(tmp_path, "First", "body", "BUG")
+    store.complete_task(first)
+    second = store.create_task(tmp_path, "Second", "body", "BUG")
+
+    store.restore_task(first)
+
+    reloaded = {t.title: t.order for t in store.list_tasks(tmp_path)}
+    assert reloaded["Second"] == second.order
+
+
+def test_restore_task_raises_without_a_path():
+    task = store.Task(id=1, title="t", type="BUG", bucket="now", status="done",
+                      order=0, created="2026-07-25", started=None,
+                      done="2026-07-25", body="b")
+
+    with pytest.raises(ValueError):
+        store.restore_task(task)
+
+
+def test_complete_then_restore_changes_nothing_but_status_and_done(tmp_path):
+    # The whole point of the feature: a round trip is a round trip.
+    task = store.create_task(tmp_path, "Round trip", "the body", "FEATURE",
+                             bucket="someday", color="cyan")
+    original = (task.id, task.title, task.body, task.type, task.color,
+                task.group, task.bucket)
+
+    store.complete_task(task)
+    store.restore_task(task)
+
+    reloaded = store.list_tasks(tmp_path)[0]
+    assert (reloaded.id, reloaded.title, reloaded.body, reloaded.type,
+            reloaded.color, reloaded.group, reloaded.bucket) == original
+    assert reloaded.status == "open"
+    assert reloaded.done is None

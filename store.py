@@ -313,6 +313,29 @@ def complete_task(task: Task) -> Task:
     return save_task(task)
 
 
+def restore_task(task: Task) -> Task:
+    """Move a completed task back into open/, at the end of its bucket.
+
+    The inverse of complete_task. `bucket` is untouched because completion
+    never touched it — the task still remembers where it lived, so it returns
+    there. It lands last rather than reclaiming its old `order`: the tasks it
+    sat among have moved on without it, and re-inserting it into the middle of
+    a list the user has since reordered is a change nobody asked for.
+    """
+    if task.path is None:
+        raise ValueError("task has no path")
+    project_path = task.path.parent.parent.parent
+    siblings = [t for t in list_tasks(project_path, include_done=False)
+                if t.bucket == task.bucket]
+    task.status = "open"
+    task.done = None
+    task.order = len(siblings)
+    destination = tasks_dir(project_path) / "open" / task.path.name
+    task.path.unlink(missing_ok=True)
+    task.path = destination
+    return save_task(task)
+
+
 def delete_task(task: Task) -> None:
     """Unlink the task's file and nothing else.
 
