@@ -97,3 +97,128 @@ def test_text_is_typed_into_another_process_console():
     # Delivered whole, and wrapped in the bracketed-paste markers so the
     # receiver treats it as one paste rather than keystrokes ending in Enter.
     assert "delivered=True" in probe.stdout, probe.stdout
+
+
+def test_deliver_submits_every_command_before_typing_the_prompt(monkeypatch):
+    events = []
+
+    def fake_submit(pid, line, timeout=None):
+        events.append(("submit", line))
+        return True
+
+    monkeypatch.setattr(console_input, "submit", fake_submit)
+    monkeypatch.setattr(console_input, "paste",
+                        lambda pid, text: events.append(("paste", text)))
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    assert events == [("submit", "/rename A"),
+                      ("submit", "/color red"),
+                      ("paste", "BUG: body")]
+
+
+def test_a_command_that_fails_does_not_cost_the_prompt(monkeypatch):
+    # The commands are decoration; the editable prompt text is the hand-off.
+    pasted = {}
+    monkeypatch.setattr(console_input, "submit",
+                        lambda pid, line, timeout=None: False)
+    monkeypatch.setattr(console_input, "paste",
+                        lambda pid, text: pasted.update(text=text))
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    assert pasted == {"text": "BUG: body"}
+
+
+def test_the_first_failed_command_abandons_the_rest(monkeypatch):
+    tried = []
+
+    def failing_submit(pid, line, timeout=None):
+        tried.append(line)
+        return False
+
+    monkeypatch.setattr(console_input, "submit", failing_submit)
+    monkeypatch.setattr(console_input, "paste", lambda pid, text: None)
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    assert tried == ["/rename A"]
+
+
+def test_the_first_command_waits_for_the_session_to_boot(monkeypatch):
+    # The first wait is for a process to start; every later one is for a prompt
+    # box already on screen.
+    waits = []
+    monkeypatch.setattr(console_input, "submit",
+                        lambda pid, line, timeout=None: waits.append(timeout) or True)
+    monkeypatch.setattr(console_input, "paste", lambda pid, text: None)
+
+    console_input.deliver(7, ["/rename A", "/color red"], "BUG: body")
+
+    assert waits == [console_input.READY_TIMEOUT, console_input.COMMAND_TIMEOUT]
+
+
+def test_no_commands_is_just_a_paste(monkeypatch):
+    pasted = {}
+    monkeypatch.setattr(console_input, "paste",
+                        lambda pid, text: pasted.update(text=text))
+
+    console_input.deliver(7, [], "BUG: body")
+
+    assert pasted == {"text": "BUG: body"}
+
+
+def test_an_empty_prompt_is_never_typed(monkeypatch):
+    pasted = []
+    monkeypatch.setattr(console_input, "submit",
+                        lambda pid, line, timeout=None: True)
+    monkeypatch.setattr(console_input, "paste",
+                        lambda pid, text: pasted.append(text))
+
+    console_input.deliver(7, ["/rename A"], "")
+
+    assert pasted == []
+
+
+class FakeAttach:
+    """A console this process is attached to, without a console existing."""
+
+    def __enter__(self):
+        return True
+
+    def __exit__(self, *exc):
+        return False
+
+
+def ready_console(monkeypatch):
+    """Every write recorded, against a session already showing its prompt box."""
+    written = []
+    monkeypatch.setattr(console_input, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(console_input, "_write_input",
+                        lambda text: written.append(text) or True)
+    monkeypatch.setattr(console_input, "_screen_text",
+                        lambda: "shift+tab to cycle")
+    monkeypatch.setattr(console_input, "_attached", lambda pid: FakeAttach())
+    return written
+
+
+def test_a_submitted_line_is_bracketed_and_followed_by_its_own_enter(monkeypatch):
+    # Bracketed so the "/" command popup never sees a partial token; the Enter
+    # is a separate write so the popup cannot swallow it as a selection.
+    written = ready_console(monkeypatch)
+
+    assert console_input.submit(7, "/color red") is True
+    assert written == [
+        console_input.PASTE_START + "/color red" + console_input.PASTE_END,
+        "\r",
+    ]
+
+
+def test_an_empty_line_is_never_submitted(monkeypatch):
+    # Without the guard this writes empty paste markers and then presses
+    # Enter, submitting a blank prompt to the session — the same reason paste()
+    # refuses empty text.
+    written = ready_console(monkeypatch)
+
+    assert console_input.submit(7, "") is False
+    assert written == []

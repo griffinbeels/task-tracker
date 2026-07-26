@@ -7,10 +7,11 @@ import launcher
 import store
 
 
-def make_task(task_id, title, type, body):
+def make_task(task_id, title, type, body, color=""):
     return store.Task(
         id=task_id, title=title, type=type, bucket="now", status="open",
         order=0, created="2026-07-25", started=None, done=None, body=body,
+        color=color,
     )
 
 
@@ -21,11 +22,13 @@ class FakeSession:
 
 @pytest.fixture
 def spawned(monkeypatch):
-    """Swallow the process spawn and record what would have been typed."""
+    """Swallow the process spawn and record what would have been sent to it."""
     typed = {}
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeSession())
-    monkeypatch.setattr(launcher.console_input, "paste_when_ready",
-                        lambda pid, text: typed.update(pid=pid, text=text))
+    monkeypatch.setattr(
+        launcher.console_input, "deliver_when_ready",
+        lambda pid, commands, text: typed.update(
+            pid=pid, commands=commands, text=text))
     return typed
 
 
@@ -168,7 +171,8 @@ def test_hand_off_types_the_prompt_into_the_session_it_opened(
 
     prompt = launcher.hand_off(tmp_path, [task])
 
-    assert spawned == {"pid": FakeSession.pid, "text": prompt}
+    assert spawned["pid"] == FakeSession.pid
+    assert spawned["text"] == prompt
 
 
 def test_hand_off_with_nothing_selected_opens_a_bare_session(
@@ -240,3 +244,214 @@ def test_grouping_on_hand_off_does_not_change_what_is_typed(
 # What the spawned session's environment must look like is tested in
 # tests/test_user_environment.py — it is now rebuilt from Windows rather than
 # filtered out of this process's own environment.
+
+
+def test_session_name_is_the_type_then_the_title():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task]) == "FEATURE: Rename the spawned session"
+
+
+def test_session_name_names_the_first_task_and_counts_the_others():
+    tasks = [make_task(1, "Rename the spawned session", "FEATURE", "b"),
+             make_task(2, "Colour it too", "FEATURE", "b"),
+             make_task(3, "And a dot on the row", "BUG", "b")]
+
+    assert launcher.session_name(tasks) == "FEATURE: Rename the spawned session (+2)"
+
+
+def test_a_name_that_was_given_wins_and_carries_no_type_prefix():
+    tasks = [make_task(1, "Rename the spawned session", "FEATURE", "b"),
+             make_task(2, "Colour it too", "FEATURE", "b")]
+
+    assert launcher.session_name(tasks, "Editor polish") == "Editor polish"
+
+
+def test_a_whitespace_only_name_is_not_a_name():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task], "   ") == "FEATURE: Rename the spawned session"
+
+
+def test_a_newline_in_a_title_never_reaches_the_command_line():
+    # Unbracketed, a newline mid-line submits early and leaves the rest as a
+    # stray prompt. Task files are hand-editable, so this is reachable.
+    task = make_task(1, "Rename\nthe spawned\tsession", "FEATURE", "b")
+
+    assert launcher.session_name([task]) == "FEATURE: Rename the spawned session"
+
+
+def test_an_escape_in_a_title_never_reaches_the_command_line():
+    # str.split() removes \n and \t but not ESC, NUL, BEL or backspace, and a
+    # double-quoted YAML scalar in a hand-edited task file can express \e.
+    task = make_task(1, "Rename\x1bthe \x00spawned\x07 session\x08", "FEATURE", "b")
+
+    name = launcher.session_name([task])
+
+    assert "\x1b" not in name
+    assert name == "FEATURE: Renamethe spawned session"
+
+
+def test_a_title_cannot_close_the_bracketed_paste_it_is_typed_inside():
+    # The line goes out as PASTE_START + line + PASTE_END and is then followed
+    # by its own \r. A title carrying an END marker would close the paste
+    # early, putting everything after it outside the paste for that \r to
+    # submit — into a session spawned with --dangerously-skip-permissions.
+    task = make_task(1, f"Fix it{launcher.console_input.PASTE_END}/exit", "FEATURE", "b")
+
+    name = launcher.session_name([task])
+
+    assert launcher.console_input.PASTE_END not in name
+    assert "\x1b" not in name
+    assert name == "FEATURE: Fix it[201~/exit"
+
+
+def test_a_given_name_is_stripped_of_control_characters_too():
+    # The given-name path returns before the title path is ever reached, so it
+    # needs its own defence rather than inheriting the title's.
+    task = make_task(1, "Short", "FEATURE", "b")
+
+    name = launcher.session_name([task], f"Editor\x1b polish{launcher.console_input.PASTE_END}")
+
+    assert "\x1b" not in name
+    assert name == "Editor polish[201~"
+
+
+def test_a_name_of_nothing_but_control_characters_is_not_a_name():
+    # Nothing survives the clean, so it is not "given" and the first task's
+    # title names the session instead.
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b")
+
+    assert launcher.session_name([task], "\x1b\x00") == "FEATURE: Rename the spawned session"
+
+
+def test_a_control_character_in_a_type_name_is_stripped_as_well():
+    # Type names are hand-editable settings and prefix the same submitted
+    # line, so they are the same class of input as the title.
+    task = make_task(1, "Replay audio desync", "B\x1bUG", "b")
+
+    assert launcher.session_name([task]) == "BUG: Replay audio desync"
+
+
+def test_capping_to_no_room_at_all_yields_nothing():
+    # text[:limit - 1] with limit 0 is text[:-1] — very nearly the whole
+    # string, for a limit of zero. Unreachable from session_name today; the
+    # next caller passing a computed limit is who this is for.
+    assert launcher._cap("Rename the spawned session", 0) == ""
+
+
+def test_a_long_title_is_capped_but_the_count_survives():
+    tasks = [make_task(1, "R" * 200, "FEATURE", "b"),
+             make_task(2, "Second", "FEATURE", "b"),
+             make_task(3, "Third", "FEATURE", "b")]
+
+    name = launcher.session_name(tasks)
+
+    assert len(name) <= launcher.SESSION_NAME_LIMIT
+    assert name.startswith("FEATURE: ")
+    assert name.endswith(" (+2)")
+
+
+def test_a_long_given_name_is_capped_too():
+    task = make_task(1, "Short", "FEATURE", "b")
+
+    name = launcher.session_name([task], "E" * 200)
+
+    assert len(name) <= launcher.SESSION_NAME_LIMIT
+
+
+def test_nothing_selected_has_no_name_even_if_one_was_typed():
+    assert launcher.session_name([]) == ""
+    assert launcher.session_name([], "Editor polish") == ""
+
+
+def test_a_task_with_no_title_has_no_name():
+    # "FEATURE: " on its own names nothing, so no /rename is sent at all.
+    assert launcher.session_name([make_task(1, "  ", "FEATURE", "b")]) == ""
+
+
+def test_session_color_is_the_first_selected_task_s():
+    tasks = [make_task(1, "First", "FEATURE", "b", color="purple"),
+             make_task(2, "Second", "FEATURE", "b", color="red")]
+
+    assert launcher.session_color(tasks) == "purple"
+
+
+def test_nothing_selected_has_no_colour():
+    assert launcher.session_color([]) is None
+
+
+def test_setup_commands_renames_then_colours():
+    task = make_task(1, "Rename the spawned session", "FEATURE", "b",
+                     color="purple")
+
+    assert launcher.setup_commands([task]) == [
+        "/rename FEATURE: Rename the spawned session",
+        "/color purple",
+    ]
+
+
+def test_setup_commands_is_empty_with_nothing_selected():
+    assert launcher.setup_commands([]) == []
+
+
+def test_setup_commands_still_colours_a_task_that_cannot_be_named():
+    task = make_task(1, "  ", "FEATURE", "b", color="cyan")
+
+    assert launcher.setup_commands([task]) == ["/color cyan"]
+
+
+def test_a_type_name_that_fills_the_whole_budget_still_yields_a_capped_name():
+    # Type names come from user-editable settings, so a 60-character one is
+    # reachable. The prefix/suffix split has no room to work with here, and
+    # the fallback must not produce a negative slice.
+    task = make_task(1, "Replay audio desync", "T" * 70, "b")
+
+    name = launcher.session_name([task])
+
+    assert len(name) == launcher.SESSION_NAME_LIMIT
+    assert name.startswith("TTT")
+
+
+def test_hand_off_renames_and_colours_the_session_it_opened(
+        tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG",
+                             color="purple")
+
+    launcher.hand_off(tmp_path, [task])
+
+    assert spawned["commands"] == ["/rename BUG: Replay audio desync",
+                                   "/color purple"]
+
+
+def test_hand_off_uses_the_name_it_was_given(tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    first = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+    second = store.create_task(tmp_path, "Chips rewrite the row", "x", "BUG")
+
+    launcher.hand_off(tmp_path, [first, second], name="Editor polish")
+
+    assert spawned["commands"][0] == "/rename Editor polish"
+
+
+def test_the_commands_are_sent_before_the_prompt_is_typed(
+        tmp_path, monkeypatch, spawned):
+    # Ordering is the whole safety argument: if both commands fail, the session
+    # still ends up where it lands today — task text sitting editable.
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+
+    prompt = launcher.hand_off(tmp_path, [task])
+
+    assert spawned["commands"][0].startswith("/rename ")
+    assert spawned["text"] == prompt
+
+
+def test_hand_off_with_nothing_selected_sends_no_commands(
+        tmp_path, monkeypatch, spawned):
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+
+    launcher.hand_off(tmp_path, [])
+
+    assert spawned == {}

@@ -1,5 +1,6 @@
 """Hand selected tasks to a visible Claude Code session."""
 
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,23 +84,155 @@ def spawn_claude(project_path: Path,
     )
 
 
-def hand_off(project_path: Path, tasks: list[store.Task],
-             launch: list[str] | None = None) -> str:
-    """Open a session in the project with the selected tasks in its prompt box.
+# A tab label longer than this is unreadable, and it doubles as what keeps
+# Claude Code inserting a pasted `/rename` argument literally rather than
+# collapsing it into a `[Pasted text]` placeholder — a short line pastes as
+# text, a long one pastes as an attachment.
+SESSION_NAME_LIMIT = 60
 
-    The text is typed into the new window rather than submitted for you: it
-    arrives as an editable prompt, so you can add to it or think again before
-    sending. The clipboard copy is the backup for a session that took too long
-    to come up, and the reason typing is allowed to fail silently.
+# C0 and C1 control characters, including DEL. `str.split()` does not remove
+# these — see _one_line for why a `/rename` argument must not carry one.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _one_line(text: str) -> str:
+    """Collapse whitespace and drop control characters, in that order.
+
+    Everything this returns ends up inside a line that `console_input.submit`
+    writes as `ESC[200~ … ESC[201~` and then presses Enter on, in a session
+    spawned with `--dangerously-skip-permissions`. Titles and names come from a
+    hand-editable YAML file, and a double-quoted scalar can express `\\e`
+    directly — so a title containing `ESC[201~` would close the bracketed paste
+    early, leaving whatever follows it outside the paste for that Enter to
+    submit as a command of its own.
+
+    Whitespace goes first because collapsing is what stops a raw newline
+    submitting the line early; controls go second because `str.split()` removes
+    `\\n`, `\\r` and `\\x1c`-`\\x1f` but leaves ESC, NUL, BEL and backspace
+    untouched. Stripping rather than rejecting: a task with a strange title
+    should still hand off, it just must not be able to submit a line.
+    """
+    return _CONTROL.sub("", " ".join(text.split()))
+
+
+def session_name(tasks: list[store.Task], name: str | None = None) -> str:
+    """The `/rename` argument for a session opened on these tasks, or "" for none.
+
+    The name is a parameter rather than something derived from the tasks
+    themselves — a sibling feature will eventually supply it from a task's
+    group, and keeping it an argument here is what lets that land independently
+    of this one. This function never reads `task.group`.
+
+    With no tasks there is nothing to name a session after, so this returns ""
+    even when a name was given — an empty spin-up gets no `/rename` at all.
+
+    A given name wins outright and carries no type prefix; it is only "given"
+    if something survives `_one_line`, so `None`, blank strings and a string of
+    nothing but control characters all fall through to naming the first task.
+    Every piece of user text on this path — the name, the title and the type
+    that prefixes it — goes through `_one_line`, since all three are typed into
+    a line that then has Enter pressed on it. Composition on that fallback
+    path is: build the `TYPE: ` prefix and the `(+n-1)` suffix first, and only
+    truncate the title into whatever room is left between them — truncating
+    the finished string instead would risk eating the count, which is the most
+    informative part of it.
+    """
+    if not tasks:
+        return ""
+
+    if name is not None:
+        given_name = _one_line(name)
+        if given_name:
+            return _cap(given_name)
+
+    prefix = f"{_one_line(tasks[0].type)}: "
+    suffix = f" (+{len(tasks) - 1})" if len(tasks) > 1 else ""
+    # Cleaned before the room for it is measured, on both paths, so nothing
+    # removed later can shorten a line that was already capped to fit.
+    title = _one_line(tasks[0].title)
+    if not title:
+        return ""
+
+    room = SESSION_NAME_LIMIT - len(prefix) - len(suffix)
+    if room < 1:
+        # The type name alone already fills the budget. There is no sane way
+        # to fit any of the title in, so give up on the prefix/suffix split
+        # and cap the whole composed string instead of producing a negative
+        # slice.
+        return _cap(f"{prefix}{title}{suffix}")
+    return f"{prefix}{_cap(title, room)}{suffix}"
+
+
+def _cap(text: str, limit: int = SESSION_NAME_LIMIT) -> str:
+    """Truncate to `limit`, appending a single ellipsis so the result lands on it.
+
+    A single `…` rather than three dots, so a capped string is exactly `limit`
+    characters long instead of `limit + 2`.
+
+    A limit below 1 has no room even for the ellipsis, so it yields nothing at
+    all. Without that guard `limit == 0` reaches `text[:-1]` — dropping one
+    character and appending an ellipsis, i.e. returning very nearly the whole
+    string for a limit of zero. `session_name`'s own `room < 1` branch means no
+    caller reaches it today; the next one passing a computed limit would.
+    """
+    if limit < 1:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit - 1] + "…"
+
+
+def session_color(tasks: list[store.Task]) -> str | None:
+    """The colour to `/color` a session after, taken from the first task selected.
+
+    `None` with nothing selected — there is no task to take a colour from, and
+    `None` (not a `CLAUDE_COLORS` member) is what tells `setup_commands` to
+    omit the `/color` line entirely.
+    """
+    return tasks[0].color if tasks else None
+
+
+def setup_commands(tasks: list[store.Task], name: str | None = None) -> list[str]:
+    """The `/rename` and `/color` lines to submit after a session comes up.
+
+    Rename first, then colour, matching the order a person doing this by hand
+    would type them. Either line is omitted when its value is empty, so a task
+    with no title still gets coloured, and an empty selection sends nothing.
+    """
+    commands = []
+
+    name_line = session_name(tasks, name)
+    if name_line:
+        commands.append(f"/rename {name_line}")
+
+    color = session_color(tasks)
+    if color:
+        commands.append(f"/color {color}")
+
+    return commands
+
+
+def hand_off(project_path: Path, tasks: list[store.Task],
+             launch: list[str] | None = None, name: str | None = None) -> str:
+    """Open a session in the project, rename and colour it, and hand over the tasks.
+
+    Delivery order is commands first, prompt last and unsubmitted: a `/rename`
+    or `/color` that fails to submit costs only itself, because the prompt was
+    never made to depend on the commands succeeding, and it still arrives as
+    editable text rather than being sent for you. The clipboard copy is the
+    backup for a session that took too long to come up, and the reason typing
+    is allowed to fail silently.
 
     With nothing selected this is simply "open Claude in this project" —
     nothing is typed, and the clipboard is left alone.
     """
     prompt = build_prompt(tasks)
+    commands = setup_commands(tasks, name)
     session = spawn_claude(project_path, launch)
     if prompt:
         pyperclip.copy(prompt)
-        console_input.paste_when_ready(session.pid, prompt)
+    if prompt or commands:
+        console_input.deliver_when_ready(session.pid, commands, prompt)
 
     today = datetime.now(timezone.utc).date().isoformat()
     for task in tasks:

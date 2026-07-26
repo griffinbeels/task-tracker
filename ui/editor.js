@@ -9,19 +9,26 @@ let toastEditor = null;
 // The context the overlay is currently showing: mode plus the project/type/
 // bucket chip selections. null until the first openEditor() call.
 let editorContext = null;
-// Which note/task identity the title box was last auto-filled for, and
-// whether the user has since typed into it. Capture has no note/task id to
-// key off — see the Symbol fallback in openEditor() below, which is what
-// makes every capture open its own blank slate rather than inheriting the
-// previous capture's title. Triage passes a real noteId, so a genuinely new
-// identity resets titleIsUsers (a fresh note deserves its own suggestion),
-// but an *unchanged* identity leaves titleIsUsers exactly as the user left
-// it — "one keystroke marks the title yours for the life of that note"
-// (design spec invariant 1). That matters because triage.js's Skip re-opens
-// the very same note whenever it's the only one left in the queue, and that
-// re-open must not clobber a title already typed.
-let titleFilledFor = null;
-let titleIsUsers = false;
+// Per-note triage state: which notes the user has typed a title for, and the
+// colour each note is showing. Keyed by note id, because "one keystroke marks
+// it yours for the life of that note" (design spec invariant 1) has to hold
+// while the queue *cycles* — Skip walks round the queue, so a note is
+// routinely re-opened with other notes visited in between.
+//
+// Both started life as a single "which note did I last fill" slot, which
+// remembers exactly one note. With a queue of [A, B]: pick green on A, Skip to
+// B, Skip back to A, and the slot says 'B', so A was read as a new note and
+// got a fresh random roll — the pick silently gone. The title slot lost a
+// typed title on the very same cycle. Two notes was enough for both.
+//
+// Only triage reads these. Type and bucket need nothing of the sort —
+// openTriageNote() carries those forward unconditionally on every note change,
+// on purpose, so a re-open shows the same value either way. Colour and title
+// are the opposite: a genuinely new note must get its own suggestion, so
+// identity has to be tracked rather than carried forward. openTriage() clears
+// both, so a fresh pass starts fresh instead of inheriting the last pass's ids.
+const titleIsUsers = new Set();  // note ids whose title box the user has typed in
+const colorForNote = new Map();  // note id -> the colour that note is showing
 // The markdown last handed to setMarkdown, and what Toast UI normalises it to
 // immediately after. Edit mode compares a task's saved body against both to
 // tell "the user changed it" apart from "Toast UI's own round-trip changed
@@ -51,6 +58,21 @@ function chip(label, selected, onClick, color) {
     button.style.background = color;
     button.style.color = '#fff';
   }
+  return button;
+}
+
+// A swatch, unlike a chip, wears its colour whether or not it is selected —
+// the circle itself is the choice, not a label. That means selection cannot
+// reuse "fill it in" the way .chip.on does (it is already filled), so a ring
+// plays the same role instead: a difference you see, not one you have to
+// look for. Named via a title attribute rather than a text label, so the
+// choice is still hoverable and readable by assistive tech.
+function swatch(name, selected, onClick) {
+  const button = document.createElement('button');
+  button.className = 'swatch' + (selected ? ' on' : '');
+  button.style.background = colorHex(name);
+  button.title = name;
+  button.onclick = onClick;
   return button;
 }
 
@@ -159,6 +181,16 @@ function renderChips() {
   document.getElementById('editor-buckets').replaceChildren(
     ...BUCKETS.map(b => chip(b, editorContext.bucket === b,
       () => { editorContext.bucket = b; renderChips(); })));
+  document.getElementById('editor-colors').replaceChildren(
+    ...Object.keys(CLAUDE_COLORS).map(name => swatch(name, editorContext.color === name,
+      () => {
+        editorContext.color = name;
+        // Without this, a click here is invisible to the per-note map that
+        // openEditor reads — a Skip back to this note would restore the stale
+        // pre-click value and silently undo the pick.
+        if (editorContext.mode === 'triage') colorForNote.set(editorContext.noteId, name);
+        renderChips();
+      })));
   renderGroupChips();
 }
 
@@ -222,8 +254,8 @@ function showEditorActions(visibleIds) {
 }
 
 // The single entry point. context is
-// { mode, title, body, project, type, bucket, noteId, taskId }; mode is one
-// of 'capture' | 'triage' | 'edit'.
+// { mode, title, body, project, type, bucket, color, noteId, taskId }; mode is
+// one of 'capture' | 'triage' | 'edit'.
 function openEditor(context) {
   editorContext = {
     mode: context.mode,
@@ -234,7 +266,28 @@ function openEditor(context) {
     taskId: context.taskId ?? null,
     status: context.status || 'open',
     group: context.group ?? null,
+    // Placeholder — set below. Capture and edit reseed unconditionally, same
+    // as every other member above; triage looks its note up in colorForNote
+    // first (see its comment), so the two paths can't share this one line.
+    color: null,
   };
+
+  // Seeded once per open — a colour the user picks must survive picking a
+  // different project afterwards, so nothing but a swatch click may write
+  // this again (invariant 11's "one keystroke marks it yours", applied to a
+  // click instead of a keystroke). Triage additionally keys the suggestion to
+  // the note: a note already seen keeps the colour it has (suggested or
+  // picked) however much of the queue was walked in between, and a note never
+  // seen has no entry, so it gets its own fresh roll.
+  if (editorContext.mode === 'triage') {
+    if (!colorForNote.has(editorContext.noteId)) {
+      colorForNote.set(editorContext.noteId,
+        context.color || suggestColor(editorContext.project));
+    }
+    editorContext.color = colorForNote.get(editorContext.noteId);
+  } else {
+    editorContext.color = context.color || suggestColor(editorContext.project);
+  }
 
   // Suppressing a title write is only ever right for a *guessed* title, and
   // triage is the only mode that has one — it derives a suggestion from the
@@ -251,19 +304,13 @@ function openEditor(context) {
   // between modes could collide outright.
   const titleInput = document.getElementById('editor-title');
   if (editorContext.mode === 'triage') {
-    // A changed note means the previous note's ownership no longer applies,
-    // so it gets its own suggestion; an unchanged one keeps it, which is what
-    // makes "one keystroke marks the title yours" last for the life of a note
-    // across a Skip that cycles back round to it.
-    if (titleFilledFor !== editorContext.noteId) {
-      titleFilledFor = editorContext.noteId;
-      titleIsUsers = false;
-    }
-    if (!titleIsUsers) titleInput.value = context.title || '';
+    // A note nobody has typed a title for takes this open's suggestion; one
+    // they have keeps what they typed, which is what makes "one keystroke
+    // marks the title yours" last for the life of that note however far round
+    // the queue Skip travels before coming back to it.
+    if (!titleIsUsers.has(editorContext.noteId)) titleInput.value = context.title || '';
   } else {
     titleInput.value = context.title || '';
-    titleFilledFor = null;
-    titleIsUsers = false;
   }
 
   loadedBucket = editorContext.bucket;
@@ -320,7 +367,15 @@ function closeEditor() {
   document.getElementById('editor').hidden = true;
 }
 
-document.getElementById('editor-title').addEventListener('input', () => { titleIsUsers = true; });
+// Triage is the only mode that ever suppresses a title write, so it is the
+// only mode with anything to record — and the claim is recorded against the
+// note, so it lasts that note's life rather than until some other note is
+// opened. Capture and edit reseed unconditionally and never read this.
+document.getElementById('editor-title').addEventListener('input', () => {
+  if (editorContext && editorContext.mode === 'triage') {
+    titleIsUsers.add(editorContext.noteId);
+  }
+});
 
 document.getElementById('editor-save').onclick = async () => {
   const title = document.getElementById('editor-title').value.trim();
@@ -348,10 +403,17 @@ document.getElementById('editor-save').onclick = async () => {
     // line survives to the task. file_note falls back to the note's own
     // text only when this argument is omitted.
     if (await callApi('file_note', note.id, editorContext.project, title,
-        editorContext.type, editorContext.bucket, body) === API_FAILED) return;
+        editorContext.type, editorContext.bucket, body, editorContext.color) === API_FAILED) return;
     triageQueue.splice(triageIndex, 1);
-    afterNoteRemoved();
+    // Refresh before opening the next note, not after: suggestColor counts
+    // state.tasks, so opening first would suggest against a list that does not
+    // yet contain the task just filed — and two notes filed in a row could be
+    // handed the same colour, the one thing the least-used heuristic exists to
+    // prevent. Safe in this order because refresh() → render() touches the
+    // task list and the hand-off row, never the editor overlay, and
+    // openTriageNote() reads editorContext, which survives it.
     await refresh();
+    afterNoteRemoved();
     return;
   }
 
@@ -376,7 +438,12 @@ document.getElementById('editor-save').onclick = async () => {
     // untouched content, so matching it means genuinely untouched: write
     // loadedBody back unchanged, byte for byte. A mismatch means the user
     // really edited, so send what the editor has now.
-    const fields = { title, type: editorContext.type, bucket: editorContext.bucket };
+    // color is a chip selection, not prose — invariant 13's write-only-when-
+    // changed treatment exists for the body because Toast UI renormalises
+    // markdown on every round-trip; a colour has no such round-trip drift, so
+    // it goes in unconditionally like title/type/bucket, never gated on body's
+    // changed check above.
+    const fields = { title, type: editorContext.type, bucket: editorContext.bucket, color: editorContext.color };
     if (body !== normalisedBody) fields.body = body;
     // Moving buckets without a new order carries the old bucket's position
     // across, which drops the task at an arbitrary point in the target list.
@@ -398,7 +465,7 @@ document.getElementById('editor-save').onclick = async () => {
   }
 
   if (await callApi('create_task', editorContext.project, title, body,
-      editorContext.type, editorContext.bucket) === API_FAILED) return;
+      editorContext.type, editorContext.bucket, editorContext.color) === API_FAILED) return;
   closeEditor();
   await refresh();
 };

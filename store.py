@@ -13,6 +13,11 @@ import yaml
 BUCKETS = ("now", "next", "someday")
 STATUSES = ("open", "in-progress", "done")
 
+# The colours Claude Code's /color command accepts, minus `default` — every
+# task has a real colour, so there is never a reason to send it.
+CLAUDE_COLORS = ("red", "blue", "green", "yellow", "purple", "orange",
+                 "pink", "cyan")
+
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
 
 
@@ -33,7 +38,22 @@ class Task:
     # after the last field without a default, so every existing construction
     # site keeps working untouched. See groups.py.
     group: str | None = None
+    # A colour Claude Code's /color command accepts, for a session spawned off
+    # this task to identify itself by. Normalised in __post_init__ rather than
+    # by parse_task and create_task separately: one rule in one place means a
+    # Task built anywhere — parsed, created, or hand-constructed in a test —
+    # always carries a legal value, so no downstream caller has to defend
+    # against "" or against a typo hand-edited into a task file.
+    color: str = ""
     path: Path | None = field(default=None, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.color not in CLAUDE_COLORS:
+            # Deterministic, not random: reads never write and no migration
+            # sweep runs, so the same id must derive the same colour every
+            # time it is parsed, and eight consecutive ids must land on eight
+            # different colours, which randomness can't promise.
+            self.color = CLAUDE_COLORS[self.id % len(CLAUDE_COLORS)]
 
 
 def task_slug(title: str) -> str:
@@ -46,6 +66,7 @@ def render_task(task: Task) -> str:
         "id": task.id,
         "title": task.title,
         "type": task.type,
+        "color": task.color,
         "bucket": task.bucket,
         "group": task.group,
         "status": task.status,
@@ -81,6 +102,9 @@ def parse_task(text: str, path: Path | None = None) -> Task:
         # thing — this task is not in a group. A group with no name has no
         # identity, so "" can never be a real value.
         group=str(meta["group"]) if meta.get("group") else None,
+        # __post_init__ replaces anything illegal, so the only job here is to
+        # not raise on a missing key or a non-string value.
+        color=str(meta.get("color") or ""),
         path=path,
     )
 
@@ -151,7 +175,7 @@ def next_task_id(project_path: Path) -> int:
 
 
 def create_task(project_path: Path, title: str, body: str, type: str,
-                bucket: str = "now") -> Task:
+                bucket: str = "now", color: str = "") -> Task:
     if bucket not in BUCKETS:
         raise ValueError(f"unknown bucket: {bucket}")
     if not tasks_dir(project_path).exists():
@@ -168,6 +192,7 @@ def create_task(project_path: Path, title: str, body: str, type: str,
         started=None,
         done=None,
         body=body,
+        color=color,
     )
     task.path = tasks_dir(project_path) / "open" / f"{task.id:04d}-{task_slug(title)}.md"
     return save_task(task)

@@ -289,3 +289,91 @@ def test_reset_to_open_refuses_a_completed_task(tmp_path):
 
     with pytest.raises(ValueError):
         store.reset_to_open(task)
+
+
+LEGACY_FILE = (
+    "---\n"
+    "id: 3\n"
+    "title: A task written before colours existed\n"
+    "type: BUG\n"
+    "bucket: now\n"
+    "status: open\n"
+    "order: 0\n"
+    "created: 2026-07-25\n"
+    "started: null\n"
+    "done: null\n"
+    "---\n"
+    "\n"
+    "body\n"
+)
+
+
+def make_task(task_id=1, **overrides):
+    fields = dict(
+        id=task_id, title="t", type="BUG", bucket="now", status="open",
+        order=0, created="2026-07-25", started=None, done=None, body="b",
+    )
+    fields.update(overrides)
+    return store.Task(**fields)
+
+
+def test_a_colour_survives_the_frontmatter_round_trip():
+    task = make_task(42, color="purple")
+
+    assert store.parse_task(store.render_task(task)).color == "purple"
+
+
+def test_a_task_file_with_no_colour_gets_one_derived_from_its_id():
+    # Every task written before this feature must have a colour from the first
+    # launch — a row with no dot beside rows with dots reads as a broken render.
+    assert store.parse_task(LEGACY_FILE).color == store.CLAUDE_COLORS[3]
+
+
+def test_a_hand_edited_colour_that_is_not_a_claude_colour_is_replaced():
+    # A task file is hand-editable, so `color:` is unvalidated text on a path
+    # that ends in "type this into another process's console".
+    text = LEGACY_FILE.replace("bucket: now", "color: chartreuse\nbucket: now")
+
+    assert store.parse_task(text).color == store.CLAUDE_COLORS[3]
+
+
+def test_an_empty_colour_is_treated_as_no_colour():
+    text = LEGACY_FILE.replace("bucket: now", "color: ''\nbucket: now")
+
+    assert store.parse_task(text).color == store.CLAUDE_COLORS[3]
+
+
+def test_eight_consecutive_ids_get_eight_different_colours():
+    colours = {make_task(task_id).color for task_id in range(1, 9)}
+
+    assert len(colours) == 8
+
+
+def test_every_derived_colour_is_one_claude_accepts():
+    for task_id in range(0, 40):
+        assert make_task(task_id).color in store.CLAUDE_COLORS
+
+
+def test_create_task_takes_an_explicit_colour(tmp_path):
+    store.create_task(tmp_path, "A", "body", "BUG", color="cyan")
+
+    assert store.list_tasks(tmp_path)[0].color == "cyan"
+
+
+def test_create_task_without_a_colour_derives_a_legal_one(tmp_path):
+    task = store.create_task(tmp_path, "A", "body", "BUG")
+
+    assert task.color in store.CLAUDE_COLORS
+
+
+def test_a_legacy_task_keeps_its_derived_colour_once_it_is_saved(tmp_path):
+    # Reads never write, but the next save for any reason makes the derived
+    # value a real field.
+    path = tmp_path / "legacy.md"
+    path.write_text(LEGACY_FILE, encoding="utf-8", newline="\n")
+    task = store.parse_task(path.read_text(encoding="utf-8"), path)
+    derived = task.color
+
+    store.save_task(task)
+
+    assert f"color: {derived}" in path.read_text(encoding="utf-8")
