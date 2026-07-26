@@ -190,7 +190,18 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    label chain's shrink-with-depth scale on purpose — otherwise "smaller as
    you go deeper" ends with the text you actually read being the smallest
    thing on screen. */
-.group-name { flex: 1; font-size: 11px; font-weight: 600; opacity: .7; cursor: text; }
+/* Sized to its text, not to the row. `flex: 1` made the name span the whole
+   gap out to the count, so the rename target was a stretch of empty header a
+   long way from any text — and `cursor: text` advertised it the whole way.
+   `margin-right: auto` pushes the controls right exactly as the old flex did,
+   without claiming the space in between: that space belongs to the drag.
+   It may still shrink (min-width: 0) so a long name ellipsises rather than
+   shoving the bucket picker off the row. user-select stops a drag that starts
+   on the name from becoming a text-selection drag instead. */
+.group-name { flex: 0 1 auto; margin-right: auto; min-width: 0;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+              font-size: 11px; font-weight: 600; opacity: .7;
+              cursor: inherit; user-select: none; }
 /* font-size stated explicitly: font: inherit alone picks up the body's 13px,
    so renaming a group would visibly resize its own text the moment this input
    replaces the label it's editing. */

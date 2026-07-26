@@ -713,7 +713,11 @@ show two unrelated tasks under one id at different points in time.
   completes those 2 while the other 3 stay in their bucket and the group
   survives; a group header's checkbox must line up exactly with a top-level
   task row's; dragging a group by its header must still work, and pressing
-  `done` must not start a drag. And for restore: open a completed task from
+  `done` must not start a drag. Renaming is a **double-click on the name
+  itself**: a single click anywhere on the header — including the empty stretch
+  between the name and the count, which used to be part of the name's own box —
+  must start a drag instead. And a group born from a drag must still open its
+  name box focused, which no longer goes through a synthesised click. And for restore: open a completed task from
   Progress and close without changing anything — `git status` in a tracked
   project shows no diff at all; edit its body and save — the change lands and
   the file stays in `done/`; press Restore — it leaves the progress list and

@@ -166,7 +166,7 @@ function groupBlock(block, options = {}) {
   const name = document.createElement('span');
   name.className = 'group-name';
   name.textContent = block.group;
-  name.title = 'Click to rename';
+  name.title = 'Double-click to rename';
 
   const total = groupMemberCount(project, block.group);
   const count = document.createElement('span');
@@ -267,7 +267,12 @@ function groupBlock(block, options = {}) {
     selectAll.checked = rows.every(other => other.querySelector('.select').checked);
   }));
 
-  name.onclick = () => renameInPlace(name, project, block.group);
+  // Double-click, not click. A group header is a drag handle first — moving a
+  // group between priorities is the frequent gesture and renaming one is rare
+  // — and a single click that opens an editor makes the whole header hostile
+  // to the thing it is mostly for. Same reasoning as the drag rules next door:
+  // the common gesture is the default, the rare one is aimed.
+  name.ondblclick = () => renameInPlace(name, project, block.group);
 
   // The rows go in even when folded, and CSS hides them. Removing them would
   // break three things that read the DOM: select-the-group would tick nothing,
@@ -827,5 +832,9 @@ wireDrag();
 function focusGroupName(project, name) {
   const container = [...document.querySelectorAll('.group')].find(
     element => element.dataset.project === project && element.dataset.group === name);
-  if (container) container.querySelector('.group-name').click();
+  // Calls the thing directly rather than synthesising the gesture that reaches
+  // it. This used to fire .click(), which stopped opening anything the moment
+  // renaming moved to double-click — and it would have failed silently, since
+  // a click on the name is now simply not an event anyone listens for.
+  if (container) renameInPlace(container.querySelector('.group-name'), project, name);
 }
