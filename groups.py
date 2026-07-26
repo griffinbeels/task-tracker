@@ -375,9 +375,16 @@ def place(project_path: Path, task_ids, *, bucket: str | None = None,
     # Sorted so a group keeps its internal order through the move. One write
     # per task: the status functions save, and so does the fallback.
     for offset, task in enumerate(sorted(moving, key=lambda t: (t.order, t.id))):
+        # A task that is already in this group and already in this bucket
+        # keeps the slot it holds. Without this, claiming one member of a
+        # group — dropping it on its own group's header inside IN PROGRESS,
+        # where nothing but the status changes — would land it at the end of
+        # its own group and silently reorder a list nobody touched. Any gap
+        # the skipped offsets leave is closed by the renumber below.
+        if task.group != group or task.bucket != target:
+            task.order = tail + offset
         task.group = group
         task.bucket = target
-        task.order = tail + offset
         if status == "in-progress" and task.status != "in-progress":
             store.start_task(task)
         elif status == "open" and task.status != "open":

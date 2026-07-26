@@ -399,3 +399,17 @@ def test_place_refuses_done_as_a_status(tmp_path):
 
     with pytest.raises(ValueError):
         groups.place(tmp_path, [task.id], status="done")
+
+
+def test_place_keeps_a_member_where_it_is_when_only_the_status_changes(tmp_path):
+    one, two, three = seed_bucket(tmp_path, ["One", "Two", "Three"], "now")
+    groups.assign(tmp_path, [one.id, two.id, three.id], "G")
+
+    # Claiming the first member — dropping it on its own group's header inside
+    # IN PROGRESS. It is already in G and already in now, so the only thing
+    # that changes is the status; landing it at the end of its own group would
+    # reorder a list nobody asked to reorder.
+    groups.place(tmp_path, [one.id], group="G", status="in-progress")
+
+    assert orders(tmp_path) == {one.id: 0, two.id: 1, three.id: 2}
+    assert by_id(tmp_path)[one.id].status == "in-progress"

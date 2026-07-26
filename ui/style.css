@@ -111,6 +111,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 #in-progress { border: 1px solid rgba(48, 164, 108, .35); border-radius: 6px;
                padding: 2px 8px 8px; margin-bottom: 12px; }
 #in-progress h2 { color: #4cc38a; opacity: .85; }
+/* One line rather than a blank box: this section is drawn even with nothing
+   running, because it is where a task is dropped to claim it and the first one
+   has to have somewhere to land. Dimmer than a task row and with no marker of
+   its own — it is an explanation, not an item — but it is a real drop target,
+   so it takes the outline like the heading above it. */
+.wip-empty { font-size: 11px; opacity: .45; margin: 4px 2px 2px;
+             line-height: 1.5; white-space: normal; }
 /* One heading per project, because a row's project has to be visible for the
    row to be unambiguous — ids are per-project. It doubles as the fold control,
    so it is a row rather than a bare label. Sized to outrank the group headers
@@ -201,8 +208,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 
 /* An outline, not a fill: a row already changes background on hover, so a
    second background change would read as the same state rather than a new one.
-   Inset so it does not nudge the row's neighbours as it appears. */
-.task.drop-into, .group-header.drop-into {
+   Inset so it does not nudge the row's neighbours as it appears.
+   Headings carry it too: dropping a task on IN PROGRESS's own heading — or on
+   the line it shows when nothing is running — claims it, and joining the
+   running region is the same kind of outcome as joining a group. */
+.task.drop-into, .group-header.drop-into, h2.drop-into,
+.project-heading.drop-into, .wip-empty.drop-into {
   outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
   border-radius: 5px; }
 

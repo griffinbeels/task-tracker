@@ -21,7 +21,6 @@ function inProgressGroupKeys() {
 
 function inProgressSection() {
   const running = inProgressTasks();
-  if (!running.length) return null;
 
   const section = document.createElement('section');
   section.id = 'in-progress';
@@ -30,6 +29,20 @@ function inProgressSection() {
   heading.textContent =
     `IN PROGRESS · ${groupCount} ${groupCount === 1 ? 'GROUP' : 'GROUPS'}`;
   section.append(heading);
+
+  // Drawn even with nothing running, because this section is a drop target now
+  // and the FIRST task claimed has to have somewhere to land — with no rows
+  // there are no project headings either, so the section's own heading and
+  // this line are the whole target. An empty box with nothing in it reads as a
+  // render that failed rather than as a state, so it says what it is.
+  if (!running.length) {
+    const hint = document.createElement('p');
+    hint.className = 'wip-empty';
+    hint.textContent =
+      'Nothing running. Drag a task here to claim it, or hit Spin up.';
+    section.append(hint);
+    return section;
+  }
 
   // state.projects order, so the section does not reshuffle as tasks change.
   for (const project of state.projects) {
@@ -47,21 +60,26 @@ function inProgressSection() {
 
     // No bucket picker and no disband here: a running session's bucket is not
     // a useful control, and dissolving a group mid-flight is not the gesture
-    // anyone reaches for. Rows drag — that is how two running tasks become one
-    // group — but the header does not, since there is nothing to reorder.
+    // anyone reaches for. The header IS draggable, though — it used not to be,
+    // on the grounds that this section has nothing to reorder, and that stopped
+    // being the whole story when a drag became able to change a bucket and a
+    // status: dropping a running group on NEXT moves every member there and
+    // releases it, which is the one gesture the ↩ beside it cannot do.
+    //
+    // It moves every member, including any this header did not draw — a header
+    // can read "2 of 5", and a group lives in one bucket (invariant 16), so
+    // there is no such thing as moving part of one. That differs from the
+    // `done` button next to it, which acts on the two rows it drew, and the
+    // difference is the point: done completes tasks, a drag moves the group.
     for (const block of blocks) {
       const element = block.group
         ? groupBlock(block, { showBucket: false, showDisband: false,
-                              showReset: true, headerDraggable: false })
+                              showReset: true })
         : taskRow(block.tasks[0], { showBucket: false, showReset: true });
       wrapper.append(nameForeignRows(element));
     }
     section.append(wrapper);
   }
-  // null bucket: this section groups but never reorders — its rows are sorted
-  // by project and group, and they can sit in three different buckets, so
-  // there is no one bucket for reorder_bucket to renumber.
-  wireDrag(section, null);
   return section;
 }
 
