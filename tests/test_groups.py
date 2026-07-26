@@ -279,3 +279,123 @@ def test_auto_group_refuses_to_merge_two_named_groups(tmp_path):
     assert tasks[first.id].group == "Editor polish"
     assert tasks[second.id].group == "Drag fixes"
     assert tasks[loose.id].group is None
+
+
+def test_place_moves_a_loose_task_to_another_bucket(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"], "someday")
+
+    groups.place(tmp_path, [task.id], bucket="now")
+
+    assert by_id(tmp_path)[task.id].bucket == "now"
+
+
+def test_place_renumbers_the_bucket_it_left(tmp_path):
+    first, second, third = seed_bucket(tmp_path, ["A", "B", "C"], "now")
+
+    groups.place(tmp_path, [second.id], bucket="next")
+
+    # The hole B left behind is closed; C does not keep order 2.
+    assert orders(tmp_path)[first.id] == 0
+    assert orders(tmp_path)[third.id] == 1
+    assert orders(tmp_path)[second.id] == 0
+
+
+def test_place_pulls_a_joining_task_into_its_new_groups_bucket(tmp_path):
+    here, = seed_bucket(tmp_path, ["In now"], "now")
+    groups.assign(tmp_path, [here.id], "G")
+    elsewhere, = seed_bucket(tmp_path, ["In someday"], "someday")
+
+    groups.place(tmp_path, [elsewhere.id], group="G")
+
+    assert by_id(tmp_path)[elsewhere.id].bucket == "now"
+    assert by_id(tmp_path)[elsewhere.id].group == "G"
+
+
+def test_an_explicit_bucket_beats_the_groups_own(tmp_path):
+    one, two = seed_bucket(tmp_path, ["One", "Two"], "now")
+    groups.assign(tmp_path, [one.id, two.id], "G")
+
+    groups.place(tmp_path, [one.id, two.id], group="G", bucket="someday")
+
+    assert {t.bucket for t in store.list_tasks(tmp_path)} == {"someday"}
+
+
+def test_place_keeps_a_moved_group_contiguous(tmp_path):
+    one, two = seed_bucket(tmp_path, ["One", "Two"], "now")
+    stranger, = seed_bucket(tmp_path, ["Stranger"], "someday")
+    groups.assign(tmp_path, [one.id, two.id], "G")
+
+    groups.place(tmp_path, [one.id, two.id], group="G", bucket="someday")
+
+    landed = orders(tmp_path)
+    assert landed[stranger.id] == 0
+    assert sorted([landed[one.id], landed[two.id]]) == [1, 2]
+
+
+def test_place_takes_a_task_out_of_its_group(tmp_path):
+    one, two = seed_bucket(tmp_path, ["One", "Two"], "now")
+    groups.assign(tmp_path, [one.id, two.id], "G")
+
+    groups.place(tmp_path, [two.id], group=None, bucket="now")
+
+    assert by_id(tmp_path)[two.id].group is None
+    assert by_id(tmp_path)[one.id].group == "G"
+
+
+def test_place_claims_a_task_as_in_progress(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"], "next")
+
+    groups.place(tmp_path, [task.id], status="in-progress")
+
+    landed = by_id(tmp_path)[task.id]
+    assert landed.status == "in-progress"
+    assert landed.started == store._today()
+    # The bucket is untouched the whole time a task is in progress, so it
+    # lands back where it came from when the session turns out not to be real.
+    assert landed.bucket == "next"
+
+
+def test_place_releases_an_in_progress_task_into_a_bucket(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"], "now")
+    store.start_task(task)
+
+    groups.place(tmp_path, [task.id], bucket="someday", status="open")
+
+    landed = by_id(tmp_path)[task.id]
+    assert landed.status == "open"
+    assert landed.started is None
+    assert landed.bucket == "someday"
+
+
+def test_place_leaves_started_alone_when_the_status_does_not_change(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"], "now")
+    task.started = "2020-01-01"
+    store.save_task(task)
+
+    groups.place(tmp_path, [task.id], bucket="next", status="open")
+
+    # Already open — reset_to_open would have cleared a date this task holds.
+    assert by_id(tmp_path)[task.id].started == "2020-01-01"
+
+
+def test_place_applies_an_explicit_position(tmp_path):
+    first, second, third = seed_bucket(tmp_path, ["A", "B", "C"], "now")
+
+    groups.place(tmp_path, [third.id], bucket="now",
+                 ordered_ids=[third.id, first.id, second.id])
+
+    assert orders(tmp_path) == {third.id: 0, first.id: 1, second.id: 2}
+
+
+def test_place_refuses_an_unknown_bucket(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"])
+
+    with pytest.raises(ValueError):
+        groups.place(tmp_path, [task.id], bucket="urgent")
+
+
+def test_place_refuses_done_as_a_status(tmp_path):
+    task, = seed_bucket(tmp_path, ["Alone"])
+
+    with pytest.raises(ValueError):
+        groups.place(tmp_path, [task.id], status="done")
