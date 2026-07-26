@@ -136,6 +136,18 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* Folding hides the contents and keeps the heading, which carries the counts
    of what is now out of sight. display:none is safe here — unlike the
    hover-revealed row controls, nothing is laid out against these. */
+/* Everything a project contains is indented one level beneath its heading —
+   the step that was missing, and the reason a group read as the project's
+   sibling rather than its child. Both a project heading and a group header
+   put their caret at left: 2px inside their own box, so with the two boxes
+   sharing a left edge the two carets landed on one vertical line: a parent
+   and its child marked in the same column. The gutter is the unit one level
+   costs everywhere else (see .group > .task below), so the group's caret now
+   begins exactly where the project's ends.
+   :not(.project-heading) rather than a class on the children, because the
+   heading is the one child that must NOT move — it is the thing they are
+   indented relative to. Same selector shape as the collapse rule below it. */
+.project-block > :not(.project-heading) { margin-left: var(--caret-gutter); }
 .project-block.collapsed > :not(.project-heading) { display: none; }
 .group.collapsed > .task { display: none; }
 /* Out of the flow, into the gutter. In the flow it would push everything after
