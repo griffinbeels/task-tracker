@@ -6,7 +6,6 @@ import subprocess
 import threading
 import time
 from ctypes import wintypes
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pyperclip
@@ -412,10 +411,7 @@ def hand_off(project_path: Path, tasks: list[store.Task],
     hold_focus_in_background(previous_window, pid)
     console_input.deliver_when_ready(pid, commands, prompt)
 
-    today = datetime.now(timezone.utc).date().isoformat()
     for task in tasks:
-        task.status = "in-progress"
-        task.started = task.started or today
-        store.save_task(task)
+        store.start_task(task)
 
     return prompt

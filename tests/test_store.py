@@ -524,3 +524,32 @@ def test_complete_then_restore_changes_nothing_but_status_and_done(tmp_path):
             reloaded.color, reloaded.group, reloaded.bucket) == original
     assert reloaded.status == "open"
     assert reloaded.done is None
+
+
+def test_start_task_marks_it_in_progress_and_stamps_the_day(tmp_path):
+    task = store.create_task(tmp_path, "A", "body", "BUG")
+
+    started = store.start_task(task)
+
+    assert started.status == "in-progress"
+    assert started.started == store._today()
+    assert store.list_tasks(tmp_path)[0].status == "in-progress"
+
+
+def test_start_task_keeps_the_original_start_date(tmp_path):
+    task = store.create_task(tmp_path, "A", "body", "BUG")
+    task.started = "2020-01-01"
+
+    started = store.start_task(task)
+
+    # Re-claiming a task that was already begun must not restate when the work
+    # started — the progress view is built on these dates.
+    assert started.started == "2020-01-01"
+
+
+def test_start_task_refuses_a_completed_task(tmp_path):
+    task = store.create_task(tmp_path, "A", "body", "BUG")
+    store.complete_task(task)
+
+    with pytest.raises(ValueError):
+        store.start_task(task)
