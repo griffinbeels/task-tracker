@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 122 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 176 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -26,7 +26,7 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Nine small Python modules and five plain `<script>` files, plus one vendored
+Nine small Python modules and seven plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
@@ -42,14 +42,15 @@ library. No framework, no HTTP server, no bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
 | `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, copy-as-prompt, WIP |
+| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it |
 | `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
-The five scripts **share one global scope** and load in the order
-`state.js`, `tasks.js`, `editor.js`, `triage.js`, `settings.js` (see
-`ui/index.html`, where the vendored library loads first). Functions defined in
+The seven scripts **share one global scope** and load in the order
+`state.js`, `tasks.js`, `groups.js`, `selection.js`, `editor.js`, `triage.js`,
+`settings.js` (see `ui/index.html`, where the vendored library loads first). Functions defined in
 one are callable from another at runtime — `triage.js` calls into `editor.js`
 and `editor.js` reads `triage.js`'s queue, which works because every handler
 resolves its references at call time, not at load. This split exists to keep
@@ -249,7 +250,12 @@ the images arrive, the paths do not resolve.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor.
+  not also open the editor. In `ui/selection.js`, check that ticking a group
+  header's select-all box updates the bar's count (assigning `.checked` on the
+  member rows does not fire a `change` event, so the count silently goes stale
+  without the explicit call this depends on) and that `Clear` empties the
+  header box along with every row's — a header left ticked with no members
+  ticked reads as a broken render.
 
 ## Known gaps
 
