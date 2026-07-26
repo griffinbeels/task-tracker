@@ -115,27 +115,51 @@ def _one_line(text: str) -> str:
     return _CONTROL.sub("", " ".join(text.split()))
 
 
+def _shared_group(tasks: list[store.Task]) -> str | None:
+    """The group every one of these tasks belongs to, or None.
+
+    "Every" is the whole point: a selection that mixes two groups, or a group
+    with a loose task alongside it, has no single name that is true of all of
+    it. Returns None for that, so the caller falls back to a title and a count.
+    """
+    groups = {task.group for task in tasks}
+    if len(groups) == 1:
+        only = groups.pop()
+        return only or None
+    return None
+
+
 def session_name(tasks: list[store.Task], name: str | None = None) -> str:
     """The `/rename` argument for a session opened on these tasks, or "" for none.
-
-    The name is a parameter rather than something derived from the tasks
-    themselves — a sibling feature will eventually supply it from a task's
-    group, and keeping it an argument here is what lets that land independently
-    of this one. This function never reads `task.group`.
 
     With no tasks there is nothing to name a session after, so this returns ""
     even when a name was given — an empty spin-up gets no `/rename` at all.
 
-    A given name wins outright and carries no type prefix; it is only "given"
-    if something survives `_one_line`, so `None`, blank strings and a string of
-    nothing but control characters all fall through to naming the first task.
-    Every piece of user text on this path — the name, the title and the type
-    that prefixes it — goes through `_one_line`, since all three are typed into
-    a line that then has Enter pressed on it. Composition on that fallback
-    path is: build the `TYPE: ` prefix and the `(+n-1)` suffix first, and only
-    truncate the title into whatever room is left between them — truncating
-    the finished string instead would risk eating the count, which is the most
-    informative part of it.
+    Three sources, in order of how well each describes the window:
+
+    1. A name typed into the batch row wins outright and carries no type
+       prefix. It is only "given" if something survives `_one_line`, so `None`,
+       blank strings and a string of nothing but control characters all fall
+       through.
+    2. A group shared by *every* selected task. Ticking a group's checkbox
+       selects its members, and the group's name is what that window is for —
+       the first member's title is an arbitrary one of several. A subset of a
+       group still counts: the work belongs to the group either way. A
+       selection spanning two groups, or mixing grouped with loose tasks, does
+       not, because naming after one of them would claim the rest are not in
+       the window.
+    3. The first task's title, with `(+n-1)` for the others.
+
+    A group name carries no count — it already denotes the whole set, and the
+    selection may legitimately be a subset of it.
+
+    Every piece of user text on this path — the name, the group, the title and
+    the type that prefixes them — goes through `_one_line`, since all of them
+    are typed into a line that then has Enter pressed on it. Composition is:
+    build the `TYPE: ` prefix and the suffix first, and only truncate the label
+    into whatever room is left between them — truncating the finished string
+    instead would risk eating the count, which is the most informative part of
+    it.
     """
     if not tasks:
         return ""
@@ -146,10 +170,11 @@ def session_name(tasks: list[store.Task], name: str | None = None) -> str:
             return _cap(given_name)
 
     prefix = f"{_one_line(tasks[0].type)}: "
-    suffix = f" (+{len(tasks) - 1})" if len(tasks) > 1 else ""
-    # Cleaned before the room for it is measured, on both paths, so nothing
+    group = _shared_group(tasks)
+    suffix = "" if group else (f" (+{len(tasks) - 1})" if len(tasks) > 1 else "")
+    # Cleaned before the room for it is measured, on every path, so nothing
     # removed later can shorten a line that was already capped to fit.
-    title = _one_line(tasks[0].title)
+    title = _one_line(group or tasks[0].title)
     if not title:
         return ""
 

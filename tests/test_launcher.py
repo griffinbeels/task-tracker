@@ -7,11 +7,11 @@ import launcher
 import store
 
 
-def make_task(task_id, title, type, body, color=""):
+def make_task(task_id, title, type, body, color="", group=None):
     return store.Task(
         id=task_id, title=title, type=type, bucket="now", status="open",
         order=0, created="2026-07-25", started=None, done=None, body=body,
-        color=color,
+        color=color, group=group,
     )
 
 
@@ -368,6 +368,72 @@ def test_nothing_selected_has_no_name_even_if_one_was_typed():
 def test_a_task_with_no_title_has_no_name():
     # "FEATURE: " on its own names nothing, so no /rename is sent at all.
     assert launcher.session_name([make_task(1, "  ", "FEATURE", "b")]) == ""
+
+
+def test_a_selection_that_shares_a_group_is_named_after_the_group():
+    # Ticking a group's checkbox selects its members. The group's name is what
+    # that window is for; the first member's title is an arbitrary one of many.
+    tasks = [make_task(1, "Chips rewrite the row", "BUG", "b", group="Editor polish"),
+             make_task(2, "Title is discarded", "BUG", "b", group="Editor polish")]
+
+    assert launcher.session_name(tasks) == "BUG: Editor polish"
+
+
+def test_a_group_name_carries_no_count():
+    # "(+2)" says "and some others"; a group name already denotes the whole set,
+    # and the selection may legitimately be a subset of it.
+    tasks = [make_task(1, "One", "BUG", "b", group="Editor polish"),
+             make_task(2, "Two", "BUG", "b", group="Editor polish"),
+             make_task(3, "Three", "BUG", "b", group="Editor polish")]
+
+    assert launcher.session_name(tasks) == "BUG: Editor polish"
+
+
+def test_one_task_from_a_group_still_names_the_group():
+    # A group of one, or one member ticked by hand: the work still belongs to
+    # that group, and the alternative is a rule that changes at n=2.
+    task = make_task(1, "Chips rewrite the row", "BUG", "b", group="Editor polish")
+
+    assert launcher.session_name([task]) == "BUG: Editor polish"
+
+
+def test_a_selection_spanning_two_groups_falls_back_to_the_title():
+    # Naming after one of them would claim the other is not in the window.
+    tasks = [make_task(1, "Chips rewrite the row", "BUG", "b", group="Editor polish"),
+             make_task(2, "Drag is jumpy", "BUG", "b", group="Drag fixes")]
+
+    assert launcher.session_name(tasks) == "BUG: Chips rewrite the row (+1)"
+
+
+def test_a_loose_task_among_grouped_ones_falls_back_to_the_title():
+    tasks = [make_task(1, "Chips rewrite the row", "BUG", "b", group="Editor polish"),
+             make_task(2, "Unfiled thought", "BUG", "b")]
+
+    assert launcher.session_name(tasks) == "BUG: Chips rewrite the row (+1)"
+
+
+def test_a_typed_name_still_beats_the_group():
+    tasks = [make_task(1, "One", "BUG", "b", group="Editor polish"),
+             make_task(2, "Two", "BUG", "b", group="Editor polish")]
+
+    assert launcher.session_name(tasks, "Something else") == "Something else"
+
+
+def test_a_group_name_is_cleaned_like_every_other_typed_line():
+    # Group names are hand-editable frontmatter, on the same path that ends in
+    # a submitted line — same treatment as titles and types.
+    task = make_task(1, "One", "BUG", "b", group="Editor\npolish\x1b[201~")
+
+    name = launcher.session_name([task])
+
+    assert "\n" not in name and "\x1b" not in name
+    assert name == "BUG: Editor polish[201~"
+
+
+def test_a_long_group_name_is_capped():
+    task = make_task(1, "One", "FEATURE", "b", group="G" * 200)
+
+    assert len(launcher.session_name([task])) <= launcher.SESSION_NAME_LIMIT
 
 
 def test_session_color_is_the_first_selected_task_s():

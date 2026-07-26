@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 276 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 284 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -36,7 +36,7 @@ library. No framework, no HTTP server, no bundler.
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
-| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
+| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn, session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | Typing that prompt into the spawned session's console, and submitting the `/rename`/`/color` commands ahead of it |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
