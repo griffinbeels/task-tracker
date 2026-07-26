@@ -22,6 +22,20 @@ let editorContext = null;
 // re-open must not clobber a title already typed.
 let titleFilledFor = null;
 let titleIsUsers = false;
+// Which triage note the current colour suggestion belongs to, and what that
+// note's colour is. The colour analogue of titleFilledFor/titleIsUsers above,
+// needed for the same reason: triage.js's Skip re-opens the very same note
+// whenever it's the only one left in the queue, and openEditor's suggestColor
+// call would otherwise re-roll a brand new random colour on every such
+// return, silently discarding whatever the user had picked. Type and bucket
+// don't need this — openTriageNote() carries those forward unconditionally on
+// every note change, on purpose, so a re-open shows the same value either
+// way and nothing looks different. Colour is the opposite: a genuinely new
+// note must get its own fresh suggestion (every note deserves an independent
+// roll), but the *same* note re-opening must not, so identity has to be
+// tracked explicitly rather than just carried forward like type/bucket are.
+let colorFilledFor = null;
+let colorForNote = null;
 // The markdown last handed to setMarkdown, and what Toast UI normalises it to
 // immediately after. Edit mode compares a task's saved body against both to
 // tell "the user changed it" apart from "Toast UI's own round-trip changed
@@ -172,7 +186,14 @@ function renderChips() {
       () => { editorContext.bucket = b; renderChips(); })));
   document.getElementById('editor-colors').replaceChildren(
     ...Object.keys(CLAUDE_COLORS).map(name => swatch(name, editorContext.color === name,
-      () => { editorContext.color = name; renderChips(); })));
+      () => {
+        editorContext.color = name;
+        // Without this, a click here is invisible to the colorFilledFor
+        // guard in openEditor — a Skip back to this same note would read
+        // colorForNote's stale pre-click value and silently undo the pick.
+        if (editorContext.mode === 'triage') colorForNote = name;
+        renderChips();
+      })));
 }
 
 // Every action button always exists in the markup; this just shows the ones
@@ -193,12 +214,30 @@ function openEditor(context) {
     bucket: context.bucket || 'now',
     noteId: context.noteId ?? null,
     taskId: context.taskId ?? null,
-    // Seeded once per open, same as every other member here — a colour the
-    // user picks must survive picking a different project afterwards, so
-    // nothing but a swatch click may write this again (invariant 11's "one
-    // keystroke marks it yours", applied to a click instead of a keystroke).
-    color: context.color || suggestColor(context.project || currentProject),
+    // Placeholder — set below. Capture and edit reseed unconditionally, same
+    // as every other member above; triage needs the colorFilledFor guard
+    // first (see its comment), so the two paths can't share this one line.
+    color: null,
   };
+
+  // Seeded once per open — a colour the user picks must survive picking a
+  // different project afterwards, so nothing but a swatch click may write
+  // this again (invariant 11's "one keystroke marks it yours", applied to a
+  // click instead of a keystroke). Triage additionally checks noteId first:
+  // an unchanged note keeps the colour it already has (suggested or picked),
+  // exactly the "one keystroke marks it yours for the life of the note" rule
+  // titleFilledFor already applies to the title, applied here to a click
+  // instead of a keystroke. A genuinely different note has never had a
+  // suggestion, so it gets one.
+  if (editorContext.mode === 'triage') {
+    if (colorFilledFor !== editorContext.noteId) {
+      colorFilledFor = editorContext.noteId;
+      colorForNote = context.color || suggestColor(editorContext.project);
+    }
+    editorContext.color = colorForNote;
+  } else {
+    editorContext.color = context.color || suggestColor(editorContext.project);
+  }
 
   // Suppressing a title write is only ever right for a *guessed* title, and
   // triage is the only mode that has one — it derives a suggestion from the
