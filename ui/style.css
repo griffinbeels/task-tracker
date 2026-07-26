@@ -14,7 +14,17 @@ header select, header button, #search, #toolbar button {
   height: 28px;
   box-sizing: border-box;
 }
-#project-picker { min-width: 150px; padding: 0 6px; }
+/* The picker takes the leftover width instead of claiming a fixed slice of it.
+   At 420px the header was already close to full, and a hard min-width meant the
+   next button added pushed the last one off the row rather than making the
+   select narrower. It still keeps a floor wide enough to read a project name. */
+#project-picker { flex: 1 1 auto; min-width: 90px; padding: 0 6px; }
+header button { flex: none; }
+
+/* Restart and settings are both app-level utilities sitting at the end of the
+   row, so they get one square rule between them. Two icon buttons of different
+   widths side by side read as a rendering fault however correct each one is. */
+header button.icon { width: 28px; padding: 0; }
 
 /* A label that wraps a control centres its parts against each other. Without
    this the control sits on one alignment and the text on the text baseline,

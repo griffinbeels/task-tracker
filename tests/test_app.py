@@ -2,6 +2,7 @@ import pytest
 
 import app
 import registry
+import restart
 import store
 
 
@@ -254,3 +255,27 @@ def test_reset_to_open_returns_the_updated_tasks(tmp_path):
     assert updated[0]["project"] == "repo"
     # Task.path is a Path, which does not survive the bridge as JSON.
     assert "path" not in updated[0]
+
+
+def test_get_state_has_no_last_project_before_one_is_chosen(tmp_path):
+    make_repo(tmp_path)
+
+    assert app.Api().get_state()["last_project"] is None
+
+
+def test_get_state_carries_the_last_selected_project(tmp_path):
+    make_repo(tmp_path)
+
+    app.Api().set_last_project("repo")
+
+    assert app.Api().get_state()["last_project"] == "repo"
+
+
+def test_restart_spawns_a_replacement(monkeypatch):
+    """The replacement closes this window itself, over the singleton port."""
+    spawned = []
+    monkeypatch.setattr(restart, "spawn_replacement", lambda: spawned.append(True))
+
+    app.Api().restart()
+
+    assert spawned == [True]

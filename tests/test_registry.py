@@ -141,3 +141,33 @@ def test_unknown_keys_in_projects_json_are_ignored(tmp_path):
 
     assert len(projects) == 1
     assert projects[0].name == "repo"
+
+
+def test_nothing_is_selected_before_a_project_has_been_chosen(tmp_path):
+    assert registry.last_project() is None
+
+
+def test_the_selected_project_round_trips(tmp_path):
+    registry.set_last_project("task_tracker")
+
+    assert registry.last_project() == "task_tracker"
+
+
+def test_saving_settings_does_not_forget_the_selected_project(tmp_path):
+    # This is why the selection lives in its own file rather than on Settings:
+    # Api.save_settings rebuilds the whole dataclass from the three fields the
+    # settings overlay sends, so a field stored there would be silently wiped
+    # every time those settings were saved.
+    registry.set_last_project("task_tracker")
+
+    registry.save_settings(registry.Settings(group_limit=4))
+
+    assert registry.last_project() == "task_tracker"
+
+
+def test_a_corrupt_session_file_selects_nothing(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "session.json").write_text(
+        "{not json", encoding="utf-8", newline="\n")
+
+    assert registry.last_project() is None

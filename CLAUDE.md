@@ -26,13 +26,13 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Ten small Python modules and seven plain `<script>` files, plus one vendored
+Eleven small Python modules and seven plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
 | `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD |
-| `registry.py` | `~/.task-tracker/projects.json` and `settings.json` |
+| `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
@@ -40,8 +40,9 @@ library. No framework, no HTTP server, no bundler.
 | `console_input.py` | Typing that prompt into the spawned session's console |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
+| `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
-| `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
+| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED` |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
 | `ui/inprogress.js` | The IN PROGRESS section, its per-project split, and the reset actions |
@@ -233,6 +234,7 @@ Break one of these and the failure is silent. Each cost a bug.
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
 ~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
 ~/.task-tracker/inbox/          untriaged raw notes
+~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
 <project>/.tasks/.gitignore     contains `*` — the folder is invisible to git
 <project>/.tasks/open/          NNNN-slug.md
@@ -292,7 +294,11 @@ the images arrive, the paths do not resolve.
   seeded text selected; drag a third onto that group and it must **not** reopen
   (invariant 11); and after moving a group between buckets, `git status` in a
   tracked project must show a frontmatter change and **no body diff** on every
-  member.
+  member. For the header, select a project that is not the first and press ↻:
+  the window must come back on *that* project, at the same size and position,
+  and `run.bat` must restore it too — the selection is restored on every launch,
+  not just the button's. Narrow the window and the picker must shrink rather
+  than pushing ⚙ off the row.
 
 ## Known gaps
 

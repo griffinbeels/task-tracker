@@ -50,6 +50,10 @@ def _settings_file() -> Path:
     return CONFIG_DIR / "settings.json"
 
 
+def _session_file() -> Path:
+    return CONFIG_DIR / "session.json"
+
+
 def _read_json(path: Path, fallback):
     if not path.exists():
         return fallback
@@ -119,3 +123,18 @@ def load_settings() -> Settings:
 
 def save_settings(settings: Settings) -> None:
     _write_json(_settings_file(), asdict(settings))
+
+
+# Which project the window was left on. This is how the window was last used,
+# not something the user configured, so it lives in its own file rather than on
+# Settings — Api.save_settings rebuilds that dataclass from the three fields the
+# settings overlay sends, and a key kept there would be silently wiped every
+# time those settings were saved.
+def last_project() -> str | None:
+    stored = _read_json(_session_file(), {})
+    return stored.get("last_project") if isinstance(stored, dict) else None
+
+
+def set_last_project(name: str | None) -> None:
+    """Written on every change, so a crash cannot lose the selection."""
+    _write_json(_session_file(), {"last_project": name})

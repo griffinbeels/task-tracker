@@ -12,6 +12,7 @@ import inbox
 import launcher
 import migrate
 import registry
+import restart
 import singleton
 import store
 
@@ -57,7 +58,20 @@ class Api:
             "tasks": tasks,
             "notes": [asdict(n) for n in inbox.list_notes()],
             "unreadable": unreadable,
+            "last_project": registry.last_project(),
         }
+
+    def set_last_project(self, name):
+        registry.set_last_project(name)
+
+    def restart(self):
+        """Relaunch from source. The replacement closes this window itself.
+
+        Nothing is returned and nothing is awaited: success means this process
+        is about to be destroyed over the singleton port, so there is no state
+        for the renderer to come back to.
+        """
+        restart.spawn_replacement()
 
     def pick_project_folder(self):
         """Open the OS folder picker and return the chosen path, or None.
