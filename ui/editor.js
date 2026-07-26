@@ -1,7 +1,7 @@
 // The editor overlay: one Toast UI instance shared by every entry point that
-// turns prose into a task. Capture and triage are wired up here; edit reuses
-// the same overlay and openEditor() contract in a later task — do not add
-// its behaviour here ahead of time.
+// turns prose into a task. Capture and triage open it from this file; edit
+// opens it from tasks.js's row click handler. All three share the one
+// openEditor() contract below.
 
 // Built once, on first open, and reused. A new toastui.Editor per open leaks
 // its ProseMirror instance into the DOM — nothing tears the old one down.
@@ -23,9 +23,9 @@ let editorContext = null;
 let titleFilledFor = null;
 let titleIsUsers = false;
 // The markdown last handed to setMarkdown, and what Toast UI normalises it to
-// immediately after. Task 5 (edit mode) compares a task's saved body against
-// both to tell "the user changed it" apart from "Toast UI's own round-trip
-// changed it" — captured here so the values exist from the first open.
+// immediately after. Edit mode compares a task's saved body against both to
+// tell "the user changed it" apart from "Toast UI's own round-trip changed
+// it" — see the editor-save handler's 'edit' branch below.
 let loadedBody = '';
 let normalisedBody = '';
 
@@ -81,7 +81,7 @@ function showEditorActions(visibleIds) {
 
 // The single entry point. context is
 // { mode, title, body, project, type, bucket, noteId, taskId }; mode is one
-// of 'capture' | 'triage' | 'edit'. 'edit' is not wired to a caller yet.
+// of 'capture' | 'triage' | 'edit'.
 function openEditor(context) {
   editorContext = {
     mode: context.mode,
@@ -122,6 +122,12 @@ function openEditor(context) {
   normalisedBody = editor.getMarkdown();
 
   renderChips();
+  // A task cannot change project — ids are per-project, so a move would mean
+  // minting a new one (a documented non-goal). Hiding the chip row rather
+  // than disabling it keeps edit mode from suggesting a choice that doesn't
+  // exist; capture and triage always need it, so reset it visible on every
+  // open rather than only ever setting it hidden.
+  document.getElementById('editor-projects').hidden = editorContext.mode === 'edit';
 
   if (editorContext.mode === 'capture') {
     showEditorActions(['editor-save', 'editor-later', 'editor-cancel']);
@@ -134,6 +140,9 @@ function openEditor(context) {
     // but before any user gesture can reach this branch — same cross-file
     // global-scope pattern the rest of this project already relies on.
     progress.textContent = `note ${triageIndex + 1} / ${triageQueue.length}`;
+  } else if (editorContext.mode === 'edit') {
+    showEditorActions(['editor-save', 'editor-cancel']);
+    document.getElementById('editor-progress').hidden = true;
   }
 
   document.getElementById('editor').hidden = false;
@@ -165,6 +174,24 @@ document.getElementById('editor-save').onclick = async () => {
         editorContext.type, editorContext.bucket, body) === API_FAILED) return;
     triageQueue.splice(triageIndex, 1);
     afterNoteRemoved();
+    await refresh();
+    return;
+  }
+
+  if (editorContext.mode === 'edit') {
+    // Toast UI normalises markdown on every round-trip (list markers,
+    // wrapping, blank lines) even when the user typed nothing — comparing
+    // `body` against loadedBody would therefore read as "changed" for every
+    // hand-written task and silently reformat prose no one touched.
+    // normalisedBody is what THIS load's round-trip produced from the
+    // untouched content, so matching it means genuinely untouched: write
+    // loadedBody back unchanged, byte for byte. A mismatch means the user
+    // really edited, so send what the editor has now.
+    const fields = { title, type: editorContext.type, bucket: editorContext.bucket };
+    if (body !== normalisedBody) fields.body = body;
+    if (await callApi('update_task', editorContext.project, editorContext.taskId, fields)
+        === API_FAILED) return;
+    closeEditor();
     await refresh();
     return;
   }

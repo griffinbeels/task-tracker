@@ -57,6 +57,10 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    because flex: 1 gives this element one. */
 #editor-body { flex: 1; min-height: 0; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* .chips sets its own display, so the bare `hidden` attribute alone loses to
+   it on equal specificity (same reasoning as .overlay[hidden] above) — edit
+   mode hides #editor-projects and needs this to actually take effect. */
+.chips[hidden] { display: none; }
 .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; opacity: .55; }
 .chip.on { opacity: 1; outline: 1px solid currentColor; }
 .actions { display: flex; gap: 6px; }

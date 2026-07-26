@@ -27,6 +27,27 @@ function taskRow(task) {
   typeTag.textContent = task.type;
   row.querySelector('.title').textContent = task.title;
 
+  // Clicking the row opens it for editing. The row already contains a
+  // checkbox, a bucket select and a done button, each with its own click
+  // behaviour — event.target is the control itself when one of those is
+  // clicked, so the closest() guard below must run first or ticking the
+  // checkbox would also pop the editor open. Assigned via .onclick (not
+  // addEventListener) so renderSearch/renderAllProjects can remove it with
+  // a single `row.onclick = null` — see the comment where they disable
+  // .select for why those two views must not open the editor at all.
+  row.onclick = event => {
+    if (event.target.closest('input, select, button')) return;
+    openEditor({
+      mode: 'edit',
+      taskId: task.id,
+      project: task.project,
+      title: task.title,
+      body: task.body,
+      type: task.type,
+      bucket: task.bucket,
+    });
+  };
+
   const bucketPicker = document.createElement('select');
   bucketPicker.className = 'bucket';
   BUCKETS.forEach(name => {
@@ -131,6 +152,10 @@ function renderSearch(query) {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
+    // Same ambiguous-id hazard as selection above — editing here would open
+    // whichever project's task 1 happens to be currentProject's, not the one
+    // this row actually names.
+    row.onclick = null;
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     if (task.status === 'done') {
       row.classList.add('archived');
@@ -161,6 +186,10 @@ function renderAllProjects() {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
+    // Same ambiguous-id hazard as selection above — editing here would open
+    // whichever project's task 1 happens to be currentProject's, not the one
+    // this row actually names.
+    row.onclick = null;
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     return row;
   }));
