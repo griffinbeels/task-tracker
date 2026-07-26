@@ -311,9 +311,15 @@ affected bucket satisfying invariant 2.
 - `unique_name(project_path, seed) -> str` — `seed` if free, else `seed 2`,
   `seed 3`… Comparison is case-insensitive. `seed` is stripped of surrounding
   whitespace; an empty or whitespace-only seed is a `ValueError`.
-- `assign(project_path, task_ids, name) -> str` — put those tasks in that
-  group, creating it if new. Members take the group's bucket, read before the
-  join. Returns the group name actually used.
+- `assign(project_path, task_ids, name) -> str` — put those tasks in **that
+  exact** group, creating it if new. Members take the group's bucket, read
+  before the join. Returns the group name.
+- `create(project_path, task_ids, seed) -> str` — `assign` under a deduped
+  name. Two functions rather than one because dropping onto a *grouped* task
+  means "join that exact group" while dropping onto a *loose* one means "make a
+  new group seeded from its title"; if one function did both, a seed that
+  happened to match an existing group would silently drop the task into an
+  unrelated one.
 - `remove(project_path, task_ids)` — clear `group` on exactly those tasks.
 - `rename(project_path, old, new) -> str` — `ValueError` if `old` has no
   members, if `new` is empty, or if `new` collides case-insensitively with a
@@ -331,6 +337,7 @@ same contract `Api.hand_off` already has.
 ### Bridge methods on `Api`
 
 - `group_tasks(project_name, task_ids, name)` → the group name used
+- `create_group(project_name, task_ids, seed)` → the deduped name used
 - `ungroup_tasks(project_name, task_ids)`
 - `rename_group(project_name, old, new)` → the new name
 - `disband_group(project_name, name)`

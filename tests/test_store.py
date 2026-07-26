@@ -234,3 +234,58 @@ def test_complete_task_preserves_an_existing_completion_date(tmp_path):
 
     assert recompleted.done == "2026-03-14"
     assert original != "2026-03-14"
+
+
+def test_group_round_trips_through_frontmatter(tmp_path):
+    task = store.create_task(tmp_path, "Chips rewrite the row", "body", "BUG")
+    task.group = "Editor polish"
+    store.save_task(task)
+
+    assert store.list_tasks(tmp_path)[0].group == "Editor polish"
+
+
+def test_a_task_file_with_no_group_key_parses_as_ungrouped():
+    # Every task file written before groups existed looks like this. None of
+    # them may need a migration.
+    text = (
+        "---\n"
+        "id: 1\n"
+        "title: Older task\n"
+        "type: BUG\n"
+        "bucket: now\n"
+        "status: open\n"
+        "order: 0\n"
+        "created: 2026-07-01\n"
+        "started: null\n"
+        "done: null\n"
+        "---\n\n"
+        "body\n"
+    )
+
+    assert store.parse_task(text).group is None
+
+
+def test_an_ungrouped_task_writes_group_null(tmp_path):
+    task = store.create_task(tmp_path, "Loose", "body", "BUG")
+
+    assert "group: null" in task.path.read_text(encoding="utf-8")
+
+
+def test_reset_to_open_clears_the_started_stamp(tmp_path):
+    task = store.create_task(tmp_path, "Was handed off", "body", "BUG")
+    task.status = "in-progress"
+    task.started = "2026-07-20"
+    store.save_task(task)
+
+    store.reset_to_open(task)
+
+    reloaded = store.list_tasks(tmp_path)[0]
+    assert reloaded.status == "open"
+    assert reloaded.started is None
+
+
+def test_reset_to_open_refuses_a_completed_task(tmp_path):
+    task = store.complete_task(store.create_task(tmp_path, "Finished", "body", "BUG"))
+
+    with pytest.raises(ValueError):
+        store.reset_to_open(task)

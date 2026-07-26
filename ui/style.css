@@ -3,7 +3,11 @@ body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12p
 
 header { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
 #toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-#search { flex: 1; }
+/* min-width, because a bare `flex: 1` still refuses to shrink an input below
+   its default ~20-character intrinsic width — which pushed "Spin up Claude"
+   onto a second line and put a horizontal scrollbar under the whole app as
+   soon as the window was narrowed. Same reason #project-picker carries one. */
+#search { flex: 1 1 auto; min-width: 80px; }
 
 /* One height for every text control, so the row lines up and the select's
    caret has room to sit centred instead of being crushed against the edge.
@@ -14,21 +18,34 @@ header select, header button, #search, #toolbar button {
   height: 28px;
   box-sizing: border-box;
 }
-#project-picker { min-width: 150px; padding: 0 6px; }
+/* The picker takes the leftover width instead of claiming a fixed slice of it.
+   At 420px the header was already close to full, and a hard min-width meant the
+   next button added pushed the last one off the row rather than making the
+   select narrower. It still keeps a floor wide enough to read a project name. */
+#project-picker { flex: 1 1 auto; min-width: 90px; padding: 0 6px; }
+header button { flex: none; }
+
+/* Restart and settings are both app-level utilities sitting at the end of the
+   row, so they get one square rule between them. Two icon buttons of different
+   widths side by side read as a rendering fault however correct each one is. */
+header button.icon { width: 28px; padding: 0; }
 
 /* A label that wraps a control centres its parts against each other. Without
    this the control sits on one alignment and the text on the text baseline,
    which reads as broken however correct the markup is. */
 label { display: flex; align-items: center; gap: 6px; }
-#toolbar label { white-space: nowrap; }
+#toolbar label, #toolbar button { white-space: nowrap; }
 input[type="checkbox"] { margin: 0; flex: none; }
-#wip-limit, #stale-days { width: 80px; }
+#group-limit, #stale-days { width: 80px; }
+/* The number is correct and says nothing about what it counts, which reads as
+   a bug rather than as a setting. */
+.setting-hint { font-size: 10px; opacity: .45; margin: -2px 0 4px; }
 
 .empty-hint { opacity: .5; margin: 20px 2px; max-width: 46ch; line-height: 1.7;
               white-space: normal; }
-#wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
-               font-size: 11px; margin-bottom: 8px; }
-#wip-warning[hidden] { display: none; }
+#group-limit-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
+                       font-size: 11px; margin-bottom: 8px; }
+#group-limit-warning[hidden] { display: none; }
 #unreadable-warning { background: #5a1a1a; padding: 5px 8px; border-radius: 5px;
                        font-size: 11px; margin-bottom: 8px; }
 #unreadable-warning[hidden] { display: none; }
@@ -65,6 +82,46 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    clicks whose target closest('input, select, button') matches, and lets
    everything else open the editor. */
 .copy svg { pointer-events: none; display: block; }
+
+/* Higher elevation than NOW: a Claude session is running against these right
+   now. Boxed rather than merely first, so it reads as a different kind of
+   thing than the three buckets below it. */
+#in-progress { border: 1px solid rgba(48, 164, 108, .35); border-radius: 6px;
+               padding: 2px 8px 8px; margin-bottom: 12px; }
+#in-progress h2 { color: #4cc38a; opacity: .85; }
+/* One heading per project, because a row's project has to be visible for the
+   row to be unambiguous — ids are per-project. */
+.project-heading { font-size: 10px; letter-spacing: .08em; opacity: .45;
+                   margin: 8px 0 2px; }
+
+/* A group is a parent/child relationship, so the children are indented exactly
+   one level and the rail draws the span they belong to. One level only —
+   groups do not nest. */
+.group { border-left: 2px solid rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
+         margin: 2px 0; }
+.group > .task { margin-left: 14px; }
+.group-header { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+                cursor: grab; }
+.group-header:hover { background: rgba(127, 127, 127, .08); }
+.group-name { flex: 1; font-weight: 600; cursor: text; }
+.group-name-input { flex: 1; font: inherit; font-weight: 600; min-width: 0;
+                    color: inherit; background: rgba(127, 127, 127, .15);
+                    border: 1px solid rgba(127, 127, 127, .4); border-radius: 4px;
+                    padding: 1px 5px; }
+.group-count { font-size: 10px; opacity: .45; }
+/* Hover-revealed with opacity, never display: a control that appears from
+   nothing shifts everything beside it sideways as the pointer arrives. */
+.group-disband { opacity: 0; font-size: 12px; line-height: 1; }
+.group-header:hover .group-disband { opacity: .6; }
+.reset { opacity: 0; font-size: 11px; line-height: 1; }
+.task:hover .reset, .group-header:hover .reset { opacity: .6; }
+
+/* An outline, not a fill: a row already changes background on hover, so a
+   second background change would read as the same state rather than a new one.
+   Inset so it does not nudge the row's neighbours as it appears. */
+.task.drop-into, .group-header.drop-into {
+  outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
+  border-radius: 5px; }
 
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
@@ -105,6 +162,12 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    the baseline the other two sit on. */
 .field-label { font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
                opacity: .4; text-align: right; white-space: nowrap; }
+
+/* Aligned under the chips, not under the label — 56px of label column plus the
+   grid's 9px gap. A hint that starts at the left margin reads as a caption for
+   the whole panel rather than for the row above it. */
+.field-hint { font-size: 10px; opacity: .45; margin: -4px 0 0 65px; }
+.field-hint[hidden] { display: none; }
 
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* .chips and .field both set their own display, so a bare `hidden` attribute

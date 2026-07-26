@@ -2,6 +2,7 @@ import pytest
 
 import app
 import registry
+import restart
 import store
 
 
@@ -182,3 +183,158 @@ def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     assert returned.startswith("file:///")
     assert "\\" not in returned
     assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"
+
+
+def test_a_bucket_change_on_one_member_moves_the_whole_group(tmp_path):
+    # The editor's "When" row edits one task, but a group lives in one bucket.
+    # Enforced in update_task so every control that writes a bucket obeys it.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "Editor polish")
+
+    app.Api().update_task("repo", first.id, {"bucket": "someday"})
+
+    assert {t.bucket for t in store.list_tasks(repo)} == {"someday"}
+
+
+def test_a_bucket_change_on_a_loose_task_moves_only_it(tmp_path):
+    repo = make_repo(tmp_path)
+    grouped = store.create_task(repo, "One", "body", "BUG")
+    loose = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [grouped.id], "Editor polish")
+
+    app.Api().update_task("repo", loose.id, {"bucket": "someday"})
+
+    by_id = {t.id: t for t in store.list_tasks(repo)}
+    assert by_id[loose.id].bucket == "someday"
+    assert by_id[grouped.id].bucket == "now"
+
+
+def test_an_order_aimed_at_a_group_member_cannot_split_the_group(tmp_path):
+    # The group owns its own ordering. An `order` computed for a single task —
+    # the editor sends one whenever the bucket changes — would otherwise wedge
+    # a member away from its siblings.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    third = store.create_task(repo, "Three", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, third.id], "Editor polish")
+
+    app.Api().update_task("repo", first.id, {"order": 99})
+
+    grouped = sorted(t.order for t in store.list_tasks(repo) if t.group)
+    assert grouped[1] - grouped[0] == 1
+    assert {t.id for t in store.list_tasks(repo) if t.group} == {first.id, third.id}
+    assert second.id not in {t.id for t in store.list_tasks(repo) if t.group}
+
+
+def test_editing_a_completed_task_does_not_drag_its_old_group_around(tmp_path):
+    # done/ keeps the group string so the archive stays meaningful, but a
+    # completed task is not part of the group the renderer draws.
+    repo = make_repo(tmp_path)
+    finished = store.create_task(repo, "One", "body", "BUG")
+    still_open = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [finished.id, still_open.id], "Editor polish")
+    app.Api().complete_task("repo", finished.id)
+
+    app.Api().update_task("repo", finished.id, {"bucket": "someday"})
+
+    survivor = [t for t in store.list_tasks(repo) if t.id == still_open.id][0]
+    assert survivor.bucket == "now"
+
+
+def test_create_group_dedupes_the_seed(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    third = store.create_task(repo, "Three", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id], "Editor polish")
+
+    name = app.Api().create_group("repo", [second.id, third.id], "Editor polish")
+
+    assert name == "Editor polish 2"
+
+
+def test_rename_group_reports_a_collision(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id], "Editor polish")
+    app.Api().group_tasks("repo", [second.id], "Drag fixes")
+
+    with pytest.raises(ValueError):
+        app.Api().rename_group("repo", "Drag fixes", "Editor polish")
+
+
+def test_set_group_bucket_rejects_an_unknown_bucket(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "One", "body", "BUG")
+    app.Api().group_tasks("repo", [task.id], "G")
+
+    with pytest.raises(ValueError):
+        app.Api().set_group_bucket("repo", "G", "urgent")
+
+
+def test_ungroup_tasks_leaves_the_rest_of_the_group(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "G")
+
+    app.Api().ungroup_tasks("repo", [second.id])
+
+    by_id = {t.id: t for t in store.list_tasks(repo)}
+    assert by_id[first.id].group == "G"
+    assert by_id[second.id].group is None
+
+
+def test_disband_group_loosens_every_member(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "One", "body", "BUG")
+    second = store.create_task(repo, "Two", "body", "BUG")
+    app.Api().group_tasks("repo", [first.id, second.id], "G")
+
+    app.Api().disband_group("repo", "G")
+
+    assert all(t.group is None for t in store.list_tasks(repo))
+
+
+def test_reset_to_open_returns_the_updated_tasks(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "One", "body", "BUG")
+    task.status = "in-progress"
+    task.started = "2026-07-20"
+    store.save_task(task)
+
+    updated = app.Api().reset_to_open("repo", [task.id])
+
+    assert updated[0]["status"] == "open"
+    assert updated[0]["started"] is None
+    assert updated[0]["project"] == "repo"
+    # Task.path is a Path, which does not survive the bridge as JSON.
+    assert "path" not in updated[0]
+
+
+def test_get_state_has_no_last_project_before_one_is_chosen(tmp_path):
+    make_repo(tmp_path)
+
+    assert app.Api().get_state()["last_project"] is None
+
+
+def test_get_state_carries_the_last_selected_project(tmp_path):
+    make_repo(tmp_path)
+
+    app.Api().set_last_project("repo")
+
+    assert app.Api().get_state()["last_project"] == "repo"
+
+
+def test_restart_spawns_a_replacement(monkeypatch):
+    """The replacement closes this window itself, over the singleton port."""
+    spawned = []
+    monkeypatch.setattr(restart, "spawn_replacement", lambda: spawned.append(True))
+
+    app.Api().restart()
+
+    assert spawned == [True]

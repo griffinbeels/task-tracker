@@ -28,6 +28,11 @@ class Task:
     started: str | None
     done: str | None
     body: str
+    # A group is its name: tasks sharing this string within one project are one
+    # group, and there is no id or registry that could dangle. Declared here,
+    # after the last field without a default, so every existing construction
+    # site keeps working untouched. See groups.py.
+    group: str | None = None
     path: Path | None = field(default=None, compare=False)
 
 
@@ -42,6 +47,7 @@ def render_task(task: Task) -> str:
         "title": task.title,
         "type": task.type,
         "bucket": task.bucket,
+        "group": task.group,
         "status": task.status,
         "order": task.order,
         "created": task.created,
@@ -71,6 +77,10 @@ def parse_task(text: str, path: Path | None = None) -> Task:
         started=str(meta["started"]) if meta.get("started") else None,
         done=str(meta["done"]) if meta.get("done") else None,
         body=body,
+        # A missing key, an explicit null and an empty string all mean the same
+        # thing — this task is not in a group. A group with no name has no
+        # identity, so "" can never be a real value.
+        group=str(meta["group"]) if meta.get("group") else None,
         path=path,
     )
 
@@ -275,6 +285,24 @@ def complete_task(task: Task) -> Task:
     destination = tasks_dir(project_path) / "done" / task.path.name
     task.path.unlink(missing_ok=True)
     task.path = destination
+    return save_task(task)
+
+
+def reset_to_open(task: Task) -> Task:
+    """Retract the claim that this task was ever started.
+
+    The inverse of hand-off, not of completion: it clears `started` rather than
+    keeping it, because what is being withdrawn is that the work began at all.
+    `bucket` is untouched the whole time a task is in progress, so the task
+    simply reappears where it came from.
+
+    A completed task is refused — undoing that needs a move back out of done/,
+    and the archive's dates are what the progress view is built on.
+    """
+    if task.status == "done":
+        raise ValueError("a completed task cannot be reopened this way")
+    task.status = "open"
+    task.started = None
     return save_task(task)
 
 

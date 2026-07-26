@@ -33,15 +33,32 @@ async function callApi(name, ...args) {
   }
 }
 
-// Soft banner over the user-configurable WIP limit (default 5, matching the
+// Soft banner over the user-configurable group limit (default 5, matching the
 // user's stated ceiling of concurrent Claude windows). Never blocks an
 // action — it exists so an overloaded backlog is visible, not to nag.
-function renderWipWarning() {
-  const active = state.tasks.filter(t => t.status === 'in-progress').length;
-  const limit = state.settings.wip_limit || 5;
-  const banner = document.getElementById('wip-warning');
+//
+// It counts GROUPS, not tasks: ten tasks handed to one session are one Claude
+// window, which is what the limit is really about. The count comes from
+// inProgressGroupKeys() in inprogress.js — the same function the IN PROGRESS
+// section counts its heading with — so the number here can never disagree with
+// what is on screen. That disagreement was the original bug: a banner summing
+// every project sat above a list showing one.
+function renderGroupLimitWarning() {
+  const active = inProgressGroupKeys().size;
+  const limit = state.settings.group_limit || 5;
+  const banner = document.getElementById('group-limit-warning');
   banner.hidden = active <= limit;
-  banner.textContent = `${active} tasks in progress — over your limit of ${limit}`;
+  banner.textContent = `${active} ${active === 1 ? 'group' : 'groups'} in progress `
+    + `— over your limit of ${limit}`;
+}
+
+// One place decides what "the current project" means, because the selection
+// now outlives the window: it is written to disk on every change rather than
+// at close, so a crash or a restart cannot lose it. Every path that changes
+// the project goes through here.
+function rememberProject(name) {
+  currentProject = name;
+  callApi('set_last_project', name);
 }
 
 function renderProjectPicker() {
@@ -65,7 +82,7 @@ function renderProjectPicker() {
     option.selected = p.name === currentProject;
     return option;
   }));
-  picker.onchange = () => { currentProject = picker.value; render(); };
+  picker.onchange = () => { rememberProject(picker.value); render(); };
 }
 
 async function refresh() {
@@ -75,7 +92,16 @@ async function refresh() {
     alert(`Could not load your tasks:\n\n${error}`);
     return;
   }
-  if (!currentProject && state.projects.length) currentProject = state.projects[0].name;
+  // Restore the project the last window was left on, so restarting — by this
+  // app's own button or by run.bat — comes back to what you were doing. The
+  // "still registered" check is what stops a removed or renamed project from
+  // selecting nothing at all. A stale name is left on disk rather than
+  // corrected here: the next selection overwrites it, and rewriting config as
+  // a side effect of reading it is worse than a dead key.
+  if (!currentProject && state.projects.length) {
+    const remembered = state.projects.some(p => p.name === state.last_project);
+    currentProject = remembered ? state.last_project : state.projects[0].name;
+  }
   renderProjectPicker();
   render();
 }
@@ -92,8 +118,14 @@ document.getElementById('add-project').onclick = async () => {
     if (!name) return;
   }
   if (await callApi('add_project', name, path) === API_FAILED) return;
-  currentProject = name;
+  rememberProject(name);
   await refresh();
 };
+
+// Relaunch from source, for the changes a running window is still missing.
+// The new instance shuts this one down over the singleton port as it comes up,
+// which is also what saves the window geometry — so there is nothing to do here
+// but ask, and nothing to wait for afterwards.
+document.getElementById('restart-button').onclick = () => callApi('restart');
 
 window.addEventListener('pywebviewready', refresh);

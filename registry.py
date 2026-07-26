@@ -33,7 +33,11 @@ def default_types() -> list[TaskType]:
 
 @dataclass
 class Settings:
-    wip_limit: int = 5
+    # Named for what it counts: concurrent Claude sessions, one per group. Ten
+    # tasks handed to one session are one window, not ten — a field called
+    # wip_limit that counted groups would be the kind of quiet mismatch that
+    # costs an hour later, so the key on disk was renamed with it.
+    group_limit: int = 5
     stale_days: int = 90
     types: list[TaskType] = field(default_factory=default_types)
 
@@ -44,6 +48,10 @@ def _projects_file() -> Path:
 
 def _settings_file() -> Path:
     return CONFIG_DIR / "settings.json"
+
+
+def _session_file() -> Path:
+    return CONFIG_DIR / "session.json"
 
 
 def _read_json(path: Path, fallback):
@@ -104,7 +112,10 @@ def load_settings() -> Settings:
         return Settings()
     defaults = Settings()
     return Settings(
-        wip_limit=raw.get("wip_limit", defaults.wip_limit),
+        # wip_limit is the pre-groups name for this setting. Reading it as a
+        # fallback is what lets an existing settings.json keep the user's
+        # number; nothing writes it any more, so it drops out on the next save.
+        group_limit=raw.get("group_limit", raw.get("wip_limit", defaults.group_limit)),
         stale_days=raw.get("stale_days", defaults.stale_days),
         types=[TaskType(**t) for t in raw.get("types", [])] or default_types(),
     )
@@ -112,3 +123,18 @@ def load_settings() -> Settings:
 
 def save_settings(settings: Settings) -> None:
     _write_json(_settings_file(), asdict(settings))
+
+
+# Which project the window was left on. This is how the window was last used,
+# not something the user configured, so it lives in its own file rather than on
+# Settings — Api.save_settings rebuilds that dataclass from the three fields the
+# settings overlay sends, and a key kept there would be silently wiped every
+# time those settings were saved.
+def last_project() -> str | None:
+    stored = _read_json(_session_file(), {})
+    return stored.get("last_project") if isinstance(stored, dict) else None
+
+
+def set_last_project(name: str | None) -> None:
+    """Written on every change, so a crash cannot lose the selection."""
+    _write_json(_session_file(), {"last_project": name})

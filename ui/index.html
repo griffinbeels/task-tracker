@@ -12,14 +12,15 @@
       <button id="capture-button">Capture</button>
       <button id="inbox-button" hidden></button>
       <button id="progress-button">Progress</button>
-      <button id="settings-button">⚙</button>
+      <button id="restart-button" class="icon" title="Restart Task Tracker">↻</button>
+      <button id="settings-button" class="icon" title="Settings">⚙</button>
     </header>
     <div id="toolbar">
       <input id="search" placeholder="Search all projects">
       <label><input type="checkbox" id="all-projects"> All projects</label>
       <button id="spin-up" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in.">Spin up Claude</button>
     </div>
-    <div id="wip-warning" hidden></div>
+    <div id="group-limit-warning" hidden></div>
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
 
@@ -43,6 +44,11 @@
           <span class="field-label">When</span>
           <div id="editor-buckets" class="chips"></div>
         </div>
+        <p class="field-hint" id="editor-bucket-hint" hidden></p>
+        <div class="field" id="editor-group-field">
+          <span class="field-label">Group</span>
+          <div id="editor-groups" class="chips"></div>
+        </div>
       </div>
       <div class="actions">
         <button id="editor-save" class="primary">File</button>
@@ -60,7 +66,8 @@
     </div>
 
     <div id="settings" class="overlay" hidden>
-      <label>WIP limit <input id="wip-limit" type="number" min="1"></label>
+      <label>Group limit <input id="group-limit" type="number" min="1"></label>
+      <p class="setting-hint">Tasks handed to one Claude session count as one group.</p>
       <label>Stale after (days) <input id="stale-days" type="number" min="1"></label>
       <div id="type-editor"></div>
       <button id="add-type">Add type</button>
@@ -72,6 +79,8 @@
     <script src="vendor/toastui-editor-all.min.js"></script>
     <script src="state.js"></script>
     <script src="tasks.js"></script>
+    <script src="groups.js"></script>
+    <script src="inprogress.js"></script>
     <script src="editor.js"></script>
     <script src="triage.js"></script>
     <script src="settings.js"></script>

@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 122 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 179 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -26,33 +26,39 @@ run.bat                                          # launch (creates venv on first
 
 ## Architecture
 
-Nine small Python modules and five plain `<script>` files, plus one vendored
+Eleven small Python modules and seven plain `<script>` files, plus one vendored
 library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
 | `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD |
-| `registry.py` | `~/.task-tracker/projects.json` and `settings.json` |
+| `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
+| `groups.py` | Group membership: assign/create/rename/disband/move, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | Typing that prompt into the spawned session's console |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
+| `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
-| `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED` |
-| `ui/tasks.js` | Task list, buckets, drag, search, cross-project, handoff, copy-as-prompt, WIP |
-| `ui/editor.js` | The one editor overlay: fields, chips, Toast UI, image paste |
+| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED` |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt |
+| `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
+| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, and the reset actions |
+| `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
-The five scripts **share one global scope** and load in the order
-`state.js`, `tasks.js`, `editor.js`, `triage.js`, `settings.js` (see
-`ui/index.html`, where the vendored library loads first). Functions defined in
-one are callable from another at runtime — `triage.js` calls into `editor.js`
-and `editor.js` reads `triage.js`'s queue, which works because every handler
-resolves its references at call time, not at load. This split exists to keep
+The seven scripts **share one global scope** and load in the order
+`state.js`, `tasks.js`, `groups.js`, `inprogress.js`, `editor.js`, `triage.js`,
+`settings.js` (see `ui/index.html`, where the vendored library loads first).
+Functions defined in one are callable from another at runtime — `triage.js`
+calls into `editor.js` and `editor.js` reads `triage.js`'s queue, and
+`state.js` calls `inprogress.js`'s `inProgressGroupKeys()` despite loading
+three files earlier, which all works because every handler resolves its
+references at call time, not at load. This split exists to keep
 each file under ~300 lines — do not consolidate them, and do not introduce ES
 modules or a build step.
 
@@ -106,15 +112,24 @@ Break one of these and the failure is silent. Each cost a bug.
    cannot mean failure. Any guard comparing against `null` is a bug. Watch for
    falsy-but-valid returns too: `count_tasks_with_type` legitimately returns `0`.
 
-5. **User-authored text never reaches `innerHTML`.** Titles, type names and type
-   colours are all unvalidated strings from hand-editable files, and this markup
-   runs with full `window.pywebview.api` access. Build elements and set
-   `.textContent` / `.style.background`.
+5. **User-authored text never reaches `innerHTML`.** Titles, type names, type
+   colours and **group names** are all unvalidated strings from hand-editable
+   files, and this markup runs with full `window.pywebview.api` access. Build
+   elements and set `.textContent` / `.style.background`.
 
-6. **Task ids are per-project integers.** Every project has a task 1. An id is
-   only meaningful paired with its project — `taskRow` carries
-   `dataset.project` for exactly this reason. Any view spanning projects must
-   disable selection.
+6. **Never resolve a task id against `currentProject`.** Task ids are
+   per-project integers — every project has a task 1 — so an id is only
+   meaningful paired with its project. A row's project comes from its own
+   `dataset.project`, which `taskRow` sets for exactly this reason;
+   `selectedIds()` carries it, `spin-up` derives its target project from the
+   selection rather than from `currentProject`, and `openEditor` takes
+   `context.project` and routes every save, attachment read and image write
+   through `editorContext.project`. Because all three obey it, **any row from
+   any project opens the editor** — search, all-projects and IN PROGRESS
+   alike. Selection is the narrower case: IN PROGRESS allows it because it is
+   split by project heading, while search and the all-projects view disable it,
+   since there a row's project is not visible as a grouping and a mixed tick is
+   easy to make by accident.
 
 7. **Reach `registry.CONFIG_DIR` through the module at call time.** Tests
    monkeypatch it; binding it into a module-level constant at import captures
@@ -189,12 +204,45 @@ Break one of these and the failure is silent. Each cost a bug.
     was wrong about this. The absolute form is also what lets a handed-off
     Claude session open the screenshot the body refers to.
 
+15. **A group is its name.** There is no group id and no registry file, so a
+    name must be non-empty and unique within a project, compared
+    **case-insensitively** — otherwise "Editor polish" and "editor polish"
+    quietly become two blocks the user reads as one. `groups.assign` joins
+    *that exact* name and `groups.create` dedupes a *seed* into a fresh one;
+    passing a seed to `assign` swallows the task into whatever group already
+    answers to it. Renaming to a name another group holds, and merging two
+    groups on spin-up, are both refused rather than guessed: a merge destroys
+    one of the two names, and the name is the only identity a group has.
+
+16. **A group lives in one bucket, and its members are contiguous in `order`.**
+    Every membership change ends with `groups.renumber` on every bucket it
+    touched — skip it and the group renders as two blocks with other rows
+    wedged between them. The group header owns the bucket picker for the same
+    reason; a member that could move on its own would render in two places at
+    once. `Api.update_task` enforces both for anything that edits a single
+    task: a bucket change on a member moves the whole group via
+    `groups.set_bucket`, and an `order` aimed at a member is ignored. That
+    lives in the bridge rather than in the editor so every writer inherits it,
+    and it is skipped for a completed task, which keeps its `group` string in
+    done/ but is not part of the group any more (invariant 15). The renderer is deliberately forgiving of a hand-edited file: a
+    group's bucket and position come from its **lowest-order member**, and
+    every member draws inside that block whatever its own `bucket:` line says.
+
+17. **`auto_group` runs after `launcher.hand_off`, never before.**
+    `launcher.hand_off` saves the `Task` objects `Api.hand_off` handed it, so
+    grouping first would rewrite those same files and leave those objects
+    stale — the save would then silently discard the group. Going second also
+    means a session that failed to start leaves nothing grouped, which is the
+    same guarantee the spawn failure path already gives for `status` and
+    `started`.
+
 ## Data on disk
 
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
-~/.task-tracker/settings.json   wip_limit (5), stale_days (90), task types
+~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
 ~/.task-tracker/inbox/          untriaged raw notes
+~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
 <project>/.tasks/.gitignore     contains `*` — the folder is invisible to git
 <project>/.tasks/open/          NNNN-slug.md
@@ -221,7 +269,7 @@ the images arrive, the paths do not resolve.
 - **New bridge method:** add it to `Api` in `app.py` (translate JS args → backend
   call → JSON-safe return; run `Task` objects through `_task_dict`, which strips
   the non-serialisable `Path`), then call it from JS via `callApi`.
-- **New UI surface:** put it in whichever of the five scripts owns that concern;
+- **New UI surface:** put it in whichever of the seven scripts owns that concern;
   add its `<script>` tag only if you create a new file.
 - **Anything that edits a task** goes through `openEditor()` in `ui/editor.js`
   rather than a new overlay. It is one component with three entry points —
@@ -230,8 +278,8 @@ the images arrive, the paths do not resolve.
   half-forgotten in each.
 - **Never add a CDN reference.** The editor is vendored so the app works
   offline; a convention test enforces it.
-- **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`
-  and `Api` methods are all directly testable. Use `tmp_path` and the
+- **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`,
+  `groups.py` and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
   `tests/test_registry.py`. Mock at the boundary — `subprocess.Popen` and
   `launcher.pyperclip.copy` — never spawn a real process. The one exception is
@@ -249,7 +297,16 @@ the images arrive, the paths do not resolve.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor.
+  not also open the editor. In `ui/groups.js`, three more: drag a task onto the
+  middle of another and the new group's name box must open focused with its
+  seeded text selected; drag a third onto that group and it must **not** reopen
+  (invariant 11); and after moving a group between buckets, `git status` in a
+  tracked project must show a frontmatter change and **no body diff** on every
+  member. For the header, select a project that is not the first and press ↻:
+  the window must come back on *that* project, at the same size and position,
+  and `run.bat` must restore it too — the selection is restored on every launch,
+  not just the button's. Narrow the window and the picker must shrink rather
+  than pushing ⚙ off the row.
 
 ## Known gaps
 
@@ -257,17 +314,27 @@ Three spec behaviours were never implemented, and the deferred findings from the
 whole-branch review are filed as tasks in this repo's own `.tasks/open/` — open
 the tracker, select this project, and they are the backlog. Highlights:
 
-- Cross-project rows do not click through to their project, and deliberately do
-  not open the editor either — ids are per-project, so a row in the search or
-  all-projects view names an ambiguous task (invariant 6).
+- Cross-project rows do not switch the project picker to the row's project.
+  They do open the editor, which is project-safe (invariant 6).
+- The editor cannot **create** a group, only join one that exists or leave the
+  one it is in. Creating stays the drag gesture, so there is one set of naming
+  rules rather than two.
 - Triage chips are mouse-only; the spec called for single-key assignment.
 - Nothing ever writes `## Outcome`; the progress view renders it but it can only
   arrive by hand-editing.
+- **Two groups can never be merged**, by drag or on spin-up — both paths refuse
+  rather than guess which name survives. If that becomes wanted it needs an
+  explicit gesture with an explicit choice.
+- **Groups are one level deep** and never span projects.
+- Done tasks keep their `group`, but nothing renders it: the progress view
+  still lists completed tasks flat.
 
 Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
-`docs/superpowers/specs/2026-07-25-task-editor-design.md`
+`docs/superpowers/specs/2026-07-25-task-editor-design.md`,
+`docs/superpowers/specs/2026-07-25-task-groups-design.md`
 Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
-`docs/superpowers/plans/2026-07-25-task-editor.md`
+`docs/superpowers/plans/2026-07-25-task-editor.md`,
+`docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
 code and these invariants are.** Three things in them are known-wrong and were

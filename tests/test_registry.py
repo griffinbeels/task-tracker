@@ -14,19 +14,19 @@ def isolated_config(tmp_path, monkeypatch):
 def test_settings_default_when_no_file_exists():
     settings = registry.load_settings()
 
-    assert settings.wip_limit == 5
+    assert settings.group_limit == 5
     assert settings.stale_days == 90
     assert [t.name for t in settings.types] == ["BUG", "FEATURE", "ITERATION"]
 
 
 def test_settings_round_trip(tmp_path):
     settings = registry.load_settings()
-    settings.wip_limit = 3
+    settings.group_limit = 3
     settings.types.append(registry.TaskType("CHORE", "#8e8e8e"))
     registry.save_settings(settings)
 
     reloaded = registry.load_settings()
-    assert reloaded.wip_limit == 3
+    assert reloaded.group_limit == 3
     assert [t.name for t in reloaded.types] == ["BUG", "FEATURE", "ITERATION", "CHORE"]
 
 
@@ -100,6 +100,34 @@ def test_corrupt_projects_json_falls_back_to_empty(tmp_path):
     assert registry.load_projects() == []
 
 
+def test_an_old_settings_file_carries_its_wip_limit_over(tmp_path):
+    # The limit used to count tasks and was called wip_limit. A user's existing
+    # settings.json must keep their number rather than silently reverting to 5.
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "settings.json").write_text(
+        json.dumps({"wip_limit": 3, "stale_days": 90, "types": []}),
+        encoding="utf-8", newline="\n")
+
+    assert registry.load_settings().group_limit == 3
+
+
+def test_the_new_key_wins_over_the_old_one(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "settings.json").write_text(
+        json.dumps({"group_limit": 7, "wip_limit": 3, "types": []}),
+        encoding="utf-8", newline="\n")
+
+    assert registry.load_settings().group_limit == 7
+
+
+def test_saving_drops_the_old_key(tmp_path):
+    registry.save_settings(registry.Settings(group_limit=4))
+
+    raw = json.loads((registry.CONFIG_DIR / "settings.json").read_text(encoding="utf-8"))
+    assert raw["group_limit"] == 4
+    assert "wip_limit" not in raw
+
+
 def test_unknown_keys_in_projects_json_are_ignored(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -113,3 +141,33 @@ def test_unknown_keys_in_projects_json_are_ignored(tmp_path):
 
     assert len(projects) == 1
     assert projects[0].name == "repo"
+
+
+def test_nothing_is_selected_before_a_project_has_been_chosen(tmp_path):
+    assert registry.last_project() is None
+
+
+def test_the_selected_project_round_trips(tmp_path):
+    registry.set_last_project("task_tracker")
+
+    assert registry.last_project() == "task_tracker"
+
+
+def test_saving_settings_does_not_forget_the_selected_project(tmp_path):
+    # This is why the selection lives in its own file rather than on Settings:
+    # Api.save_settings rebuilds the whole dataclass from the three fields the
+    # settings overlay sends, so a field stored there would be silently wiped
+    # every time those settings were saved.
+    registry.set_last_project("task_tracker")
+
+    registry.save_settings(registry.Settings(group_limit=4))
+
+    assert registry.last_project() == "task_tracker"
+
+
+def test_a_corrupt_session_file_selects_nothing(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "session.json").write_text(
+        "{not json", encoding="utf-8", newline="\n")
+
+    assert registry.last_project() is None

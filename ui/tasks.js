@@ -14,16 +14,26 @@ const COPIED_ICON = `
     <polyline points="20 6 9 17 4 12"></polyline>
   </svg>`;
 
+// Open only: an in-progress task lives in the IN PROGRESS section instead, and
+// keeps its bucket untouched the whole time so it lands back where it came
+// from when the session turns out not to have been real work after all.
+// Without this filter every running task renders twice.
 function tasksFor(project, bucket) {
   return state.tasks
-    .filter(t => t.project === project && t.bucket === bucket && t.status !== 'done')
+    .filter(t => t.project === project && t.bucket === bucket && t.status === 'open')
     .sort((a, b) => a.order - b.order);
 }
 
-function taskRow(task) {
+// options tune the row for the three places it appears. A grouped row has no
+// bucket picker because its group header owns the bucket — a member that could
+// drift into another bucket on its own would render in two places at once.
+// showReset adds the "not actually in progress" control, which only means
+// anything in the IN PROGRESS section.
+function taskRow(task, options = {}) {
+  const { showBucket = true, showReset = false, draggable = true } = options;
   const row = document.createElement('div');
   row.className = 'task';
-  row.draggable = true;
+  row.draggable = draggable;
   row.dataset.id = task.id;
   row.dataset.project = task.project;
   row.innerHTML = `
@@ -62,29 +72,50 @@ function taskRow(task) {
       body: task.body,
       type: task.type,
       bucket: task.bucket,
+      // Carried so the editor can say that edits to a running task are
+      // bookkeeping, and can offer the group as something to change.
+      status: task.status,
+      group: task.group,
     });
   };
 
-  const bucketPicker = document.createElement('select');
-  bucketPicker.className = 'bucket';
-  BUCKETS.forEach(name => {
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = name;
-    option.selected = name === task.bucket;
-    bucketPicker.append(option);
-  });
-  bucketPicker.onchange = async event => {
-    const target = event.target.value;
-    // Land it at the end of the target bucket rather than keeping an order
-    // that means nothing there.
-    const order = state.tasks.filter(
-      t => t.project === task.project && t.bucket === target && t.status !== 'done').length;
-    if (await callApi('update_task', task.project, task.id,
-        { bucket: target, order }) === API_FAILED) return;
-    await refresh();
-  };
-  row.querySelector('.copy').before(bucketPicker);
+  if (showBucket) {
+    const bucketPicker = document.createElement('select');
+    bucketPicker.className = 'bucket';
+    BUCKETS.forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      option.selected = name === task.bucket;
+      bucketPicker.append(option);
+    });
+    bucketPicker.onchange = async event => {
+      const target = event.target.value;
+      // Land it at the end of the target bucket rather than keeping an order
+      // that means nothing there.
+      const order = state.tasks.filter(
+        t => t.project === task.project && t.bucket === target && t.status !== 'done').length;
+      if (await callApi('update_task', task.project, task.id,
+          { bucket: target, order }) === API_FAILED) return;
+      await refresh();
+    };
+    row.querySelector('.copy').before(bucketPicker);
+  }
+
+  if (showReset) {
+    // Retracting "in progress" is the way out of a session you abandoned.
+    // Hover-revealed with opacity, never display, so the title beside it does
+    // not shift sideways when the pointer arrives.
+    const reset = document.createElement('button');
+    reset.className = 'reset';
+    reset.textContent = '↩';
+    reset.title = 'Not actually in progress';
+    reset.onclick = async () => {
+      if (await callApi('reset_to_open', task.project, [task.id]) === API_FAILED) return;
+      await refresh();
+    };
+    row.querySelector('.done').before(reset);
+  }
 
   // The whole task, as the text you would have typed to start it: exactly what
   // "Spin up Claude" would send, built by the same backend function so the two
@@ -126,27 +157,16 @@ function bucketSection(bucket) {
   const section = document.createElement('section');
   section.dataset.bucket = bucket;
   section.innerHTML = `<h2>${bucket.toUpperCase()}</h2>`;
-  tasksFor(currentProject, bucket).forEach(t => section.append(taskRow(t)));
+  // A loose task gets no container: drawing one around a single row would
+  // claim a grouping that does not exist.
+  groupBlocks(tasksFor(currentProject, bucket)).forEach(block => section.append(
+    block.group ? groupBlock(block) : taskRow(block.tasks[0])));
   wireDrag(section, bucket);
   return section;
 }
 
-function wireDrag(section, bucket) {
-  let dragged = null;
-  section.addEventListener('dragstart', e => { dragged = e.target.closest('.task'); });
-  section.addEventListener('dragover', e => {
-    e.preventDefault();
-    const over = e.target.closest('.task');
-    if (!over || over === dragged || !dragged) return;
-    const after = over.getBoundingClientRect().top + over.offsetHeight / 2 < e.clientY;
-    section.insertBefore(dragged, after ? over.nextSibling : over);
-  });
-  section.addEventListener('drop', async () => {
-    const ids = [...section.querySelectorAll('.task')].map(el => Number(el.dataset.id));
-    await callApi('reorder_bucket', currentProject, bucket, ids);
-    await refresh();
-  });
-}
+// wireDrag lives in groups.js — dragging is now how groups are formed and
+// dissolved, not only how rows are ordered.
 
 function selectedIds() {
   return [...document.querySelectorAll('.task .select:checked')]
@@ -190,10 +210,9 @@ function renderSearch(query) {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
-    // Same ambiguous-id hazard as selection above — editing here would open
-    // whichever project's task 1 happens to be currentProject's, not the one
-    // this row actually names.
-    row.onclick = null;
+    // Editing IS safe here, unlike selection: taskRow hands openEditor the
+    // row's own project and every save routes through it, so a result from
+    // another project opens the task it actually names.
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     if (task.status === 'done') {
       row.classList.add('archived');
@@ -224,10 +243,7 @@ function renderAllProjects() {
     row.draggable = false;
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
-    // Same ambiguous-id hazard as selection above — editing here would open
-    // whichever project's task 1 happens to be currentProject's, not the one
-    // this row actually names.
-    row.onclick = null;
+    // Editing IS safe here — see renderSearch.
     row.querySelector('.title').textContent = `${task.project} · ${task.title}`;
     return row;
   }));
@@ -254,7 +270,8 @@ function render() {
   } else if (document.getElementById('all-projects').checked) {
     renderAllProjects();
   } else {
-    list.replaceChildren(...BUCKETS.map(bucketSection));
+    const running = inProgressSection();
+    list.replaceChildren(...(running ? [running] : []), ...BUCKETS.map(bucketSection));
     const open = state.tasks.filter(
       t => t.project === currentProject && t.status !== 'done').length;
     if (!open) {
@@ -262,7 +279,7 @@ function render() {
         'No tasks yet. Hit Capture to write one down — no fields, no decisions.'));
     }
   }
-  renderWipWarning();
+  renderGroupLimitWarning();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');
   badFiles.hidden = unreadable.length === 0;
