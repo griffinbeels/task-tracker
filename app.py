@@ -59,7 +59,23 @@ class Api:
             "notes": [asdict(n) for n in inbox.list_notes()],
             "unreadable": unreadable,
             "last_project": registry.last_project(),
+            "collapsed": registry.collapsed_view(),
         }
+
+    def set_collapsed(self, projects, groups):
+        """Which group blocks and project headings are folded away.
+
+        The renderer owns the whole set and sends it back wholesale — there is
+        no per-item add/remove, so a fold and an unfold cannot race into
+        disagreeing halves of one list.
+        """
+        pairs = []
+        for pair in groups:
+            if len(pair) != 2:
+                raise ValueError("a collapsed group is [project, name]")
+            pairs.append([_text(pair[0], "project"), _text(pair[1], "group")])
+        registry.set_collapsed_view(
+            [_text(name, "project") for name in projects], pairs)
 
     def set_last_project(self, name):
         registry.set_last_project(name)

@@ -128,6 +128,71 @@ def test_saving_drops_the_old_key(tmp_path):
     assert "wip_limit" not in raw
 
 
+def test_collapsed_view_defaults_to_nothing_folded(tmp_path):
+    assert registry.collapsed_view() == {"projects": [], "groups": []}
+
+
+def test_collapsed_view_round_trips(tmp_path):
+    registry.set_collapsed_view(["sm64_tracker"], [["task_tracker", "Editor polish"]])
+
+    assert registry.collapsed_view() == {
+        "projects": ["sm64_tracker"],
+        "groups": [["task_tracker", "Editor polish"]],
+    }
+
+
+def test_writing_the_collapsed_view_keeps_the_last_project(tmp_path):
+    # session.json holds both, and set_last_project used to replace the whole
+    # file — so the fold state would have been wiped on every project switch.
+    registry.set_last_project("task_tracker")
+
+    registry.set_collapsed_view(["sm64_tracker"], [])
+
+    assert registry.last_project() == "task_tracker"
+
+
+def test_writing_the_last_project_keeps_the_collapsed_view(tmp_path):
+    registry.set_collapsed_view(["sm64_tracker"], [])
+
+    registry.set_last_project("task_tracker")
+
+    assert registry.collapsed_view()["projects"] == ["sm64_tracker"]
+
+
+def test_a_hand_edited_collapsed_view_is_filtered_not_trusted(tmp_path):
+    # session.json is hand-editable and these values reach the renderer, which
+    # indexes each group entry by position.
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "session.json").write_text(json.dumps({
+        "collapsed": {
+            "projects": ["ok", 7, None],
+            "groups": [["p", "g"], "nope", ["only-one"], [1, 2]],
+        },
+    }), encoding="utf-8", newline="\n")
+
+    assert registry.collapsed_view() == {"projects": ["ok"], "groups": [["p", "g"]]}
+
+
+def test_a_collapsed_view_of_the_wrong_shape_folds_nothing(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "session.json").write_text(
+        json.dumps({"collapsed": {"projects": "sm64_tracker"}}),
+        encoding="utf-8", newline="\n")
+
+    # A bare string is iterable; without a list check every character would
+    # come back as a collapsed project name.
+    assert registry.collapsed_view() == {"projects": [], "groups": []}
+
+
+def test_a_corrupt_session_file_folds_nothing_and_loses_no_data(tmp_path):
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "session.json").write_text(
+        "{not json", encoding="utf-8", newline="\n")
+
+    assert registry.collapsed_view() == {"projects": [], "groups": []}
+    assert registry.last_project() is None
+
+
 def test_unknown_keys_in_projects_json_are_ignored(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

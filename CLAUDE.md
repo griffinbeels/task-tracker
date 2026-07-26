@@ -45,7 +45,7 @@ library. No framework, no HTTP server, no bundler.
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED` |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
-| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, and the reset actions |
+| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, folding, and the reset actions |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view, type editor, git-tracking toggle |
@@ -228,7 +228,21 @@ Break one of these and the failure is silent. Each cost a bug.
     group's bucket and position come from its **lowest-order member**, and
     every member draws inside that block whatever its own `bucket:` line says.
 
-17. **`auto_group` runs after `launcher.hand_off`, never before.**
+17. **`session.json` is read-modify-write.** It holds `last_project` and the
+    fold state, and it will hold the next piece of view state too. Replacing
+    the file to set one key drops the others — `set_last_project` did exactly
+    that, so a project switch would have silently unfolded everything. Go
+    through `registry._update_session`.
+
+18. **A folded block keeps its rows in the DOM; CSS hides them.** Three things
+    read the rendered list rather than `state`: select-the-group ticks
+    `.select` inside the container, `selectedIds()` collects checked rows
+    document-wide, and the drag's drop handler builds `reorder_bucket`'s id
+    list from `section.querySelectorAll('.task')`. Drop the rows and that last
+    one hands the backend a bucket with a hole in it, leaving the folded
+    members on stale `order` values that collide with the renumbered ones.
+
+19. **`auto_group` runs after `launcher.hand_off`, never before.**
     `launcher.hand_off` saves the `Task` objects `Api.hand_off` handed it, so
     grouping first would rewrite those same files and leave those objects
     stale — the save would then silently discard the group. Going second also
@@ -241,6 +255,7 @@ Break one of these and the failure is silent. Each cost a bug.
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
 ~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
+~/.task-tracker/session.json    last_project, and which groups/projects are folded
 ~/.task-tracker/inbox/          untriaged raw notes
 ~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
@@ -297,7 +312,9 @@ the images arrive, the paths do not resolve.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor. In `ui/groups.js`, three more: drag a task onto the
+  not also open the editor. Fold a group, tick the group's checkbox, and hit
+  Spin up: the folded members must still go to the session. In `ui/groups.js`,
+  three more: drag a task onto the
   middle of another and the new group's name box must open focused with its
   seeded text selected; drag a third onto that group and it must **not** reopen
   (invariant 11); and after moving a group between buckets, `git status` in a

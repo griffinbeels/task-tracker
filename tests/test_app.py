@@ -244,6 +244,27 @@ def test_editing_a_completed_task_does_not_drag_its_old_group_around(tmp_path):
     assert survivor.bucket == "now"
 
 
+def test_get_state_carries_the_collapsed_view(tmp_path):
+    make_repo(tmp_path)
+    app.Api().set_collapsed(["repo"], [["repo", "Editor polish"]])
+
+    assert app.Api().get_state()["collapsed"] == {
+        "projects": ["repo"],
+        "groups": [["repo", "Editor polish"]],
+    }
+
+
+def test_set_collapsed_rejects_a_malformed_group_entry(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_collapsed([], [["repo"]])
+    with pytest.raises(ValueError):
+        app.Api().set_collapsed([], [["repo", 7]])
+
+    assert app.Api().get_state()["collapsed"] == {"projects": [], "groups": []}
+
+
 def test_create_group_dedupes_the_seed(tmp_path):
     repo = make_repo(tmp_path)
     first = store.create_task(repo, "One", "body", "BUG")
