@@ -63,7 +63,7 @@ document.getElementById('progress-button').onclick = () => {
 document.getElementById('progress-close').onclick =
   () => { document.getElementById('progress').hidden = true; };
 
-// --- Settings overlay: WIP limit, stale threshold, type editor, tracked toggle ---
+// --- Settings overlay: group limit, stale threshold, type editor, tracked toggle ---
 
 function reportSkipped(result) {
   if (result && result.skipped && result.skipped.length) {
@@ -162,7 +162,7 @@ document.getElementById('add-type').onclick = () => {
 };
 
 document.getElementById('settings-button').onclick = () => {
-  document.getElementById('wip-limit').value = state.settings.wip_limit;
+  document.getElementById('group-limit').value = state.settings.group_limit;
   document.getElementById('stale-days').value = state.settings.stale_days;
   renderTypeEditor();
   renderTrackedEditor();
@@ -194,7 +194,7 @@ document.getElementById('settings-save').onclick = async () => {
   }
 
   const payload = {
-    wip_limit: Number(document.getElementById('wip-limit').value),
+    group_limit: Number(document.getElementById('group-limit').value),
     stale_days: Number(document.getElementById('stale-days').value),
     types,
   };

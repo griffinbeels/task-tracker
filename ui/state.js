@@ -33,15 +33,23 @@ async function callApi(name, ...args) {
   }
 }
 
-// Soft banner over the user-configurable WIP limit (default 5, matching the
+// Soft banner over the user-configurable group limit (default 5, matching the
 // user's stated ceiling of concurrent Claude windows). Never blocks an
 // action — it exists so an overloaded backlog is visible, not to nag.
-function renderWipWarning() {
-  const active = state.tasks.filter(t => t.status === 'in-progress').length;
-  const limit = state.settings.wip_limit || 5;
-  const banner = document.getElementById('wip-warning');
+//
+// It counts GROUPS, not tasks: ten tasks handed to one session are one Claude
+// window, which is what the limit is really about. The count comes from
+// inProgressGroupKeys() in inprogress.js — the same function the IN PROGRESS
+// section counts its heading with — so the number here can never disagree with
+// what is on screen. That disagreement was the original bug: a banner summing
+// every project sat above a list showing one.
+function renderGroupLimitWarning() {
+  const active = inProgressGroupKeys().size;
+  const limit = state.settings.group_limit || 5;
+  const banner = document.getElementById('group-limit-warning');
   banner.hidden = active <= limit;
-  banner.textContent = `${active} tasks in progress — over your limit of ${limit}`;
+  banner.textContent = `${active} ${active === 1 ? 'group' : 'groups'} in progress `
+    + `— over your limit of ${limit}`;
 }
 
 function renderProjectPicker() {

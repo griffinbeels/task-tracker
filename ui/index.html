@@ -19,7 +19,7 @@
       <label><input type="checkbox" id="all-projects"> All projects</label>
       <button id="spin-up" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in.">Spin up Claude</button>
     </div>
-    <div id="wip-warning" hidden></div>
+    <div id="group-limit-warning" hidden></div>
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
 
@@ -60,7 +60,8 @@
     </div>
 
     <div id="settings" class="overlay" hidden>
-      <label>WIP limit <input id="wip-limit" type="number" min="1"></label>
+      <label>Group limit <input id="group-limit" type="number" min="1"></label>
+      <p class="setting-hint">Tasks handed to one Claude session count as one group.</p>
       <label>Stale after (days) <input id="stale-days" type="number" min="1"></label>
       <div id="type-editor"></div>
       <button id="add-type">Add type</button>

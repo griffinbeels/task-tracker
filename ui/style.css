@@ -22,13 +22,16 @@ header select, header button, #search, #toolbar button {
 label { display: flex; align-items: center; gap: 6px; }
 #toolbar label { white-space: nowrap; }
 input[type="checkbox"] { margin: 0; flex: none; }
-#wip-limit, #stale-days { width: 80px; }
+#group-limit, #stale-days { width: 80px; }
+/* The number is correct and says nothing about what it counts, which reads as
+   a bug rather than as a setting. */
+.setting-hint { font-size: 10px; opacity: .45; margin: -2px 0 4px; }
 
 .empty-hint { opacity: .5; margin: 20px 2px; max-width: 46ch; line-height: 1.7;
               white-space: normal; }
-#wip-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
-               font-size: 11px; margin-bottom: 8px; }
-#wip-warning[hidden] { display: none; }
+#group-limit-warning { background: #7a3b00; padding: 5px 8px; border-radius: 5px;
+                       font-size: 11px; margin-bottom: 8px; }
+#group-limit-warning[hidden] { display: none; }
 #unreadable-warning { background: #5a1a1a; padding: 5px 8px; border-radius: 5px;
                        font-size: 11px; margin-bottom: 8px; }
 #unreadable-warning[hidden] { display: none; }

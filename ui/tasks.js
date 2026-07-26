@@ -279,7 +279,7 @@ function render() {
         'No tasks yet. Hit Capture to write one down — no fields, no decisions.'));
     }
   }
-  renderWipWarning();
+  renderGroupLimitWarning();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');
   badFiles.hidden = unreadable.length === 0;
