@@ -6,7 +6,7 @@ the only way to hand a fresh session text it has not yet sent is to deliver it
 as console input. Windows allows exactly that: attach to another process's
 console and write into its input buffer.
 
-Three things this module has to get right, each learned by watching a real
+Four things this module has to get right, each learned by watching a real
 session receive the text:
 
 * **Bracketed paste.** The text is wrapped in the markers a terminal emits for
@@ -19,6 +19,12 @@ session receive the text:
   status hint proves the prompt box is up, and only then type.
 * **Give up quietly.** Every caller has already put the same text on the
   clipboard, so a timeout costs one Ctrl+V, never the text itself.
+* **A slash command must be submitted; the task text must not be.** A `/rename`
+  or `/color` line is dead unless Enter follows it, but the prompt it hands off
+  to is meant to sit there for the user to edit — so `deliver` submits every
+  command first and pastes the prompt last. A failed command then costs only
+  itself: the prompt still arrives, because it was never made to depend on the
+  commands succeeding.
 
 The calling process must not own a console it still needs: attaching to another
 console means leaving your own, and there is no way back. The tracker runs
@@ -45,6 +51,14 @@ READY_MARKERS = ("shift+tab to cycle", "for shortcuts")
 
 READY_TIMEOUT = 45.0
 POLL_SECONDS = 0.4
+
+# A command's prompt box is already on screen by the time it is sent — unlike
+# the first wait, which is for the process to boot — so it gets a much
+# shorter timeout.
+COMMAND_TIMEOUT = 5.0
+# Long enough for Claude Code to act on a submitted command before the next
+# write lands on top of whatever that command changed.
+SETTLE_SECONDS = 0.5
 
 _ERROR_ACCESS_DENIED = 5  # "already attached to a console" from AttachConsole
 _KEY_EVENT = 0x0001
@@ -219,8 +233,55 @@ def paste(pid: int, text: str, timeout: float = READY_TIMEOUT) -> bool:
     return False
 
 
-def paste_when_ready(pid: int, text: str) -> threading.Thread:
-    """Start `paste` in the background so the caller's UI never waits on it."""
-    waiter = threading.Thread(target=paste, args=(pid, text), daemon=True)
+def submit(pid: int, line: str, timeout: float = COMMAND_TIMEOUT) -> bool:
+    """Type `line` into the process's prompt box and press Enter for it.
+
+    Bracketed for the same reason `paste` is bracketed, but for the opposite
+    danger: a leading "/" opens Claude Code's command-suggestion popup, a live
+    UI that reads keystrokes as they arrive. A raw Enter sent right after raw
+    characters risks the popup reading it as "accept the highlighted
+    suggestion" rather than "submit what I typed". A paste arrives as one
+    event carrying the whole line, so the popup never sees a partial token and
+    has nothing to select — only then is the Enter, a separate write, safe to
+    send.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with _attached(pid) as attached:
+            if attached and is_ready(_screen_text()):
+                wrote_line = _write_input(PASTE_START + line + PASTE_END)
+                wrote_enter = _write_input("\r")
+                time.sleep(SETTLE_SECONDS)
+                return wrote_line and wrote_enter
+        time.sleep(POLL_SECONDS)
+    return False
+
+
+def deliver(pid: int, commands: list[str], prompt: str) -> None:
+    """Submit every command, then leave `prompt` typed but unsent.
+
+    Commands go first because they are decoration on the hand-off, not the
+    hand-off itself: a command that fails to submit abandons the commands
+    still queued behind it, but never costs the prompt, which is pasted
+    regardless. Only the first wait is for a process that has not booted yet
+    — every command after it is typed into a prompt box already on screen, so
+    it gets the shorter `COMMAND_TIMEOUT` instead of `READY_TIMEOUT`.
+
+    Returns nothing: this runs off the caller's thread, on a daemon thread
+    with no one left to hand a result to.
+    """
+    timeout = READY_TIMEOUT
+    for command in commands:
+        if not submit(pid, command, timeout=timeout):
+            break
+        timeout = COMMAND_TIMEOUT
+    if prompt:
+        paste(pid, prompt)
+
+
+def deliver_when_ready(pid: int, commands: list[str], prompt: str) -> threading.Thread:
+    """Start `deliver` in the background so the caller's UI never waits on it."""
+    waiter = threading.Thread(target=deliver, args=(pid, commands, prompt),
+                              daemon=True)
     waiter.start()
     return waiter
