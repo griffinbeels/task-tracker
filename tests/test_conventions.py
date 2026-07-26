@@ -252,3 +252,35 @@ def test_the_stylesheet_has_no_stray_comment_markers():
             f"rule following it is silently discarded by the browser — extend "
             f"a comment BEFORE its closing marker, not after it."
         )
+
+
+def test_every_class_the_ui_toggles_is_styled():
+    """A class added by JS that the stylesheet never mentions does nothing.
+
+    Deliberately the weakest of the three checks, and worth knowing exactly how
+    weak: it catches a class name absent from ui/style.css entirely, and
+    nothing else. It would NOT have caught the bug that prompted it — the
+    geometry rewrite moved the join affordance from `.group-header` to the
+    whole `.group` container and left the old selector behind, and
+    `.drop-into` is still a substring of `.group-header.drop-into`, so this
+    passes on that file. Deciding an existing selector applies to the element
+    it is written against needs the DOM, and no text check substitutes for it.
+
+    What it does earn: adding a state class and forgetting the rule outright is
+    a real and easy mistake, and it is silent. The stray-comment test above
+    covers a rule the browser discards; the by-hand list in CLAUDE.md covers
+    the rest, because that is the only thing that actually runs the app.
+
+    Only `classList.add` is checked, not `className =`. These are the state
+    classes, toggled far from the markup that defines the element.
+    """
+    css = (REPO / "ui" / "style.css").read_text(encoding="utf-8")
+    for script in UI_SCRIPTS:
+        source = script.read_text(encoding="utf-8")
+        # The whole argument list, so a class chosen by a ternary is seen too.
+        for call in re.findall(r"classList\.add\(([^)]*)\)", source, re.DOTALL):
+            for name in re.findall(r"['\"]([A-Za-z][\w-]*)['\"]", call):
+                assert f".{name}" in css, (
+                    f"{script.name} adds the class '{name}', which ui/style.css "
+                    f"never styles. It will silently do nothing."
+                )

@@ -572,13 +572,13 @@ function dropIntent(event, dragged, draggedIsGroup) {
     // IN PROGRESS renders only part of a bucket, so it cannot renumber one.
     // Its members can still trade their own slots, which is what `sort` is.
     if (!lands.canReorder && name === groupOf(dragged)) {
-      return { kind: 'sort', preview: { container, before }, element: container,
+      return { kind: 'sort', preview: { container, before }, into: container,
                section };
     }
     // A bucket section needs no `sort`: it draws the whole bucket, so the
     // ordered id list it hands place_task already positions the member.
     return { kind: 'place', bucket: null, group: name, status: lands.status,
-             element: container, section, positioned: lands.canReorder,
+             into: container, section, positioned: lands.canReorder,
              preview: lands.canReorder ? { container, before } : null };
   }
 
@@ -595,11 +595,11 @@ function dropIntent(event, dragged, draggedIsGroup) {
     // and an outline would be promising something.
     const claim = placement({ bucket: null, group: null, status: lands.status },
                             dragged, draggedIsGroup);
-    return claim && { ...claim, section };
+    return claim && { ...claim, into: section, section };
   }
   const blocks = blocksIn(section, dragged, '.task, .group');
   return { kind: 'place', bucket: lands.bucket, group: null, status: lands.status,
-           section, positioned: true,
+           into: section, section, positioned: true,
            preview: { container: section, before: blocks[slotFor(blocks, event.clientY, dragged)] || null } };
 }
 
@@ -608,6 +608,7 @@ function wireDrag() {
   let dragged = null;
   let draggedIsGroup = false;
   let draggedGroup = null;
+  let draggedFrom = null;
   let intent = null;
 
   list.addEventListener('dragstart', event => {
@@ -616,6 +617,13 @@ function wireDrag() {
     draggedIsGroup = Boolean(header);
     const container = dragged ? dragged.closest('.group') : null;
     draggedGroup = container ? container.dataset.group : null;
+    // The container it STARTED in — its group if it is in one, otherwise its
+    // section. Read once and now: the preview moves the element, so asking
+    // later would answer with wherever the last dragover put it. A dragged
+    // group is not inside itself; its container is its section.
+    const from = dragged
+      ? dragged.closest('section[data-bucket], #in-progress') : null;
+    draggedFrom = draggedIsGroup ? from : ((dragged && dragged.closest('.group')) || from);
     intent = null;
   });
 
@@ -644,18 +652,29 @@ function wireDrag() {
         container.insertBefore(dragged, before);
       }
     }
-    // The two rectangles the rule is written against (invariant 28), drawn as
-    // the two rectangles it is written against. The section always: it is the
-    // category this will land in, and seeing which one has claimed the cursor
-    // is the difference between trusting the drop and guessing at it. The
-    // inner target only when there is one — a group to join, a row to pair
-    // with — which is why it is the louder of the two.
+    // ONE rule: draw the container this drop would move the task INTO, and
+    // only when that is not the container it is already in. A box around where
+    // something already lives says nothing, and it competes with the one thing
+    // that is news — the exact position. So repositioning inside NOW draws no
+    // NOW box and sorting inside a group draws no group box; the preview row
+    // alone carries those. Carry the row out of its group into the same
+    // section's open space and NOW lights up, because the group is what it was
+    // in and the section is what it is joining.
     //
-    // There is no "comes loose" look. Leaving a group is not a target now, it
-    // is what being outside every group's box means, and the preview stepping
-    // the row out of the group's rail says it better than an outline could.
-    intent.section.classList.add('drop-zone');
-    if (intent.element) intent.element.classList.add('drop-into');
+    // It falls out of this that nothing at all is drawn until the cursor
+    // leaves the box the task started in — there is no separate rule for that,
+    // and there is no "you are leaving" look. Leaving is just entering
+    // something else, and the row stepping out of the group's rail shows it.
+    if (intent.kind === 'pair') {
+      // The exception, because a new group has no container to enter yet and
+      // nothing else on screen would say which two rows are pairing.
+      intent.element.classList.add('drop-into');
+    } else if (intent.into && intent.into !== draggedFrom) {
+      // A section reads as the category it is; a group reads as a thing to
+      // join. Same rule, two weights.
+      intent.into.classList.add(
+        intent.into === intent.section ? 'drop-zone' : 'drop-into');
+    }
   });
 
   list.addEventListener('drop', async event => {

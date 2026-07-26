@@ -206,14 +206,17 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .reset { opacity: 0; font-size: 11px; line-height: 1; }
 .task:hover .reset, .group-header:hover .reset { opacity: .6; }
 
-/* An outline, not a fill: a row already changes background on hover, so a
-   second background change would read as the same state rather than a new one.
-   Inset so it does not nudge the row's neighbours as it appears.
-   Headings carry it too: dropping a task on IN PROGRESS's own heading — or on
-   the line it shows when nothing is running — claims it, and joining the
-   running region is the same kind of outcome as joining a group. */
-.task.drop-into, .group-header.drop-into, h2.drop-into,
-.project-heading.drop-into, .wip-empty.drop-into {
+/* The inner of the two rectangles a drag reads (invariant 28): the group this
+   will join, or the row it will pair with. An outline, not a fill — a row
+   already changes background on hover, so a second background change would
+   read as the same state rather than a new one — and inset, so it does not
+   nudge its neighbours as it appears.
+   Exactly two selectors, because exactly two elements ever carry this class.
+   It used to name the headings and `.group-header` as well; the geometry
+   rewrite moved the affordance to the whole `.group` container and left those
+   behind, so joining a group drew nothing at all while the rule still looked
+   populated. A stale selector is invisible in both directions. */
+.task.drop-into, .group.drop-into {
   outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
   border-radius: 5px; }
 

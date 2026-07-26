@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 360 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 361 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -510,14 +510,42 @@ Break one of these and the failure is silent. Each cost a bug.
       the flow — so it can name the section the row came FROM while the cursor
       is over a different one.
 
-    **Both rectangles are drawn, because both are read.** `.drop-zone` marks
-    the section for the whole time a drag is over one, and `.drop-into` the
-    inner target when there is one. NOW, NEXT and SOMEDAY have no border of
-    their own, so this is the only time they are boxes at all — without it the
-    rule had a rectangle nobody could see, and which box had claimed the cursor
-    near a seam was a guess. The section outline is inset (`outline-offset` is
+    **A box is drawn for the container the drop moves the task INTO, and only
+    when that is not the container it is already in.** One rule, and everything
+    else falls out of it. A task's container is its group if it is in one, else
+    its section — captured at `dragstart`, because the preview moves the
+    element and asking later answers with wherever the last `dragover` put it.
+
+    - Repositioning inside NOW draws no NOW box; sorting inside a group draws
+      no group box. The preview row alone carries those, and it is the only
+      news there — a box around where something already lives says nothing and
+      competes with the position for attention.
+    - Carrying a row out of its group into the same section's open space lights
+      up NOW, because the group is what it was in and the section is what it is
+      joining.
+    - Nothing at all is drawn until the cursor leaves the box the task started
+      in. That is not a separate rule; it is the same one.
+    - There is no "you are leaving" look, because leaving is just entering
+      something else. The row stepping out of the group's rail shows it.
+
+    Pairing is the one exception: a new group has no container to enter yet, so
+    the row it would pair with is always outlined.
+
+    NOW, NEXT and SOMEDAY have no border of their own, so `.drop-zone` is the
+    only time they are boxes at all. Its outline is inset (`outline-offset` is
     negative): a section is full width, and an outline drawn outside it reaches
     past the window and can add a horizontal scrollbar.
+
+    **Exactly two elements ever carry `.drop-into`** — a `.task` being paired
+    with, and a `.group` being joined — and the stylesheet names exactly those
+    two. It used to name `.group-header` and three headings as well; the
+    geometry rewrite moved the affordance to the whole container and left the
+    old selectors behind, so joining a group drew nothing at all while the rule
+    still looked populated. **A stale selector is invisible in both
+    directions**, and no text-based test can see it:
+    `test_every_class_the_ui_toggles_is_styled` passes on that file, because
+    `.drop-into` is a substring of `.group-header.drop-into`. Keep the list
+    minimal so a wrong one is obvious by reading.
 
     **IN PROGRESS is a bucket section with one difference, and adding a second
     one is a bug.** Every part of this — which box owns the cursor, the group
