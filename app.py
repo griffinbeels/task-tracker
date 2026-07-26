@@ -324,6 +324,12 @@ class Api:
         return len(tasks)
 
     def reorder_bucket(self, project_name, bucket, ordered_ids):
+        # Refused rather than no-opped, matching update_task above: an unknown
+        # bucket means the JS caller is wrong, and store.reorder_bucket skips
+        # every id whose bucket does not match, so a typo here would silently
+        # reorder nothing and look like it worked.
+        if bucket not in store.BUCKETS:
+            raise ValueError(f"unknown bucket: {bucket}")
         project = _project(project_name)
         store.reorder_bucket(Path(project.path), bucket, [int(i) for i in ordered_ids])
 
@@ -411,9 +417,19 @@ class Api:
         return launcher.session_name(tasks)
 
     def save_settings(self, payload):
+        # Both counts are refused below 1 rather than stored as given. An
+        # emptied number input crosses the bridge as 0, and every reader of
+        # these falls back through `x || 5` — so a stored 0 behaves as 5 while
+        # the file claims otherwise, and nothing on screen shows the gap. The
+        # settings panel checks this too; it lives here as well so the rule
+        # belongs to the data rather than to one form.
+        counts = {}
+        for key in ("group_limit", "stale_days"):
+            counts[key] = int(payload[key])
+            if counts[key] < 1:
+                raise ValueError(f"{key} must be 1 or more")
         settings = registry.Settings(
-            group_limit=int(payload["group_limit"]),
-            stale_days=int(payload["stale_days"]),
+            **counts,
             types=[registry.TaskType(**t) for t in payload["types"]],
         )
         registry.save_settings(settings)

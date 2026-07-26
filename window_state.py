@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 
 import registry
+import store
 
 DEFAULTS = {"width": 420, "height": 900, "x": None, "y": None, "on_top": True}
 
@@ -76,12 +77,10 @@ def load(screens) -> dict:
 def save(geometry: dict, screens) -> None:
     """Record this geometry, or keep the last good one if it is off-screen."""
     kept = geometry if on_screen(geometry, screens) else _stored()
-    path = _state_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    store.write_text_atomic(_state_file(), json.dumps({
         "width": kept["width"], "height": kept["height"],
         "x": kept["x"], "y": kept["y"],
         # on_top is a preference rather than geometry, so it is taken from the
         # window even when the rectangle it came with is thrown away.
         "on_top": geometry["on_top"],
-    }, indent=2), encoding="utf-8", newline="\n")
+    }, indent=2))

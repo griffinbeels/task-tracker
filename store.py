@@ -1,6 +1,7 @@
 """On-disk task format and .tasks/ directory operations."""
 
 import base64
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,6 +20,40 @@ CLAUDE_COLORS = ("red", "blue", "green", "yellow", "purple", "orange",
                  "pink", "cyan")
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Replace a file's contents in one step, or not at all.
+
+    Every text file this app owns — task files, projects.json, settings.json,
+    session.json, window.json, inbox notes — is rewritten whole on each change.
+    Done with a plain write_text that is a truncate followed by a write, so a
+    crash in between leaves the file existing and empty, and what it held is
+    gone. This machine has taken a bugcheck mid-session before, which is the
+    only failure window that matters here.
+
+    Writing a sibling first and renaming over the target closes it: os.replace
+    is atomic on Windows and POSIX alike, so a reader sees either the old
+    contents or the new ones and never a half-written file. The temp file sits
+    in the destination's own directory because a rename across volumes is not
+    atomic (and on Windows, not permitted at all).
+
+    newline="\\n" for the reason every other write in this codebase passes it
+    (invariant 1): Windows would otherwise translate \\n to \\r\\n, and a body
+    round-tripped through that gains a blank line per save.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8", newline="\n")
+        os.replace(temporary, path)
+    except OSError:
+        # A failed write must not leave a .tmp beside the real file: the task
+        # folder is globbed for *.md, and a half-written 0007-x.md.tmp that
+        # survived would be a second copy of a task waiting to confuse whoever
+        # opens the folder.
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 @dataclass
@@ -297,7 +332,7 @@ def attachment_data_url(project_path: Path, reference: str) -> str:
 def save_task(task: Task) -> Task:
     if task.path is None:
         raise ValueError("task has no path")
-    task.path.write_text(render_task(task), encoding="utf-8", newline="\n")
+    write_text_atomic(task.path, render_task(task))
     return task
 
 

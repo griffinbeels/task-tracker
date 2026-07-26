@@ -1,5 +1,13 @@
 const BUCKETS = ['now', 'next', 'someday'];
-let state = { projects: [], settings: {}, tasks: [], notes: [], unreadable: [] };
+// settings carries an empty `types` rather than being bare {}: this is what is
+// on screen between load and the first refresh(), and the buttons are live for
+// that whole window. Every reader of state.settings.types indexes or maps it
+// immediately — `state.settings.types[0]` in openEditor, `.map` in renderChips
+// — so a missing key threw on a fast click at a slow start, and Capture did
+// nothing with no error the user could see. Shaping the placeholder like the
+// real thing fixes every one of those readers at once, and an empty list is
+// the truth at that moment anyway: nothing has been loaded yet.
+let state = { projects: [], settings: { types: [] }, tasks: [], notes: [], unreadable: [] };
 let currentProject = null;
 
 function typeColor(name) {
@@ -39,8 +47,23 @@ function suggestColor(project) {
   return leastUsed[Math.floor(Math.random() * leastUsed.length)];
 }
 
+// A date-only string (YYYY-MM-DD) handed to `new Date()` is read as UTC
+// midnight, but everything it is then compared against or rendered into is
+// local. West of UTC that shifts the date a day earlier, which mislabels a
+// month heading and ages a task by one day too many around the boundary.
+// Building from local components instead makes an ISO date mean the same day
+// it reads as.
+//
+// One helper rather than the rule written out at each site: this was fixed for
+// the progress view's month headings and missed for the staleness marker, and
+// two copies of a date rule is precisely how that happens.
+function localDate(isoDate) {
+  const [year, month, day] = String(isoDate).split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function daysSince(isoDate) {
-  return Math.floor((Date.now() - new Date(isoDate).getTime()) / 86400000);
+  return Math.floor((Date.now() - localDate(isoDate).getTime()) / 86400000);
 }
 
 // Every pywebview.api call can reject (backend methods raise ValueError on
@@ -166,5 +189,30 @@ document.getElementById('add-project').onclick = async () => {
 // which is also what saves the window geometry — so there is nothing to do here
 // but ask, and nothing to wait for afterwards.
 document.getElementById('restart-button').onclick = () => callApi('restart');
+
+// Escape closes whatever overlay is on top. Every overlay had a mouse-only
+// exit, which in an always-on-top window you reach for dozens of times a day is
+// the kind of friction that gets noticed once and then endured — so this is one
+// handler over all three rather than a fix to whichever one was complained
+// about.
+//
+// Topmost, not first-found: the editor is the one overlay that opens over
+// another (a completed entry in Progress opens it with #progress still up, see
+// the z-index note in style.css), so it must be offered the key first or
+// Escape would close the panel underneath the one you are looking at. The order
+// here is the paint order; an overlay added later belongs in it.
+//
+// Escape is Cancel, deliberately — the editor's own Cancel button discards
+// unsaved edits too, and a key that meant something softer than the button next
+// to it would be the surprising one.
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  const editor = document.getElementById('editor');
+  if (!editor.hidden) { closeEditor(); return; }
+  for (const id of ['settings', 'progress']) {
+    const overlay = document.getElementById(id);
+    if (!overlay.hidden) { overlay.hidden = true; return; }
+  }
+});
 
 window.addEventListener('pywebviewready', refresh);

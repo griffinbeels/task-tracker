@@ -312,10 +312,14 @@ class FakeSession:
     shows rather than by a sleep.
     """
 
-    def __init__(self, reads_input=True, ignores_enter=False):
+    def __init__(self, reads_input=True, ignores_enter=False, writes_at_most=None):
         self.box = ""
         self.reads_input = reads_input
         self.ignores_enter = ignores_enter
+        # A ceiling on how many input records one write may land, for the
+        # short-write case: WriteConsoleInputW is allowed to accept fewer
+        # records than it was handed, which cuts a bracketed paste in half.
+        self.writes_at_most = writes_at_most
         self.writes = []
         self.boxes = []
         self.font = None
@@ -327,17 +331,23 @@ class FakeSession:
         return True
 
     def write(self, text):
+        # Stands in for _write_input, so it answers in the same currency:
+        # input records landed, two per UTF-16 code unit, NOT a success flag.
+        # A short count is how a partial write is expressed.
+        landed = console_input._records_for(text)
+        if self.writes_at_most is not None:
+            landed = min(landed, self.writes_at_most)
         self.writes.append(text)
         self.boxes.append(self.box)
         if not self.reads_input:
-            return True
+            return landed
         if text == console_input.CLEAR_LINE or (text == "\r"
                                                 and not self.ignores_enter):
             self.box = ""
         elif text != "\r":
             self.box += text.replace(console_input.PASTE_START, "").replace(
                 console_input.PASTE_END, "")
-        return True
+        return landed
 
     def screen(self):
         return ("> a message already sent\n"
@@ -439,3 +449,33 @@ def test_an_empty_line_is_never_submitted(monkeypatch):
 
     assert console_input.submit(7, "") is False
     assert session.writes == []
+
+
+def test_a_paste_cut_short_still_closes_its_bracket(monkeypatch):
+    # WriteConsoleInputW may accept fewer records than it is handed. Partway
+    # through a bracketed paste, the opening ESC[200~ has landed and the
+    # closing one never will — so the session stays in paste mode and reads
+    # everything typed next, by this app or by the user at the keyboard, as
+    # more pasted content. The write is a failure either way; what must not
+    # happen is that it leaves the session wedged.
+    opening = console_input._records_for(console_input.PASTE_START)
+    session = live_session(monkeypatch, writes_at_most=opening + 4)
+
+    assert console_input.paste(7, "BUG: body") is False
+    assert session.writes == [
+        console_input.PASTE_START + "BUG: body" + console_input.PASTE_END,
+        console_input.PASTE_END,
+    ]
+
+
+def test_a_paste_that_landed_nothing_writes_no_stray_terminator(monkeypatch):
+    # The other half of the rule above. With no records written at all the
+    # session was never put into paste mode, so a bare ESC[201~ would be a
+    # loose escape sequence arriving at an ordinary prompt — a mess of its own,
+    # bought for a bracket that was never opened.
+    session = live_session(monkeypatch, writes_at_most=0)
+
+    assert console_input.paste(7, "BUG: body") is False
+    assert session.writes == [
+        console_input.PASTE_START + "BUG: body" + console_input.PASTE_END,
+    ]

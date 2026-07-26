@@ -32,7 +32,7 @@ def save_note(text: str) -> Note:
     while _note_path(note_id).exists():
         note_id = f"{stem}-{suffix}"
         suffix += 1
-    _note_path(note_id).write_text(text, encoding="utf-8", newline="\n")
+    store.write_text_atomic(_note_path(note_id), text)
     return Note(id=note_id, text=text, created=now.date().isoformat())
 
 

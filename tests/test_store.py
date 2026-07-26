@@ -524,3 +524,53 @@ def test_complete_then_restore_changes_nothing_but_status_and_done(tmp_path):
             reloaded.color, reloaded.group, reloaded.bucket) == original
     assert reloaded.status == "open"
     assert reloaded.done is None
+
+
+def test_an_atomic_write_leaves_no_temp_file_behind(tmp_path):
+    # The task folders are globbed for *.md, so a surviving sibling would read
+    # as a second copy of the task to anyone who opened one.
+    target = tmp_path / "0001-a.md"
+
+    store.write_text_atomic(target, "hello")
+
+    assert target.read_text(encoding="utf-8") == "hello"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_an_atomic_write_that_fails_keeps_the_old_contents(tmp_path):
+    # The whole point of the rename: a write that does not complete leaves what
+    # was there, rather than a file truncated to nothing by a write that then
+    # died. A directory sitting where the temp file wants to be is the cheapest
+    # way to make the attempt raise with the target already in place.
+    target = tmp_path / "0001-a.md"
+    target.write_text("the original", encoding="utf-8", newline="\n")
+    (tmp_path / "0001-a.md.tmp").mkdir()
+
+    with pytest.raises(OSError):
+        store.write_text_atomic(target, "the replacement")
+
+    assert target.read_text(encoding="utf-8") == "the original"
+
+
+def test_an_atomic_write_still_writes_lf_line_endings(tmp_path):
+    # Invariant 1, which the new write path has to keep: Windows would
+    # otherwise translate \n to \r\n, and a body round-tripped through that
+    # gains a blank line on every save.
+    target = tmp_path / "note.md"
+
+    store.write_text_atomic(target, "one\ntwo\n")
+
+    assert target.read_bytes() == b"one\ntwo\n"
+
+
+def test_a_failed_save_leaves_the_task_readable(tmp_path):
+    # The same guarantee reached through the call site it exists for: every
+    # edit to a task rewrites the file whole.
+    task = store.create_task(tmp_path, "A", "the body", "BUG")
+    (task.path.parent / f"{task.path.name}.tmp").mkdir()
+
+    task.title = "B"
+    with pytest.raises(OSError):
+        store.save_task(task)
+
+    assert store.list_tasks(tmp_path)[0].title == "A"

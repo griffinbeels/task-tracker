@@ -644,3 +644,32 @@ def test_restore_task_raises_on_an_unknown_id(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().restore_task("repo", 99)
+
+
+def test_reorder_bucket_rejects_an_unknown_bucket(tmp_path):
+    # store.reorder_bucket skips every id whose bucket does not match, so a
+    # nonsense bucket silently reorders nothing and looks like it worked.
+    # Refused here for the same reason update_task refuses one.
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().reorder_bucket("repo", "urgent", [second.id, first.id])
+
+    assert [t.title for t in sorted(store.list_tasks(repo), key=lambda t: t.order)] == ["A", "B"]
+
+
+@pytest.mark.parametrize("value", [0, -3])
+def test_save_settings_refuses_a_count_below_one(tmp_path, value):
+    # An emptied number input crosses the bridge as Number('') === 0, and every
+    # reader falls back through `x || 5` — so 0 would be stored and 5 would be
+    # the behaviour, with nothing on screen showing the gap.
+    make_repo(tmp_path)
+    payload = {"group_limit": value, "stale_days": 90,
+               "types": [{"name": "BUG", "color": "#e5484d"}]}
+
+    with pytest.raises(ValueError):
+        app.Api().save_settings(payload)
+
+    assert registry.load_settings().group_limit == 5

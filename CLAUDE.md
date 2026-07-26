@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 308 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 332 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -31,7 +31,7 @@ library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
-| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD — moving a task into `done/` and back out of it again — the colour vocabulary (`CLAUDE_COLORS`) |
+| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD — moving a task into `done/` and back out of it again — the colour vocabulary (`CLAUDE_COLORS`), and `write_text_atomic`, which every text file this app owns is written through |
 | `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
@@ -43,7 +43,7 @@ library. No framework, no HTTP server, no bundler.
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
-| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor` |
+| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
 | `ui/inprogress.js` | The IN PROGRESS section, its per-project split, folding, and the reset actions |
@@ -99,6 +99,18 @@ Break one of these and the failure is silent. Each cost a bug.
    `\n` to `\r\n`; a body containing `\r\n` then gains a blank line on every
    save. Reads deliberately use universal newlines so hand-edited CRLF files
    still parse — net behaviour is "line endings normalise to LF".
+
+   **In practice that means going through `store.write_text_atomic`**, which is
+   how every text file this app owns is now written — task files,
+   `projects.json`, `settings.json`, `session.json`, `window.json`, inbox
+   notes. It passes the newline for you, and it writes a sibling `.tmp` and
+   `os.replace`s it over the target, so a crash cannot leave a file truncated
+   to nothing: a plain `write_text` is a truncate followed by a write, and this
+   machine has taken a bugcheck mid-session before. It also unlinks the temp
+   file when the write raises — `.tasks/open/` is globbed for `*.md` and a
+   surviving `0007-x.md.tmp` would read as a second copy of the task. A new
+   writer that reaches for `write_text` directly is the way to reintroduce
+   both problems at once.
 
 2. **Task bodies are verbatim.** They are user prose that gets typed into a
    Claude session. Never strip, trim, normalise, re-wrap or append.
@@ -523,6 +535,25 @@ show two unrelated tasks under one id at different points in time.
   reappears at the bottom of its original bucket; and the editor's Restore
   action is absent when editing an open task.
 
+  For the settings panel, five — every one of them silent when broken, which is
+  why they are written down rather than trusted to be noticed. Add a type, then
+  rename or delete a *different* one: the row you added must still be there
+  afterwards (`refresh()` replaces `state`, and the pending row used to live in
+  it). Add a type, press Close, reopen settings and press Save: it must **not**
+  be created. Add a type, pick a colour for it, then delete another pending
+  row: the colour must survive the re-render. Delete a type no task uses: it
+  must ask first. And empty the Group limit box and press Save: it must refuse
+  rather than store a 0 that every reader then treats as 5. For the tracked
+  checkboxes, the failure path is the one worth seeing: delete a project's
+  `.tasks/` folder outside the app, then tick its box — the alert appears
+  *and* the box goes back to where it was, because a box left ticked over an
+  untracked project is the claim you would act on right before committing.
+
+  And Escape, in all three overlays: it must close the editor, the settings
+  panel and the progress view. Open a completed task from Progress so the
+  editor sits on top of it, then press Escape once — the editor must close and
+  Progress must still be there.
+
 ## Parallel features (worktrees)
 
 `main` is the only long-lived branch and the **primary checkout stays on it**.
@@ -569,13 +600,29 @@ whole-branch review are filed as tasks in this repo's own `.tasks/open/` — ope
 the tracker, select this project, and they are the backlog. Highlights:
 
 - Cross-project rows do not switch the project picker to the row's project.
-  They do open the editor, which is project-safe (invariant 6).
+  They do open the editor, which is project-safe (invariant 6). **Decided, not
+  deferred** (2026-07-26): the spec's jump-to-project predates the editor being
+  able to open a foreign row at all, and building it now would mean *removing*
+  editing from that view to make room for a click that does less. If both are
+  ever wanted they need two distinct targets on the row, not one click doing
+  whichever seems more useful.
 - The editor cannot **create** a group, only join one that exists or leave the
   one it is in. Creating stays the drag gesture, so there is one set of naming
   rules rather than two.
-- Triage chips are mouse-only; the spec called for single-key assignment.
-- Nothing ever writes `## Outcome`; the progress view renders it but it can only
-  arrive by hand-editing.
+- Triage chips are mouse-only; the spec called for single-key assignment. **Not
+  a gap to close as specified** — triage now runs through the shared editor,
+  where the body holds focus and typing goes into prose, so bare `b`/`f`/`i`
+  keys would collide with writing. It needs a modifier scheme or a focus rule,
+  which is a design decision nobody has made.
+- No control *writes* `## Outcome` — but one is no longer needed to get one.
+  Clicking a completed entry in the progress view opens it in the editor
+  (`renderProgress`, `ui/settings.js`), so the heading can be typed into the
+  body there and the view renders it on the next open. What is missing is
+  discoverability, not the path. The spec's answer — prompt for a one-liner
+  when marking a task done — was **considered and declined on 2026-07-26**: it
+  puts a dialog in front of the most common action in the app to serve the
+  rarest one. If this is ever picked up, the shape to build is a field in the
+  editor for a done task, beside Restore.
 - **Restore is singular.** `store.restore_task` and `Api.restore_task` mirror
   `complete_task` exactly, one task at a time; nothing restores a whole batch
   out of `done/` the way the selection bar and a group header complete one.

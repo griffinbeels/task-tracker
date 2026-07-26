@@ -236,3 +236,64 @@ def test_a_corrupt_session_file_selects_nothing(tmp_path):
         "{not json", encoding="utf-8", newline="\n")
 
     assert registry.last_project() is None
+
+
+def write_settings(raw: str) -> None:
+    registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (registry.CONFIG_DIR / "settings.json").write_text(
+        raw, encoding="utf-8", newline="\n")
+
+
+@pytest.mark.parametrize("raw", ["null", "[]", '"hello"', "42"])
+def test_settings_of_the_wrong_shape_fall_back_to_defaults(raw):
+    # A corrupt file was already handled; valid JSON of the wrong SHAPE was
+    # not. Each of these parses fine and then answers .get with an
+    # AttributeError — out of load_settings, which get_state calls for the
+    # window as a whole, so one stray character here blanked the app.
+    write_settings(raw)
+
+    settings = registry.load_settings()
+
+    assert settings.group_limit == 5
+    assert [t.name for t in settings.types] == ["BUG", "FEATURE", "ITERATION"]
+
+
+def test_a_malformed_type_row_costs_that_row_and_not_the_app():
+    # Same judgement store.read_tasks already makes about a malformed task
+    # file: skip the row, keep the app. TaskType(**t) raised on every one of
+    # these shapes.
+    write_settings(json.dumps({"types": [
+        {"name": "BUG", "color": "#e5484d"},
+        "not an object",
+        {"name": "MISSING COLOUR"},
+        {"name": "EXTRA", "color": "#111111", "unknown_key": 1},
+        {"name": 7, "color": "#222222"},
+    ]}))
+
+    settings = registry.load_settings()
+
+    assert [t.name for t in settings.types] == ["BUG", "EXTRA"]
+
+
+def test_a_types_list_that_survives_nothing_falls_back_to_the_defaults():
+    # An empty result is indistinguishable from "no types configured", and a
+    # task tracker with no types cannot file anything.
+    write_settings(json.dumps({"types": ["nonsense", 5]}))
+
+    assert [t.name for t in registry.load_settings().types] == [
+        "BUG", "FEATURE", "ITERATION"]
+
+
+@pytest.mark.parametrize("stored", [0, -1, "five", None, True])
+def test_a_count_below_one_reads_as_the_default(stored):
+    # Readers on the JS side fall back through `x || 5`, so a stored 0 behaves
+    # as 5 while the file claims 0 — the stored value and the effective one
+    # disagreeing with nothing on screen admitting it. Resolved on the way in.
+    # True is in the list because bool is an int in Python, and a `group_limit:
+    # true` would otherwise sail through as a limit of 1.
+    write_settings(json.dumps({"group_limit": stored, "stale_days": stored}))
+
+    settings = registry.load_settings()
+
+    assert settings.group_limit == 5
+    assert settings.stale_days == 90

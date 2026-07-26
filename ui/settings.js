@@ -8,14 +8,10 @@
 // so a task can never end up orphaned.
 
 function monthLabel(isoDate) {
-  // isoDate is a date-only string (YYYY-MM-DD). Parsing it with `new Date()`
-  // treats it as UTC midnight, and toLocaleDateString renders in local time
-  // — west of UTC that shifts the 1st of a month back to the last day of the
-  // previous month, mislabeling the heading. Build the date from local
-  // year/month/day components instead so the label always matches the date
-  // that produced it.
-  const [year, month, day] = isoDate.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en', { month: 'long', year: 'numeric' });
+  // localDate (state.js) is why this reads a date-only string through a helper
+  // rather than `new Date(iso)`: the latter is UTC midnight rendered in local
+  // time, which west of UTC files the 1st of a month under the previous one.
+  return localDate(isoDate).toLocaleDateString('en', { month: 'long', year: 'numeric' });
 }
 
 // Extracted so a restore can redraw this list without reopening the whole
@@ -94,12 +90,26 @@ function reportSkipped(result) {
   }
 }
 
+// Types added with "Add type" but not yet saved. Deliberately NOT pushed into
+// state.settings.types, which is what they used to be: that array is replaced
+// wholesale by every refresh(), so a rename or delete elsewhere in this panel
+// silently swallowed a row the user had just typed — and it equally survived
+// Close, so a type you cancelled got created by the next Save. Held here
+// instead, the two answers fall out of where the data lives: refresh cannot
+// reach it, and Close is the one thing that clears it.
+let pendingTypes = [];
+
 function renderTypeEditor() {
   const editor = document.getElementById('type-editor');
-  editor.replaceChildren(...state.settings.types.map(type => {
+  // Persisted rows first, then unsaved ones — Save reads the rows back by
+  // position and pairs each against state.settings.types[index], so anything
+  // with no counterpart there is a row to create rather than migrate.
+  const rows = [...state.settings.types, ...pendingTypes];
+  editor.replaceChildren(...rows.map((type, index) => {
+    const isPending = index >= state.settings.types.length;
     // Record each persisted type's original name once, so Save can diff the
     // submitted list against what's on disk and know which rows to migrate.
-    if (!type.pending && type.original === undefined) type.original = type.name;
+    if (!isPending && type.original === undefined) type.original = type.name;
     const row = document.createElement('div');
     row.className = 'type-row';
 
@@ -130,7 +140,24 @@ function renderTypeEditor() {
       type.name = next;
     };
 
+    // Colour needs writing back for the same reason the name does, even though
+    // Save reads both straight off the DOM: anything that re-renders this list
+    // — deleting another row, most obviously — rebuilds every input from the
+    // objects, and a pick that was never written back reverts to the stored
+    // value with nothing said. Unsaved rows have no stored value to revert to,
+    // so on those it goes all the way back to the default grey.
+    colorInput.onchange = event => { type.color = event.target.value; };
+
     deleteButton.onclick = async () => {
+      // An unsaved row exists nowhere but this panel, so there is nothing to
+      // migrate and nothing to confirm — dropping it is the whole operation,
+      // and asking the backend to delete a type it has never heard of would
+      // only raise.
+      if (isPending) {
+        pendingTypes.splice(index - state.settings.types.length, 1);
+        renderTypeEditor();
+        return;
+      }
       if (state.settings.types.some(t => t.original !== undefined && t.original !== t.name)) {
         alert('Save your type name changes before deleting a type.');
         return;
@@ -145,6 +172,12 @@ function renderTypeEditor() {
           `${count} task(s) use ${type.name}. Reassign them to which type?\n` +
           others.map(t => t.name).join(', '), replacement);
         if (!replacement) return;
+      // A type with no tasks used to delete on the single click that asked for
+      // it. Nothing here is undoable and the button sits inches from the name
+      // box, so the empty case gets a confirm too — it is just a shorter
+      // question, since there is nothing to reassign.
+      } else if (!confirm(`Delete the type ${type.name}? No tasks use it.`)) {
+        return;
       }
       const result = await callApi('delete_type', type.name, replacement);
       if (result === API_FAILED) return;
@@ -170,7 +203,17 @@ function renderTrackedEditor() {
     row.append(checkbox, document.createTextNode(`commit ${project.name}/.tasks to git`));
 
     checkbox.onchange = async event => {
-      if (await callApi('set_project_tracked', project.name, event.target.checked) === API_FAILED) return;
+      // Put the box back if the write did not land. This is the one control in
+      // the app whose display is a claim about git, and a box left ticked over
+      // a project whose .tasks/ is still gitignored is the claim you act on
+      // right before committing. callApi has already said what went wrong;
+      // what it cannot do is un-flip the checkbox the browser flipped before
+      // the handler ever ran.
+      const wanted = event.target.checked;
+      if (await callApi('set_project_tracked', project.name, wanted) === API_FAILED) {
+        event.target.checked = !wanted;
+        return;
+      }
       await refresh();
     };
 
@@ -179,7 +222,7 @@ function renderTrackedEditor() {
 }
 
 document.getElementById('add-type').onclick = () => {
-  state.settings.types.push({ name: 'NEW', color: '#8e8e8e', pending: true });
+  pendingTypes.push({ name: 'NEW', color: '#8e8e8e' });
   renderTypeEditor();
 };
 
@@ -201,6 +244,25 @@ document.getElementById('settings-save').onclick = async () => {
   const names = types.map(t => t.name);
   if (new Set(names).size !== names.length) { alert('Type names must be unique.'); return; }
 
+  // Both inputs are type="number" min="1", and an emptied one reads back as
+  // Number('') === 0. Stored, that 0 then comes back out through `x || 5` at
+  // every reader — so the file says 0, the app behaves as 5, and nothing on
+  // screen ever admits the two disagree. Refusing it here is what keeps the
+  // stored value and the effective one the same number.
+  const numbers = [
+    { key: 'group_limit', input: 'group-limit', label: 'Group limit' },
+    { key: 'stale_days', input: 'stale-days', label: 'Stale after (days)' },
+  ];
+  const settings = {};
+  for (const { key, input, label } of numbers) {
+    const value = Number(document.getElementById(input).value);
+    if (!Number.isInteger(value) || value < 1) {
+      alert(`${label} must be a whole number of 1 or more.`);
+      return;
+    }
+    settings[key] = value;
+  }
+
   // Migrate renamed types first, one at a time, so task files and settings
   // can never disagree. Each rename rewrites every affected task file across
   // every project including done/.
@@ -215,15 +277,16 @@ document.getElementById('settings-save').onclick = async () => {
     reportSkipped(result);
   }
 
-  const payload = {
-    group_limit: Number(document.getElementById('group-limit').value),
-    stale_days: Number(document.getElementById('stale-days').value),
-    types,
-  };
-  if (await callApi('save_settings', payload) === API_FAILED) return;
+  if (await callApi('save_settings', { ...settings, types }) === API_FAILED) return;
+  pendingTypes = [];
   document.getElementById('settings').hidden = true;
   await refresh();
 };
 
-document.getElementById('settings-close').onclick =
-  () => { document.getElementById('settings').hidden = true; };
+document.getElementById('settings-close').onclick = () => {
+  // Cancel means cancel. Anything typed into "Add type" and not saved is
+  // dropped here — leaving it would let the next Save create a type this
+  // click declined.
+  pendingTypes = [];
+  document.getElementById('settings').hidden = true;
+};

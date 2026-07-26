@@ -224,18 +224,35 @@ def _attached(pid: int):
             kernel32.FreeConsole()
 
 
-def _write_input(text: str) -> bool:
+def _records_for(text: str) -> int:
+    """How many input records a full write of `text` is — two per code unit."""
+    return len(utf16_code_units(text)) * 2
+
+
+def _write_input(text: str) -> int:
+    """How many of this text's input records actually reached the buffer.
+
+    A count rather than a bool because a SHORT write is not the same failure as
+    no write at all: half a bracketed paste leaves the receiving session inside
+    a bracket that never closes, and only the count says whether that happened.
+    See _write_bracketed, which is the one caller that can act on it.
+
+    Zero for every failure, including a write that reported failure after
+    partially succeeding — WriteConsoleInputW's count is not meaningful once it
+    has returned false, and acting on a number that might be invented is worse
+    than treating the write as having done nothing.
+    """
     handle = kernel32.CreateFileW(
         "CONIN$", _GENERIC_READ | _GENERIC_WRITE, _FILE_SHARE_READ_WRITE,
         None, _OPEN_EXISTING, 0, None)
     if handle == _INVALID_HANDLE:
-        return False
+        return 0
     records = key_records(text)
     written = wintypes.DWORD(0)
     ok = kernel32.WriteConsoleInputW(handle, records, len(records),
                                      ctypes.byref(written))
     kernel32.CloseHandle(handle)
-    return bool(ok) and written.value == len(records)
+    return written.value if ok else 0
 
 
 def _screen_text() -> str:
@@ -367,7 +384,34 @@ def console_window(pid: int) -> int:
 
 def _write(pid: int, text: str) -> bool:
     with _attached(pid) as attached:
-        return bool(attached and _write_input(text))
+        return bool(attached) and _write_input(text) == _records_for(text)
+
+
+def _write_bracketed(pid: int, text: str) -> bool:
+    """Write `text` as one bracketed paste, and never leave the bracket open.
+
+    A short write is the case this exists for. The opening ESC[200~ goes in
+    first, so a write that stops partway through has already put the receiving
+    session into paste mode with nothing coming to take it out again — and a
+    session stuck there reads everything typed next as more pasted content,
+    including whatever the user types at the keyboard afterwards. The write has
+    failed either way; this is what makes it a failure that ends.
+
+    The closing escape is only sent when the opening one is known to have
+    landed in full. A stray ESC[201~ at a prompt that is not inside a paste is
+    its own small mess, and not worth risking for a write that may have put
+    nothing in the buffer at all.
+    """
+    payload = PASTE_START + text + PASTE_END
+    with _attached(pid) as attached:
+        if not attached:
+            return False
+        written = _write_input(payload)
+        if written == _records_for(payload):
+            return True
+        if written >= _records_for(PASTE_START):
+            _write_input(PASTE_END)
+        return False
 
 
 def _wait(pid: int, settled, timeout: float, poll: float = POLL_SECONDS) -> bool:
@@ -388,7 +432,7 @@ def paste(pid: int, text: str, timeout: float = READY_TIMEOUT) -> bool:
         return False
     if not _wait(pid, is_ready, timeout):
         return False
-    return _write(pid, PASTE_START + text + PASTE_END)
+    return _write_bracketed(pid, text)
 
 
 def submit(pid: int, line: str, timeout: float = COMMAND_TIMEOUT) -> bool:
@@ -423,7 +467,7 @@ def submit(pid: int, line: str, timeout: float = COMMAND_TIMEOUT) -> bool:
         return False
     if not _wait(pid, is_ready, timeout):
         return False
-    if not _write(pid, PASTE_START + line + PASTE_END):
+    if not _write_bracketed(pid, line):
         return False
     echo = line[:ECHO_MATCH]
     if not _wait(pid, lambda screen: echo in prompt_box(screen),

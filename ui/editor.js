@@ -153,16 +153,33 @@ function getEditor() {
 // a link to an image that was never written is worse than no image, and
 // callApi has already told the user what went wrong.
 function savePastedImage(blob, insert) {
-  const project = editorContext && editorContext.project;
+  const context = editorContext;
+  const project = context && context.project;
   if (!project) return;
   const reader = new FileReader();
   reader.onload = async event => {
     const url = await callApi('save_attachment', project, event.target.result);
     if (url === API_FAILED) return;
+    // Everything above this line is asynchronous — a FileReader and a bridge
+    // round-trip — and the overlay is closable throughout. Insert only if the
+    // editor is still showing the thing that was pasted into; otherwise the
+    // reference lands in whatever task happens to be open now, which is both
+    // the wrong body and a body the user never touched. The file on disk is
+    // kept either way, on the same terms as every other orphan (attachments
+    // are deliberately never garbage-collected — see store.save_attachment).
+    // Identity, not equality: openEditor builds a fresh context object on every
+    // open, so `!==` catches a different task, a different note, and the same
+    // task reopened. Closing does not clear the context, so the overlay's own
+    // visibility is the other half of the question.
+    if (editorContext !== context || document.getElementById('editor').hidden) return;
     // The bytes are already in hand, so seed the display cache rather than
     // making showAttachments read straight back off the disk we just wrote.
     attachmentBytes.set(url, event.target.result);
-    insert(url, blob.name || 'screenshot');
+    // A dropped file brings its own name, and that name goes straight into the
+    // markdown link's alt text — where an unescaped `]` closes the bracket
+    // early and breaks the link. `a]b.png` produced `![a]b](file:///…)`.
+    // Pasted images have no name, so this only ever bites on drag-and-drop.
+    insert(url, (blob.name || 'screenshot').replace(/[[\]]/g, ''));
   };
   reader.readAsDataURL(blob);
 }
