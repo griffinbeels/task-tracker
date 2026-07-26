@@ -38,6 +38,17 @@ def interpreter() -> str:
     the sibling lookup finds the same file. It earns its keep on a dev run
     started with python.exe, which would otherwise restart the tracker into a
     console window it never had before.
+
+    `sys.executable` is the venv's path here, not the base interpreter's, even
+    though the OS disagrees: uv's `.venv\\Scripts\\pythonw.exe` is a trampoline
+    that execs the real interpreter, so Task Manager and `Win32_Process` report
+    the running tracker's command line as
+    `AppData\\Roaming\\uv\\python\\...\\pythonw.exe app.py` while Python still
+    reports `sys.prefix` as the venv. Launching that base path directly would
+    not resolve the venv's packages and the replacement would die on
+    `import webview` — which is why this reads sys.executable rather than
+    anything the process list says. One launch is also two processes, the
+    trampoline and its child; the child is the one that binds the lock port.
     """
     windowless = Path(sys.executable).with_name("pythonw.exe")
     return str(windowless) if windowless.exists() else sys.executable
