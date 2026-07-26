@@ -249,7 +249,7 @@ function renderGroupChips() {
 // Every action button always exists in the markup; this just shows the ones
 // this mode uses and hides the rest, so the DOM never gets rebuilt per mode.
 function showEditorActions(visibleIds) {
-  ['editor-save', 'editor-later', 'editor-skip', 'editor-discard', 'editor-cancel']
+  ['editor-save', 'editor-later', 'editor-skip', 'editor-discard', 'editor-restore', 'editor-cancel']
     .forEach(id => { document.getElementById(id).hidden = !visibleIds.includes(id); });
 }
 
@@ -349,7 +349,9 @@ function openEditor(context) {
     // global-scope pattern the rest of this project already relies on.
     progress.textContent = `note ${triageIndex + 1} / ${triageQueue.length}`;
   } else if (editorContext.mode === 'edit') {
-    showEditorActions(['editor-save', 'editor-cancel']);
+    showEditorActions(editorContext.status === 'done'
+      ? ['editor-save', 'editor-restore', 'editor-cancel']
+      : ['editor-save', 'editor-cancel']);
     // A task with a Claude session already running against it can still be
     // renamed, retyped, rebucketed and regrouped — but none of that reaches
     // the session, which is worth saying rather than leaving to be discovered.
@@ -468,6 +470,19 @@ document.getElementById('editor-save').onclick = async () => {
       editorContext.type, editorContext.bucket, editorContext.color) === API_FAILED) return;
   closeEditor();
   await refresh();
+};
+
+// Only ever visible in edit mode on a done task (showEditorActions above).
+// refresh() must run before renderProgress(): the progress list is derived
+// from state.tasks, and refresh() is what reloads it — redraw first and it
+// filters state that still lists this task as done, so it draws the row it
+// just removed.
+document.getElementById('editor-restore').onclick = async () => {
+  if (await callApi('restore_task', editorContext.project,
+      editorContext.taskId) === API_FAILED) return;
+  closeEditor();
+  await refresh();
+  renderProgress();
 };
 
 document.getElementById('editor-skip').onclick = () => {

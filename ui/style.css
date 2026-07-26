@@ -306,7 +306,11 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
 #progress-body { flex: 1; overflow: auto; }
-.entry { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+/* A completed entry opens the editor, same as a task row — cursor and hover
+   are what say so before the click. */
+.entry { display: flex; align-items: center; gap: 6px; padding: 3px 0;
+         cursor: pointer; border-radius: 5px; }
+.entry:hover { background: rgba(127, 127, 127, .12); }
 .outcome { font-size: 12px; opacity: .7; white-space: pre-wrap;
            margin: 2px 0 10px; padding-left: 2px; }
 

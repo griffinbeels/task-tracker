@@ -18,7 +18,10 @@ function monthLabel(isoDate) {
   return new Date(year, month - 1, day).toLocaleDateString('en', { month: 'long', year: 'numeric' });
 }
 
-document.getElementById('progress-button').onclick = () => {
+// Extracted so a restore can redraw this list without reopening the whole
+// overlay — the button handler below and the editor's restore handler
+// (ui/editor.js) both call this directly.
+function renderProgress() {
   const done = state.tasks
     .filter(t => t.project === currentProject && t.status === 'done' && t.done)
     .sort((a, b) => b.done.localeCompare(a.done));
@@ -46,6 +49,21 @@ document.getElementById('progress-button').onclick = () => {
     const title = document.createElement('span');
     title.textContent = task.title;
     entry.append(type, title);
+    // Opens the same overlay a task row does — this field list is copied
+    // from taskRow's openEditor call (ui/tasks.js) so the two cannot drift.
+    // status is what tells the editor to offer Restore for a done task.
+    entry.onclick = () => openEditor({
+      mode: 'edit',
+      taskId: task.id,
+      project: task.project,
+      title: task.title,
+      body: task.body,
+      type: task.type,
+      bucket: task.bucket,
+      status: task.status,
+      group: task.group,
+      color: task.color,
+    });
     body.append(entry);
 
     const outcome = task.body.split(/^## Outcome$/m)[1];
@@ -57,6 +75,10 @@ document.getElementById('progress-button').onclick = () => {
     }
   }
   if (!done.length) body.textContent = 'Nothing completed yet.';
+}
+
+document.getElementById('progress-button').onclick = () => {
+  renderProgress();
   document.getElementById('progress').hidden = false;
 };
 
