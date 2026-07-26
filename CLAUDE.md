@@ -467,7 +467,21 @@ show two unrelated tasks under one id at different points in time.
 - **Deliberately untested:** `main()` and window geometry persistence. Driving a
   native window under pytest is not worth the machinery; this is a decision, not
   an oversight.
-- **No JS test runner.** Frontend changes are checked by running the app. Two
+- **No JS test runner, and the by-hand checks have no agent to run them.**
+  Claude must never run `app.py` — it opens a window on the user's desktop and
+  writes to their real `~/.task-tracker/` — so "checked by running the app"
+  means *the user* runs it. A UI task therefore cannot be signed off from its
+  diff, and reading the diff is not a weaker version of the check, it is a
+  different thing that cannot see the same class of defect.
+  This cost a Critical on 2026-07-26. Three UI tasks were marked "review clean"
+  on the strength of their diffs; the editor was opening *behind* the Progress
+  overlay the whole time — no `z-index` existed anywhere in `ui/style.css`, and
+  two full-screen opaque overlays paint in DOM order. The restore feature was
+  completely unreachable in the running app, and the four by-hand checks that
+  would have caught it in one second were written into the list below as though
+  they had been performed. Hand the checks to the user when the UI task lands,
+  not at the end of the plan.
+- Frontend changes are checked by running the app. Two
   editor behaviours are worth checking by hand every time `ui/editor.js` is
   touched, because both are silent when broken: type a title then click a
   different type chip (the title must not change), and edit *only* a task's
@@ -597,8 +611,12 @@ Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
-code and these invariants are.** Four things in them are known-wrong and were
-corrected during implementation: `file_note` had no way to receive an edited
+code and these invariants are.** Five things in them are known-wrong and were
+corrected during implementation. `2026-07-25-restore-and-group-block.md:169`
+still shows `task.order = len(siblings)` for a restored task; that is only "the
+end" of a contiguous run, and `Api.complete_task` does not renumber, so it
+hands a restored task an order another task already holds. The code uses
+`max(order) + 1` plus a `groups.renumber`. The other four: `file_note` had no way to receive an edited
 body (so triage silently discarded prose edits); image references were
 specified as bare `C:/...` paths and `as_posix()`, which are not URLs and never
 render; the tracker spec still describes the strip-list environment that
