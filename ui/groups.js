@@ -333,53 +333,35 @@ function renameInPlace(nameElement, project, current) {
   };
 }
 
-// --- Dragging: reorder, form a group, join one, leave one ---------------
+// --- Dragging: reorder, regroup, recategorise ---------------------------
 //
-// Three zones instead of one. Over a top-level loose row, the middle half
-// means "group these two" and the outer quarters mean "reorder". Inside a
-// group's container — its header or between its child rows — every position
-// means "join this group", because a drop between two children would otherwise
-// write an order that interleaves a non-member into the group's contiguous run
-// and the next renumber would silently eject it below the block.
+// ONE controller for the whole list, bound once at load to #task-list. It used
+// to be one per section, each closing over its own `dragged`, and that is
+// exactly why no drop ever crossed a section: `dragstart` fired on the SOURCE
+// section's listener, while the `dragover`/`drop` that followed fired on the
+// DESTINATION section's, where `dragged` was still null. preventDefault() ran
+// before that guard, so the browser showed a drop cursor the whole way and
+// every cross-section gesture looked legal while doing nothing at all.
 //
-// A reorder moves the DOM live and reads the result back on drop, so where a
-// row LANDED is what decides its group: dropped inside a container it joins,
-// dropped in a top-level gap it leaves. The two "onto" gestures move nothing —
-// the backend places the task and refresh() redraws.
+// #task-list is the common ancestor of every section and is never itself
+// replaced — render() calls replaceChildren on it — so one listener here
+// survives every redraw and cannot stack duplicates. Same reasoning as the
+// delegated `change` listener in tasks.js.
+//
+// A drop resolves to a DESTINATION — {bucket, group, status} — applied by a
+// single place_task/place_group call. Two gestures keep their own names
+// because they are not placements: `pair` names a NEW group, and `sort`
+// permutes one group's own slots. A refusal is null.
+//
+// Three zones over a row, unchanged: the middle half means "group these two",
+// the outer quarters mean "reorder". Inside a group's container every position
+// means "join this group", because a drop between two children would write an
+// order interleaving a non-member into the group's contiguous run and the next
+// renumber would silently eject it below the block.
 
-function clearDropAffordance(section) {
-  // The section itself can carry the affordance — querySelectorAll never
-  // returns the element it was called on, so clear it separately.
-  section.classList.remove('drop-into', 'drop-loose');
-  section.querySelectorAll('.drop-into, .drop-loose').forEach(
+function clearDropAffordance(root) {
+  root.querySelectorAll('.drop-into, .drop-loose').forEach(
     element => element.classList.remove('drop-into', 'drop-loose'));
-}
-
-// Drop a grouped row on a HEADING — the bucket's name, or the project's name
-// in IN PROGRESS — and it comes out of its group. One target, one meaning:
-// "belongs to this list, to no group".
-//
-// The heading rather than the whole region, because the region is crossed by
-// accident. A reorder drag passes through the gaps between blocks constantly,
-// and there `event.target` is the section itself; releasing in one of those
-// would have quietly dissolved the grouping the user was rearranging. A
-// heading has to be aimed at.
-//
-// This is the only way out of the IN PROGRESS section, which has no reorder
-// gaps at all, and the only way out of a bucket whose sole contents ARE the
-// group — there is no top-level gap to drop into there either, so before this
-// its members could not be separated by drag at all.
-function leaveIntent(event, dragged, draggedIsGroup) {
-  if (draggedIsGroup || !groupOf(dragged)) return null;
-
-  const projectHeading = event.target.closest('.project-heading');
-  if (projectHeading) {
-    return projectHeading.parentElement.dataset.project === dragged.dataset.project
-      ? { kind: 'leave', element: projectHeading } : null;
-  }
-  // A bucket section is single-project, so its own heading needs no check.
-  const bucketHeading = event.target.closest('section[data-bucket] > h2');
-  return bucketHeading ? { kind: 'leave', element: bucketHeading } : null;
 }
 
 function groupOf(element) {
@@ -387,26 +369,115 @@ function groupOf(element) {
   return container ? container.dataset.group : null;
 }
 
-function dropIntent(event, dragged, draggedIsGroup, allowReorder) {
+function taskOf(row) {
+  return state.tasks.find(task => task.project === row.dataset.project
+    && task.id === Number(row.dataset.id));
+}
+
+// What the dragged thing is right now, read from state rather than the DOM: a
+// row carries display decoration (nameForeignRows rewrites foreign titles) and
+// never carries its own status at all.
+function draggedState(dragged, isGroup) {
+  if (!isGroup) {
+    const task = taskOf(dragged);
+    return task && { group: task.group || null, status: task.status,
+                     bucket: task.bucket };
+  }
+  const members = state.tasks.filter(task =>
+    task.project === dragged.dataset.project
+    && task.group === dragged.dataset.group && task.status !== 'done');
+  if (!members.length) return null;
+  // A group can be half-running — that is what a header reading "2 of 5"
+  // means. It only counts as already-somewhere when every member agrees, so
+  // dragging the running half back to a bucket still resolves to a real
+  // change rather than being refused as a no-op.
+  const agreed = members.every(member => member.status === members[0].status);
+  return { group: dragged.dataset.group, bucket: members[0].bucket,
+           status: agreed ? members[0].status : null };
+}
+
+// What a section does to whatever lands in it. A bucket section places tasks
+// as open and at a position; IN PROGRESS places them as running with no
+// position — its rows sort by project then group, and they can sit in three
+// different buckets, so there is no one bucket for reorder_bucket to renumber.
+function sectionPlacement(section) {
+  const bucket = section.dataset.bucket || null;
+  return { bucket, status: bucket ? 'open' : 'in-progress',
+           canReorder: Boolean(bucket) };
+}
+
+// A destination that would change nothing gets no affordance — the outline is
+// a promise that something will happen. Positional drops never come through
+// here: moving a row inside its own bucket changes none of these three fields
+// and is still a real drop.
+//
+// "Already there" means the same group AND the same status, which is what lets
+// a NOW member of group G be dropped on G's header inside IN PROGRESS — that
+// claims it — while the same drop in its own section stays a no-op.
+function placement(destination, dragged, isGroup, element) {
+  const current = draggedState(dragged, isGroup);
+  if (!current) return null;
+  // A group drag never changes membership, so the destination's `group` is
+  // not about it — place_group fills in the name. Comparing the two would
+  // read every group drag as "become loose" and so never as a no-op, which
+  // would light up the heading of the bucket the group is already in.
+  const settled = (isGroup || destination.group === current.group)
+    && destination.status === current.status
+    && (destination.bucket === null || destination.bucket === current.bucket);
+  return settled ? null : { kind: 'place', ...destination, element };
+}
+
+function dropIntent(event, dragged, draggedIsGroup) {
+  const section = event.target.closest('section[data-bucket], #in-progress');
+  if (!section) return null;
+  const lands = sectionPlacement(section);
+  const project = dragged.dataset.project;
+
+  // Headings first: one target, one meaning — "belongs to this list, to no
+  // group". The heading rather than the whole region, because the region is
+  // crossed by accident. A reorder drag passes through the gaps between blocks
+  // constantly and there event.target is the section itself; releasing in one
+  // of those would quietly dissolve the grouping being rearranged.
+  //
+  // The empty line counts as the heading. With nothing running it is the
+  // largest thing in the section, and a target you can see but not hit is
+  // worse than no target.
+  const sectionTarget = event.target.closest('section > h2, .wip-empty');
+  if (sectionTarget && sectionTarget.parentElement === section) {
+    // A bucket section shows one project, so it must match. IN PROGRESS spans
+    // every project and takes each row on its own terms — which is what makes
+    // its heading the target that still works when the dragged row's project
+    // has no heading in there yet.
+    if (lands.bucket && section.dataset.project !== project) return null;
+    return placement({ bucket: lands.bucket, group: null, status: lands.status },
+                     dragged, draggedIsGroup, sectionTarget);
+  }
+
+  const projectHeading = event.target.closest('.project-heading');
+  if (projectHeading) {
+    if (projectHeading.parentElement.dataset.project !== project) return null;
+    return placement({ bucket: lands.bucket, group: null, status: lands.status },
+                     dragged, draggedIsGroup, projectHeading);
+  }
+
   const header = event.target.closest('.group-header');
   if (header && header.parentElement !== dragged) {
     // Dropping a group onto a group does not merge them: a group IS its name,
     // so merging silently destroys one of the two names.
     if (draggedIsGroup) return null;
-    if (header.parentElement.dataset.project !== dragged.dataset.project) return null;
-    // Already a member — rejoining would only shunt it to the end of its own
-    // group, which is not what aiming at that header meant.
-    if (header.parentElement.dataset.group === groupOf(dragged)) return null;
-    return { kind: 'join', group: header.parentElement.dataset.group, element: header };
+    if (header.parentElement.dataset.project !== project) return null;
+    // No bucket named here: the group owns its own (invariant 16), so joining
+    // is what sets it. That is what moves a someday task into now when it is
+    // dropped onto a group living there.
+    return placement({ bucket: null, group: header.parentElement.dataset.group,
+                       status: lands.status }, dragged, draggedIsGroup, header);
   }
 
   const over = event.target.closest('.task');
   // One project at a time, in every context. Task ids are per-project and so
   // is a group name, so a cross-project drop has nothing coherent to mean.
   if (!over || over === dragged || dragged.contains(over)
-      || over.dataset.project !== dragged.dataset.project) {
-    return leaveIntent(event, dragged, draggedIsGroup);
-  }
+      || over.dataset.project !== project) return null;
 
   const inGroup = over.parentElement.classList.contains('group')
     ? over.parentElement.dataset.group : null;
@@ -416,40 +487,37 @@ function dropIntent(event, dragged, draggedIsGroup, allowReorder) {
   const box = over.getBoundingClientRect();
   const offset = (event.clientY - box.top) / box.height;
   if (!draggedIsGroup && !inGroup && offset > 0.25 && offset < 0.75) {
-    return { kind: 'pair', over, element: over };
+    return { kind: 'pair', over, element: over, status: lands.status };
   }
 
-  // Outside a bucket section there is no position to drop into: the IN
-  // PROGRESS list is ordered by project and then by group, not by anything
-  // the user chose, and its rows can sit in three different buckets — so
-  // there is no single bucket for reorder_bucket to renumber. Drag there only
-  // ever groups. Leaving a group is the editor's Group → none.
-  if (!allowReorder) {
-    // Over a loose row's edge: nothing to reorder, since this list's order is
-    // by project and group rather than anything anyone chose. Leaving a group
-    // is the project heading.
+  if (!lands.canReorder) {
+    // IN PROGRESS. A loose row's edge has nothing to reorder — this list's
+    // order is by project and group rather than anything anyone chose — so
+    // claiming a task is the two headings' job, and both are right there.
     if (!inGroup) return null;
     // Inside one group there IS a position to drop into. Its members share a
     // bucket and sit contiguously (invariant 16), so they can trade their own
     // slots without touching the rest of that bucket — which is the only
-    // reason a section rendering part of a bucket can reorder anything at all.
+    // reason a section rendering part of a bucket can reorder anything.
     if (inGroup === groupOf(dragged)) return { kind: 'sort', over, after: offset > 0.5 };
-    return { kind: 'join', group: inGroup, element: over };
+    return placement({ bucket: null, group: inGroup, status: lands.status },
+                     dragged, draggedIsGroup, over);
   }
-  return { kind: 'move', over, after: offset > 0.5 };
+  // A reorder. The row moves live and where it LANDED decides what it belongs
+  // to — inside a container it joins, in a top-level gap it comes loose — so
+  // no group is named here. The section is carried because the drop needs its
+  // bucket and its id list, and by then the pointer may have left it.
+  return { kind: 'move', over, after: offset > 0.5, section };
 }
 
-// `bucket` names the bucket this section reorders within, or null for a
-// section that has no single one — see dropIntent, where null means "drag only
-// ever groups here".
-function wireDrag(section, bucket) {
-  const allowReorder = bucket !== null;
+function wireDrag() {
+  const list = document.getElementById('task-list');
   let dragged = null;
   let draggedIsGroup = false;
   let draggedGroup = null;
   let intent = null;
 
-  section.addEventListener('dragstart', event => {
+  list.addEventListener('dragstart', event => {
     const header = event.target.closest('.group-header');
     dragged = header ? header.parentElement : event.target.closest('.task');
     draggedIsGroup = Boolean(header);
@@ -458,33 +526,38 @@ function wireDrag(section, bucket) {
     intent = null;
   });
 
-  section.addEventListener('dragend', () => {
-    clearDropAffordance(section);
+  list.addEventListener('dragend', () => {
+    clearDropAffordance(list);
     dragged = null;
     intent = null;
   });
 
-  section.addEventListener('dragover', event => {
+  list.addEventListener('dragover', event => {
     event.preventDefault();
     if (!dragged) return;
-    clearDropAffordance(section);
-    intent = dropIntent(event, dragged, draggedIsGroup, allowReorder);
+    clearDropAffordance(list);
+    intent = dropIntent(event, dragged, draggedIsGroup);
     if (!intent) return;
     if (intent.kind === 'move' || intent.kind === 'sort') {
       intent.over.parentElement.insertBefore(
         dragged, intent.after ? intent.over.nextSibling : intent.over);
     } else {
-      // Two outcomes, two looks: solid means "this will group", dashed means
-      // "this will come loose". One outline for both would make the gesture
-      // that dissolves a grouping look like the one that makes it.
-      intent.element.classList.add(
-        intent.kind === 'leave' ? 'drop-loose' : 'drop-into');
+      // Two outcomes, two looks: solid means "becomes part of this", dashed
+      // means "comes loose from what it was in". One outline for both would
+      // make the gesture that dissolves a grouping look like the one that
+      // makes it. Being claimed into IN PROGRESS is joining the running
+      // region, so it is solid; being dropped back into a bucket is leaving
+      // it, so it is dashed. A status change is not a third kind of outcome —
+      // it is these same two, seen from the region that gained or lost a row.
+      const joins = intent.kind === 'pair' || intent.group !== null
+        || intent.status === 'in-progress';
+      intent.element.classList.add(joins ? 'drop-into' : 'drop-loose');
     }
   });
 
-  section.addEventListener('drop', async event => {
+  list.addEventListener('drop', async event => {
     event.preventDefault();
-    clearDropAffordance(section);
+    clearDropAffordance(list);
     const settled = intent;
     const row = dragged;
     const wasInGroup = draggedGroup;
@@ -494,8 +567,9 @@ function wireDrag(section, bucket) {
     if (!settled || !row) return;
     // The row's OWN project, never currentProject. In a bucket section the two
     // are the same; in IN PROGRESS, which spans projects, they are not — and
-    // dropIntent has already refused any pairing across two of them.
+    // dropIntent has already refused any drop across two of them.
     const project = row.dataset.project;
+    const name = wasGroup ? row.dataset.group : null;
 
     if (settled.kind === 'pair') {
       // The target's title seeds the name, and the target comes first so the
@@ -504,20 +578,25 @@ function wireDrag(section, bucket) {
       const targetId = Number(settled.over.dataset.id);
       const target = state.tasks.find(
         task => task.project === project && task.id === targetId);
-      const name = await callApi('create_group', project,
+      // Read before the call: state is still what it was when the drag began,
+      // which is what "where this row came from" means.
+      const moved = taskOf(row);
+      const born = await callApi('create_group', project,
         [targetId, Number(row.dataset.id)], target ? target.title : 'New group');
-      if (name === API_FAILED) return;
+      if (born === API_FAILED) return;
+      // A group born in a section the dragged row did not come from has to be
+      // placed as well as named — pairing a backlog task onto a running one
+      // means both are running now. create_group already put them in the
+      // target's bucket, so only the status can still be wrong. Two calls,
+      // because naming a group and placing one are two ideas, and a failure
+      // between them leaves a valid group that simply was not claimed.
+      if (moved && moved.status !== settled.status
+          && await callApi('place_group', project, born,
+               { status: settled.status }) === API_FAILED) return;
       await refresh();
       // Only on birth. A task joining an existing group must not reopen it —
-      // that name is an identity by then, not a suggestion.
-      focusGroupName(project, name);
-      return;
-    }
-
-    if (settled.kind === 'join') {
-      if (await callApi('group_tasks', project,
-          [Number(row.dataset.id)], settled.group) === API_FAILED) return;
-      await refresh();
+      // that name is an identity by then, not a suggestion (invariant 11).
+      focusGroupName(project, born);
       return;
     }
 
@@ -536,33 +615,49 @@ function wireDrag(section, bucket) {
       return;
     }
 
-    if (settled.kind === 'leave') {
-      if (await callApi('ungroup_tasks', project,
-          [Number(row.dataset.id)]) === API_FAILED) return;
-      await forgetFoldIfEmptied(project, wasInGroup);
+    if (settled.kind === 'place') {
+      const destination = { bucket: settled.bucket, group: settled.group,
+                            status: settled.status };
+      const outcome = wasGroup
+        ? await callApi('place_group', project, name, destination)
+        : await callApi('place_task', project, Number(row.dataset.id), destination);
+      if (outcome === API_FAILED) return;
+      // Before the refresh, while state.tasks still counts the member on its
+      // way out — a group that just lost its last one does not exist any more,
+      // and nothing would ever unfold its leftover entry.
+      if (!wasGroup && settled.group !== wasInGroup) {
+        await forgetFoldIfEmptied(project, wasInGroup);
+      }
       await refresh();
       return;
     }
 
-    // A reorder. Where the row landed decides what it belongs to.
-    if (!wasGroup) {
-      const container = row.closest('.group');
-      const landed = container ? container.dataset.group : null;
-      if (landed !== wasInGroup) {
-        const outcome = landed === null
-          ? await callApi('ungroup_tasks', project, [Number(row.dataset.id)])
-          : await callApi('group_tasks', project, [Number(row.dataset.id)], landed);
-        if (outcome === API_FAILED) return;
-        await forgetFoldIfEmptied(project, wasInGroup);
-      }
+    // A reorder. Where the row landed decides what it belongs to, and which
+    // section it landed in decides its bucket and its status — that is the
+    // whole of dragging between now/next/someday. The DOM is the last writer
+    // and rightly so: it is what the user just saw. Members stay contiguous
+    // because a group's rows live inside its own container, and folded rows
+    // are still in there (invariant 18) so the list has no hole in it.
+    const lands = sectionPlacement(settled.section);
+    const landed = wasGroup ? null : groupOf(row);
+    const ids = [...settled.section.querySelectorAll('.task')].map(
+      element => Number(element.dataset.id));
+    const outcome = wasGroup
+      ? await callApi('place_group', project, name,
+          { bucket: lands.bucket, status: lands.status }, ids)
+      : await callApi('place_task', project, Number(row.dataset.id),
+          { bucket: lands.bucket, group: landed, status: lands.status }, ids);
+    if (outcome === API_FAILED) return;
+    if (!wasGroup && landed !== wasInGroup) {
+      await forgetFoldIfEmptied(project, wasInGroup);
     }
-    // Last writer, and rightly so: the DOM is what the user just saw. Members
-    // stay contiguous because a group's rows live inside its own container.
-    const ids = [...section.querySelectorAll('.task')].map(el => Number(el.dataset.id));
-    if (await callApi('reorder_bucket', project, bucket, ids) === API_FAILED) return;
     await refresh();
   });
 }
+
+// Bound once, at load. Inside a render function this would stack a duplicate
+// listener on every redraw; #task-list outlives all of them.
+wireDrag();
 
 // Open a freshly created group's name box, seeded and selected so the real
 // name can be typed straight over it. Called only when a group is BORN, never

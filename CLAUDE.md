@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 332 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 357 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -35,7 +35,7 @@ library. No framework, no HTTP server, no bundler.
 | `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
-| `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, and the spin-up rule. A group **is** its name — no ids, no registry |
+| `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, the spin-up rule, and `place` — the whole destination a drop resolves to. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn — inside a `conhost.exe` the tracker asks for by name, so the window is never the machine default terminal's to draw — session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
 | `console_input.py` | The spawned session's console: typing that prompt into it, submitting the `/rename`/`/color` commands ahead of it, pacing every write against what the prompt box shows, and the font it renders in |
 | `user_environment.py` | The environment Windows gives a freshly launched process |
@@ -45,8 +45,8 @@ library. No framework, no HTTP server, no bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
-| `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` |
-| `ui/inprogress.js` | The IN PROGRESS section, its per-project split, folding, and the reset actions |
+| `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
+| `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
 | `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
@@ -299,10 +299,11 @@ Break one of these and the failure is silent. Each cost a bug.
 18. **A folded block keeps its rows in the DOM; CSS hides them.** Three things
     read the rendered list rather than `state`: select-the-group ticks
     `.select` inside the container, `selectedIds()` collects checked rows
-    document-wide, and the drag's drop handler builds `reorder_bucket`'s id
-    list from `section.querySelectorAll('.task')`. Drop the rows and that last
-    one hands the backend a bucket with a hole in it, leaving the folded
-    members on stale `order` values that collide with the renumbered ones.
+    document-wide, and the drag's drop handler builds the `ordered_ids` it
+    hands `place_task` from the destination section's own
+    `querySelectorAll('.task')`. Drop the rows and that last one hands the
+    backend a bucket with a hole in it, leaving the folded members on stale
+    `order` values that collide with the renumbered ones.
 
 19. **`auto_group` runs after `launcher.hand_off`, never before.**
     `launcher.hand_off` saves the `Task` objects `Api.hand_off` handed it, so
@@ -406,6 +407,48 @@ Break one of these and the failure is silent. Each cost a bug.
     only because it falls back per glyph, and a WT-hosted window is the one
     thing invariant 10 rules out. If the elbow ever matters enough, the lever
     is a wider-coverage font, not a different host.
+
+26. **A drop resolves to one destination, applied by one call.** A drag can
+    change a task's bucket, its group and whether it is running, all in one
+    gesture — and the states between those three changes are ones no rule
+    permits. A task that has changed bucket but not yet left its group is a
+    member sitting in the wrong bucket, which is invariant 16 broken; a
+    sequence of `update_task` → `group_tasks` → `reorder_bucket` passes
+    through that state on disk every time, and leaves it there if any step
+    raises. `groups.place` applies the triple `{bucket, group, status}` with
+    one write per task and renumbers **both** the source and destination
+    buckets, so the intermediate state never exists. `Api.place_task` and
+    `Api.place_group` are its only callers.
+
+    Two rules inside it that a reader cannot infer. **An explicit bucket beats
+    the group's**, which is what lets a group header dragged into `next` carry
+    every member while a lone task dropped into that same group is instead
+    pulled into the group's bucket — without the precedence, one of those two
+    has to become a special case somewhere else. And **status is written only
+    when it differs**: `store.reset_to_open` clears `started`, so releasing a
+    half-running group would otherwise erase the start dates of the members
+    that were never running. A task already in the destination group *and*
+    bucket also keeps its `order`, or claiming one member would shunt it to
+    the end of its own group.
+
+27. **`wireDrag` binds once, at load, to `#task-list`.** It was one controller
+    per section until 2026-07-26, each closing over its own `dragged`, and
+    that is exactly why no drop ever crossed a section: `dragstart` fired on
+    the SOURCE section's listener while the `dragover`/`drop` that followed
+    fired on the DESTINATION section's, where `dragged` was still `null`.
+    `event.preventDefault()` runs before that guard, so the browser showed a
+    drop cursor the whole way and the gesture looked legal while doing nothing
+    at all — a silent failure that survived months of use.
+
+    `#task-list` is the common ancestor of every section and is never itself
+    replaced (`render()` calls `replaceChildren` on it), so one listener there
+    survives every redraw and cannot stack duplicates. Never call `wireDrag`
+    from a render function. The destination section is resolved at event time
+    from `event.target.closest('section[data-bucket], #in-progress')`, and a
+    section with no `data-bucket` is IN PROGRESS: it implies `in-progress`
+    status and cannot reorder, a bucket section implies `open` and can. That
+    one substitution is the whole of claiming and releasing — neither is a
+    special case anywhere in the handler.
 
 ## Data on disk
 
@@ -554,6 +597,22 @@ show two unrelated tasks under one id at different points in time.
   editor sits on top of it, then press Escape once — the editor must close and
   Progress must still be there.
 
+  For drag recategorization, ten — the whole feature is gesture, so none of it
+  can be seen in a diff. Drag a loose task from `someday` onto a group inside
+  `now`: it joins and moves to `now`. Drag it back out onto the `SOMEDAY`
+  heading: it leaves the group and lands in `someday`. Drag a task into IN
+  PROGRESS: it turns in-progress and **no Claude window opens**. Drag it from
+  there onto `NEXT`: it resets and lands in `next`. With nothing running at
+  all, the IN PROGRESS box still shows its line and still takes a drop. Drag a
+  group header between buckets: every member moves, and `git status` in a
+  tracked project shows frontmatter changes and **no body diff**. Drag a
+  running group back to a bucket: every member resets, including any that were
+  not running. Fold a group and drag a task into it: the folded members keep
+  their order (invariant 18). Drop a row on *another* project's heading in IN
+  PROGRESS: refused, with no outline at all. And the gestures that already
+  existed must be untouched — reorder within one bucket, pair two rows into a
+  new group whose name box opens focused, and rename it.
+
 ## Parallel features (worktrees)
 
 `main` is the only long-lived branch and the **primary checkout stays on it**.
@@ -630,6 +689,21 @@ the tracker, select this project, and they are the backlog. Highlights:
   rather than guess which name survives. If that becomes wanted it needs an
   explicit gesture with an explicit choice.
 - **Groups are one level deep** and never span projects.
+- **IN PROGRESS never reorders.** Its rows sort by project and then by group,
+  and they can sit in three different buckets, so there is no one bucket for
+  `reorder_bucket` to renumber. Sorting *within* one group there does work —
+  its members share a bucket and are contiguous, so they can trade their own
+  slots. Dropping on a loose running row's edge therefore does nothing;
+  claiming a task is the section heading's job, or a project heading's.
+- **A group header drag moves every member**, including any the header did not
+  draw — a header in IN PROGRESS can read `2 of 5`. A group lives in one
+  bucket (invariant 16), so there is no such thing as moving part of one. This
+  deliberately differs from the `done` button beside it, which acts on the
+  rows it drew.
+- **Dragging into IN PROGRESS does not spawn a session.** It flips the status
+  and nothing else. The ↩ on every running row is exactly the inverse, so the
+  two read as one control, and a drag is far too easy to misfire for a gesture
+  that opens a console and types into it.
 - Done tasks keep their `group`, but nothing renders it: the progress view
   still lists completed tasks flat.
 

@@ -169,17 +169,23 @@ function taskRow(task, options = {}) {
 function bucketSection(bucket) {
   const section = document.createElement('section');
   section.dataset.bucket = bucket;
+  // Every row in here belongs to the selected project, and the drag controller
+  // compares a dragged row's own project against the destination's rather than
+  // against currentProject (invariant 6). Stated on the section so that check
+  // is one uniform comparison instead of a special case per kind of target.
+  section.dataset.project = currentProject;
   section.innerHTML = `<h2>${bucket.toUpperCase()}</h2>`;
   // A loose task gets no container: drawing one around a single row would
   // claim a grouping that does not exist.
   groupBlocks(tasksFor(currentProject, bucket)).forEach(block => section.append(
     block.group ? groupBlock(block) : taskRow(block.tasks[0])));
-  wireDrag(section, bucket);
   return section;
 }
 
-// wireDrag lives in groups.js — dragging is now how groups are formed and
-// dissolved, not only how rows are ordered.
+// wireDrag lives in groups.js and is bound once, to #task-list — not per
+// section. Dragging is how groups are formed and dissolved, how a task changes
+// bucket, and how it is claimed into or released from IN PROGRESS, and none of
+// those can be answered by a listener that only sees one section.
 
 function selectedIds() {
   return [...document.querySelectorAll('.task .select:checked')]
@@ -355,8 +361,9 @@ function render() {
   } else if (document.getElementById('all-projects').checked) {
     renderAllProjects();
   } else {
-    const running = inProgressSection();
-    list.replaceChildren(...(running ? [running] : []), ...BUCKETS.map(bucketSection));
+    // Always present, empty or not: it is a drop target now, and the first
+    // task ever claimed has to have somewhere to land.
+    list.replaceChildren(inProgressSection(), ...BUCKETS.map(bucketSection));
     const open = state.tasks.filter(
       t => t.project === currentProject && t.status !== 'done').length;
     if (!open) {

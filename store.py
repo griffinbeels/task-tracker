@@ -407,6 +407,32 @@ def reset_to_open(task: Task) -> Task:
     return save_task(task)
 
 
+def start_task(task: Task) -> Task:
+    """Claim a task as in progress, stamping the day the work began.
+
+    The mirror of reset_to_open above, and deliberately beside it: those two
+    are the whole status vocabulary between open and running, and a second
+    definition of either is free to drift from the first. launcher.hand_off
+    used to inline these three lines, which is what made this a definition in
+    two places rather than one.
+
+    `started` is stamped only when there is not already a day recorded. A task
+    that was started, reset, and started again began when it first began —
+    restating it would move the task in the progress view, which is built on
+    these dates. reset_to_open is the one thing that clears it, because what
+    that function withdraws is the claim that the work began at all.
+
+    A completed task is refused for the same reason it is there: leaving the
+    archive is restore_task's job, and done/'s dates are what the progress
+    view reads.
+    """
+    if task.status == "done":
+        raise ValueError("a completed task cannot be started this way")
+    task.status = "in-progress"
+    task.started = task.started or _today()
+    return save_task(task)
+
+
 def reorder_bucket(project_path: Path, bucket: str, ordered_ids: list[int]) -> None:
     by_id = {t.id: t for t in list_tasks(project_path, include_done=False)}
     for position, task_id in enumerate(ordered_ids):

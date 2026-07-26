@@ -294,3 +294,105 @@ def remove(project_path: Path, task_ids) -> None:
         store.save_task(task)
     for one_bucket in touched:
         renumber(project_path, one_bucket)
+
+
+def place(project_path: Path, task_ids, *, bucket: str | None = None,
+          group: str | None = None, status: str | None = None,
+          ordered_ids=None) -> None:
+    """Put these tasks where a drop said they go — bucket, group and status.
+
+    One function rather than three calls because a drag changes all three in a
+    single gesture, and the states in between are ones no rule permits: a task
+    that has changed bucket but not yet left its group is a member sitting in
+    the wrong bucket, which is invariant 16 broken. Applied here, together,
+    that state never exists on disk, and a raise part-way leaves nothing
+    half-moved.
+
+    `bucket` None means "unchanged, or decided by the group being joined";
+    `status` None means unchanged; `group` is always explicit, because a drop
+    always lands either inside a group's container or outside every one.
+    `ordered_ids` is the destination bucket's full ordered id list, read back
+    from the DOM after the live reorder — or None for a drop on a heading,
+    which has no position in it and means "at the end".
+
+    Two rules a reader cannot infer:
+
+    - **An explicit bucket beats the group's.** That is what lets a group
+      header dragged into `next` take every member with it, while a lone task
+      dropped into that same group is pulled into the group's bucket instead
+      of keeping its own. Without the precedence one of those two has to be a
+      special case somewhere else.
+    - **Status is written only when it changes.** store.reset_to_open clears
+      `started`, so applying "open" to an already-open task would erase a date
+      it legitimately holds — a restored task keeps the day it first began.
+      Releasing a half-running group would otherwise quietly rewrite the
+      history of the members that were not running.
+    """
+    if bucket is not None and bucket not in store.BUCKETS:
+        raise ValueError(f"unknown bucket: {bucket}")
+    if status is not None and status not in ("open", "in-progress"):
+        # "done" lands here too, on purpose: completing is complete_task's job
+        # and leaving the archive is restore_task's, both of which move the
+        # file between open/ and done/. A drop never does that.
+        raise ValueError(f"a drop cannot set status: {status}")
+    if group is not None:
+        group = _clean(group)
+
+    tasks = _live_tasks(project_path)
+    moving = _resolve(tasks, task_ids)
+    if not moving:
+        return
+    moving_ids = {task.id for task in moving}
+    # Read before anything moves. The source buckets are what the renumber at
+    # the end repairs — a departing row leaves a hole in the run behind it,
+    # and nothing else would ever close it.
+    touched = {task.bucket for task in moving}
+
+    # Members of the destination group that are NOT themselves moving. They
+    # are what the group's bucket and its tail are read from; when every
+    # member is moving (a group header drag) there are none, and the explicit
+    # bucket is the only thing left to go on.
+    settled = [task for task in tasks
+               if group and task.group == group and task.id not in moving_ids]
+    if bucket is not None:
+        target = bucket
+    elif settled:
+        target = min(settled, key=lambda t: (t.order, t.id)).bucket
+    else:
+        target = moving[0].bucket
+    touched.add(target)
+
+    # Provisional: behind the group's settled members if it is joining one,
+    # else behind everything already in the target bucket. `ordered_ids`
+    # overrides this whenever the drop had a position in it.
+    if settled:
+        tail = max(task.order for task in settled) + 1
+    else:
+        tail = max((task.order for task in tasks
+                    if task.bucket == target and task.id not in moving_ids),
+                   default=-1) + 1
+
+    # Sorted so a group keeps its internal order through the move. One write
+    # per task: the status functions save, and so does the fallback.
+    for offset, task in enumerate(sorted(moving, key=lambda t: (t.order, t.id))):
+        # A task that is already in this group and already in this bucket
+        # keeps the slot it holds. Without this, claiming one member of a
+        # group — dropping it on its own group's header inside IN PROGRESS,
+        # where nothing but the status changes — would land it at the end of
+        # its own group and silently reorder a list nobody touched. Any gap
+        # the skipped offsets leave is closed by the renumber below.
+        if task.group != group or task.bucket != target:
+            task.order = tail + offset
+        task.group = group
+        task.bucket = target
+        if status == "in-progress" and task.status != "in-progress":
+            store.start_task(task)
+        elif status == "open" and task.status != "open":
+            store.reset_to_open(task)
+        else:
+            store.save_task(task)
+
+    if ordered_ids is not None:
+        store.reorder_bucket(project_path, target, [int(i) for i in ordered_ids])
+    for one_bucket in touched:
+        renumber(project_path, one_bucket)
