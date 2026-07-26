@@ -116,7 +116,16 @@ class Api:
         Deduplicates while preserving first-seen order, so a repeated id acts
         once — the one addition over the four-line block this replaces at
         every bulk call site.
+
+        Refuses anything but a real sequence of ids, rather than coercing it,
+        following the precedent of _text above. A string is refused
+        specifically even though it is technically a sequence: task_ids="12"
+        would otherwise iterate as the characters "1" and "2" and silently
+        resolve to tasks 1 and 2, which is exactly the wrong two ids for a
+        bridge method (delete_tasks) that cannot be undone.
         """
+        if isinstance(task_ids, str) or not isinstance(task_ids, (list, tuple)):
+            raise ValueError("task_ids must be a list of ids, not a bare string")
         project = _project(project_name)
         by_id = {t.id: t for t in store.list_tasks(Path(project.path))}
         wanted = []
@@ -192,6 +201,14 @@ class Api:
         _, task = self._find(project_name, task_id)
         return _task_dict(store.complete_task(task), project_name)
 
+    # delete_tasks and complete_tasks below each pair a store.py mutation with
+    # a groups.renumber call for every bucket it touched — a domain rule
+    # ("removing tasks from a bucket obliges a renumber of that bucket"), not
+    # wiring, even though the module docstring says this file is wiring only.
+    # It lives here anyway: store.py must not import groups.py (groups.py
+    # already imports store, and a cycle would follow), and completing a task
+    # is not groups.py's concern either — so this bridge module is the only
+    # one that already imports both and can call across that seam.
     def delete_tasks(self, project_name, task_ids):
         """Erase every file in this selection, then repair the buckets it hollowed out.
 

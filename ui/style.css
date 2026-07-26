@@ -161,7 +161,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
-#selection-bar { margin-bottom: 8px; }
+/* Neutral fill, in the same idiom as every other surface that reads as a
+   plain container rather than a state (see .chip.on, #editor-title) — never
+   #wip-warning's orange, which means "warning" in this window and the bar is
+   not one. Without a fill the bar was three unframed buttons and a dim count
+   floating in the gap left by the row below it. */
+#selection-bar { background: rgba(127, 127, 127, .10); padding: 5px 8px;
+                 border-radius: 5px; margin-bottom: 8px; }
 /* .actions sets display: flex, which a bare `hidden` attribute loses to on
    equal specificity — the same trap .overlay[hidden] and .chips[hidden]
    already document above. */

@@ -1,6 +1,6 @@
-// The selection bar: what is ticked, and the two things you can do to all of
-// it. This file owns counting the selection and clearing it; Done and Delete
-// are wired in a later task.
+// The selection bar: what is ticked, and the three things you can do to all
+// of it. This file owns counting the selection, showing/hiding the bar, and
+// the Done/Delete/Clear handlers below.
 
 // The existing spin-up guard, extracted so both spin-up and the bar's own
 // actions can share it. selectedIds() returns [{project, id}, ...] — collapse
@@ -44,10 +44,26 @@ document.getElementById('selection-clear').onclick = () => {
   renderSelectionBar();
 };
 
+// One or two ticked tasks go through Done with no prompt — that mirrors the
+// row button's own gesture, and redoing it by hand is cheap. At this size or
+// above, Done asks first, in the same shape as Delete's dialog below.
+const DONE_CONFIRM_THRESHOLD = 3;
+
 document.getElementById('selection-done').onclick = async () => {
   const picked = selectedInOneProject();
   if (!picked || !picked.ids.length) return;
-  if (await callApi('complete_tasks', picked.project, picked.ids) === API_FAILED) return;
+  if (picked.ids.length >= DONE_CONFIRM_THRESHOLD && !confirm(
+      `Mark ${picked.ids.length} tasks done? They move to .tasks/done/ and `
+      + `the app has no way back.`)) return;
+  if (await callApi('complete_tasks', picked.project, picked.ids) === API_FAILED) {
+    // Unlike most callApi failures, this one can be partial: complete_tasks
+    // (like delete_tasks below) validates every id up front but then acts
+    // file-by-file, so a failure partway through can still leave earlier
+    // tasks moved to done/. Refresh anyway, so the list stops drawing rows
+    // for tasks that already left this bucket.
+    await refresh();
+    return;
+  }
   await refresh();
 };
 
@@ -59,6 +75,14 @@ document.getElementById('selection-delete').onclick = async () => {
   // safe direction.
   const what = picked.ids.length === 1 ? 'this task' : `these ${picked.ids.length} tasks`;
   if (!confirm(`Delete ${what}? The markdown file is erased. This cannot be undone.`)) return;
-  if (await callApi('delete_tasks', picked.project, picked.ids) === API_FAILED) return;
+  if (await callApi('delete_tasks', picked.project, picked.ids) === API_FAILED) {
+    // Same reasoning as selection-done above: delete_tasks validates up front
+    // but unlinks in a loop, so a failure partway through can leave earlier
+    // files already gone. Refresh so the list stops drawing rows for files
+    // that no longer exist — leaving them would let a click open the editor
+    // on a missing path.
+    await refresh();
+    return;
+  }
   await refresh();
 };

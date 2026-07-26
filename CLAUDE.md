@@ -217,6 +217,14 @@ machinery here. Their absolute paths also make a task file **non-portable**
 between machines, which only matters for a tracked project cloned elsewhere:
 the images arrive, the paths do not resolve.
 
+`store.next_task_id` is `max(ids, default=0) + 1` over open and done combined.
+Before the selection bar, nothing ever removed a task, so ids only went up for
+a project's whole life. `delete_tasks` unlinks files outright, so deleting the
+newest task frees its id — the next task created can land on the same number.
+Nothing breaks (ids are still unique among live tasks, and only ever meaningful
+paired with a project — invariant 6), but a tracked repo's git history can now
+show two unrelated tasks under one id at different points in time.
+
 ## Adding a feature
 
 - **New bridge method:** add it to `Api` in `app.py` (translate JS args → backend
