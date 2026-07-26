@@ -19,6 +19,30 @@ function inProgressGroupKeys() {
                         : `${task.project}\ntask:${task.id}`)));
 }
 
+// The half of that key which identifies a block within one project. The same
+// shape session.json stores, so the count above and the order below can never
+// disagree about what a block is.
+function blockKey(block) {
+  return block.group ? `group:${block.group}` : `task:${block.tasks[0].id}`;
+}
+
+// This list's order is the user's, kept in session.json, because it cannot be
+// kept in the tasks: `order` is a per-bucket position, so two running tasks in
+// different buckets both hold 0 and no sequence across them is expressible.
+// See registry.in_progress_order.
+//
+// A block nobody has dragged sorts after every block someone has — a task just
+// claimed belongs at the end of the list, not silently in the middle of it.
+// Ties fall through to groupBlocks' own order, because Array#sort is stable.
+function inProgressRanker(project) {
+  const stored = (state.in_progress_order || []).filter(pair => pair[0] === project);
+  const ranks = new Map(stored.map((pair, at) => [pair[1], at]));
+  return block => {
+    const at = ranks.get(blockKey(block));
+    return at === undefined ? ranks.size : at;
+  };
+}
+
 function inProgressSection() {
   const running = inProgressTasks();
 
@@ -48,7 +72,8 @@ function inProgressSection() {
   for (const project of state.projects) {
     const mine = running.filter(task => task.project === project.name);
     if (!mine.length) continue;
-    const blocks = groupBlocks(mine);
+    const rankOf = inProgressRanker(project.name);
+    const blocks = groupBlocks(mine).sort((a, b) => rankOf(a) - rankOf(b));
     const folded = isProjectCollapsed(project.name);
 
     // One wrapper per project, so folding one hides its blocks without

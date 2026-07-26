@@ -414,10 +414,26 @@ function draggedState(dragged, isGroup) {
 // as open and at a position; IN PROGRESS places them as running with no
 // position — its rows sort by project then group, and they can sit in three
 // different buckets, so there is no one bucket for reorder_bucket to renumber.
+// What a section does to whatever lands in it, and where its order is kept.
+// Both sections reorder; they write to different places, because they are
+// ordering different things. A bucket's order is `Task.order` and belongs to
+// the tasks. IN PROGRESS's cannot be — `order` is per-bucket, so two running
+// tasks in different buckets both hold 0 — so it is view state in
+// session.json, and it ranks BLOCKS rather than rows (a group's own member
+// order is shared with the bucket view and stays there).
 function sectionPlacement(section) {
   const bucket = section.dataset.bucket || null;
-  return { bucket, status: bucket ? 'open' : 'in-progress',
-           canReorder: Boolean(bucket) };
+  return bucket
+    ? { bucket, status: 'open', orders: 'bucket' }
+    : { bucket: null, status: 'in-progress', orders: 'wip' };
+}
+
+// IN PROGRESS splits its list by project, so its blocks live one level down.
+// Geometry, like everything else here — the project a drop belongs to is the
+// wrapper whose box holds the cursor, and it must be the dragged row's own.
+function projectBlockUnder(section, event, project) {
+  return [...section.querySelectorAll('.project-block')].find(
+    holder => holder.dataset.project === project && withinBox(holder, event)) || null;
 }
 
 // A destination that would change nothing gets no affordance — the outline is
@@ -530,6 +546,27 @@ function groupUnder(section, event, dragged) {
                  container.dataset.group === mine ? GROUP_STICKY : 0)) || null;
 }
 
+// The whole IN PROGRESS list as [project, block key] pairs, straight off the
+// rendered DOM. Wholesale, like the fold state: the renderer owns the list, so
+// two partial writes cannot race into disagreeing halves of it — and reading
+// every project rather than the one that changed is what makes that true.
+//
+// Blocks, not rows. A group is one entry; the order of its members is the
+// group's own and lives in the tasks, shared with the bucket view.
+function inProgressOrderFromDom(section) {
+  const entries = [];
+  for (const holder of section.querySelectorAll('.project-block')) {
+    for (const child of holder.children) {
+      if (child.classList.contains('group')) {
+        entries.push([holder.dataset.project, `group:${child.dataset.group}`]);
+      } else if (child.classList.contains('task')) {
+        entries.push([holder.dataset.project, `task:${child.dataset.id}`]);
+      }
+    }
+  }
+  return entries;
+}
+
 // A loose top-level row the cursor is very clearly on top of — the one gesture
 // here that makes a new group, so the one that has to be aimed.
 function pairTarget(section, event, dragged, project) {
@@ -569,17 +606,19 @@ function dropIntent(event, dragged, draggedIsGroup) {
     const name = container.dataset.group;
     const members = blocksIn(container, dragged, '.task');
     const before = members[slotFor(members, event.clientY, dragged)] || null;
-    // IN PROGRESS renders only part of a bucket, so it cannot renumber one.
-    // Its members can still trade their own slots, which is what `sort` is.
-    if (!lands.canReorder && name === groupOf(dragged)) {
+    // A group's own member order lives in `Task.order` and is the same list the
+    // bucket view draws, so reordering inside one is always that — never the
+    // WIP order, which ranks whole blocks. IN PROGRESS renders only part of a
+    // bucket, so it trades the slots its members already hold rather than
+    // renumbering a bucket it cannot see; a bucket section draws the whole
+    // bucket, so its ordered id list positions the member directly.
+    if (lands.orders === 'wip' && name === groupOf(dragged)) {
       return { kind: 'sort', preview: { container, before }, into: container,
                section };
     }
-    // A bucket section needs no `sort`: it draws the whole bucket, so the
-    // ordered id list it hands place_task already positions the member.
     return { kind: 'place', bucket: null, group: name, status: lands.status,
-             into: container, section, positioned: lands.canReorder,
-             preview: lands.canReorder ? { container, before } : null };
+             into: container, section, positioned: lands.orders,
+             preview: { container, before } };
   }
 
   // 3. Anywhere else in the box: this category, no group, nearest slot. The
@@ -587,20 +626,23 @@ function dropIntent(event, dragged, draggedIsGroup) {
   // here — they are inside the rectangle the user is aiming at, so they behave
   // like it. This is what a grouped row dropped clear of its group's box rides
   // out on, which is why leaving a group needs no target of its own any more.
-  if (!lands.canReorder) {
-    // IN PROGRESS has no order anyone chose — its rows sort by project and
-    // then group — so there is no slot to compute and nothing to preview. The
-    // no-op check matters here for the same reason: without a position to
-    // change, a loose running row dropped back in its own box means nothing,
-    // and an outline would be promising something.
+  // IN PROGRESS holds its blocks inside a wrapper per project. With the cursor
+  // over one, the drop has a position in that project's list like anywhere
+  // else; over the box but not over any wrapper — the empty line, the space
+  // below the last project — there is no list to position within, so it is
+  // simply a claim, landing at the end.
+  const holder = lands.orders === 'wip'
+    ? projectBlockUnder(section, event, project) : section;
+  if (!holder) {
     const claim = placement({ bucket: null, group: null, status: lands.status },
                             dragged, draggedIsGroup);
     return claim && { ...claim, into: section, section };
   }
-  const blocks = blocksIn(section, dragged, '.task, .group');
+  const blocks = blocksIn(holder, dragged, '.task, .group');
   return { kind: 'place', bucket: lands.bucket, group: null, status: lands.status,
-           into: section, section, positioned: true,
-           preview: { container: section, before: blocks[slotFor(blocks, event.clientY, dragged)] || null } };
+           into: section, section, positioned: lands.orders,
+           preview: { container: holder,
+                      before: blocks[slotFor(blocks, event.clientY, dragged)] || null } };
 }
 
 function wireDrag() {
@@ -739,19 +781,31 @@ function wireDrag() {
 
     const destination = { bucket: settled.bucket, group: settled.group,
                           status: settled.status };
-    // Read AFTER the live move, so the ids say what the user is looking at.
-    // Members stay contiguous because a group's rows live inside its own
-    // container, and folded rows are still in there (invariant 18) so the list
-    // has no hole in it. Null for a section that cannot renumber a bucket.
-    const ids = settled.positioned
+    // Read AFTER the live move, so what gets written is what the user is
+    // looking at. Members stay contiguous because a group's rows live inside
+    // its own container, and folded rows are still in there (invariant 18) so
+    // the list has no hole in it. Only a BUCKET's order lives in the tasks;
+    // IN PROGRESS's is view state and is written separately below.
+    const ids = settled.positioned === 'bucket'
       ? [...settled.section.querySelectorAll('.task')].map(
           element => Number(element.dataset.id))
       : null;
-    const outcome = wasGroup
-      ? await callApi('place_group', project, name, destination, ids)
-      : await callApi('place_task', project, Number(row.dataset.id),
-                      destination, ids);
-    if (outcome === API_FAILED) return;
+    // A pure reposition within IN PROGRESS changes nothing about the task
+    // itself — same bucket, same group, still running — so it writes no task
+    // file at all, only the view state. Without this check every nudge of the
+    // running list would rewrite a `.md` file to identical content.
+    const current = wasGroup ? draggedState(row, true) : taskOf(row);
+    const changed = !current || settled.status !== current.status
+      || (!wasGroup && settled.group !== current.group);
+    if (changed || ids) {
+      const outcome = wasGroup
+        ? await callApi('place_group', project, name, destination, ids)
+        : await callApi('place_task', project, Number(row.dataset.id),
+                        destination, ids);
+      if (outcome === API_FAILED) return;
+    }
+    if (settled.positioned === 'wip' && await callApi('set_in_progress_order',
+        inProgressOrderFromDom(settled.section)) === API_FAILED) return;
     // Before the refresh, while state.tasks still counts the member on its way
     // out — a group that just lost its last one does not exist any more, and
     // nothing would ever unfold its leftover entry.

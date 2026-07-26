@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 361 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 368 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -549,15 +549,32 @@ Break one of these and the failure is silent. Each cost a bug.
 
     **IN PROGRESS is a bucket section with one difference, and adding a second
     one is a bug.** Every part of this — which box owns the cursor, the group
-    boxes inside it, the slot nearest the cursor, the pair band, the outlines —
-    is the same code reached the same way. The single difference is that IN
-    PROGRESS renders a *partial* view of several buckets at once, ordered by
-    project and then group rather than by anything the user chose, so there is
-    no one bucket for `reorder_bucket` to renumber: `sectionPlacement` reports
-    `canReorder: false`, and that one flag is what suppresses the top-level
-    position (a preview there would show a placement that the next render
-    discards). Reordering *within* a group still works there, because a group's
-    members do share a bucket and are contiguous.
+    boxes inside it, the slot nearest the cursor, the pair band, the outlines,
+    the preview, reordering — is the same code reached the same way. The single
+    difference is **where the order it writes is kept**: `sectionPlacement`
+    reports `orders: 'bucket'` or `orders: 'wip'`, and that one word is the
+    whole of it.
+
+    A bucket's order is `Task.order`, in the task files. IN PROGRESS's cannot
+    be, and that is not a shortcut — `order` is a *per-bucket* position, so two
+    running tasks in different buckets both hold 0 legitimately and no sequence
+    across them is expressible; `groups.renumber` restarts each bucket at 0 by
+    design, so it would undo one on the next write anyway. It is also not the
+    task files' business: the order of what is on screen right now is view
+    state, so it lives in `session.json` beside the fold state (invariant 17
+    said this file would hold the next piece of view state, and this is it),
+    and reordering the running list therefore makes no diff in a tracked repo.
+
+    That list ranks **blocks**, not rows — a group is one entry. Inside a
+    group, the member order is the group's own and is the same list the bucket
+    view draws, so it stays in the tasks and `reorder_group` stays the thing
+    that changes it. The two views can then never disagree about it.
+
+    This difference used to be `canReorder: false`, which suppressed the
+    top-level position entirely — dragging within IN PROGRESS could only form
+    groups, and reordering the running list was impossible. That read as the
+    section being half-built rather than as a constraint, which is what a
+    second difference always reads as.
 
     Anything else that behaves differently between the two is a defect, not a
     design. It has already happened twice — the section box existed only for IN
@@ -571,7 +588,8 @@ Break one of these and the failure is silent. Each cost a bug.
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
 ~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
-~/.task-tracker/session.json    last_project, and which groups/projects are folded
+~/.task-tracker/session.json    last_project, which groups/projects are folded,
+                                and the order of the IN PROGRESS list
 ~/.task-tracker/inbox/          untriaged raw notes
 ~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
@@ -736,6 +754,15 @@ show two unrelated tasks under one id at different points in time.
   PROGRESS: refused, with no outline at all. And the gestures that already
   existed must be untouched — reorder within one bucket, pair two rows into a
   new group whose name box opens focused, and rename it.
+
+  And four for reordering IN PROGRESS, which is view state rather than task
+  data and so has a different set of ways to be wrong. Drag a running task up
+  or down its project's list: it must preview as it moves and stay where it was
+  dropped. Do that in a tracked project and run `git status`: there must be
+  **no diff at all** — nothing about the task changed, only what session.json
+  remembers. Press ↻: the order must survive the restart. And claim a new task
+  into IN PROGRESS: it must land at the END of that project's list, never
+  silently in the middle of it.
 
   Two of those ten failed on first use and are the ones worth repeating after
   any change to `wireDrag`, because both looked like they had worked. Drop a

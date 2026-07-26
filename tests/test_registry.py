@@ -297,3 +297,42 @@ def test_a_count_below_one_reads_as_the_default(stored):
 
     assert settings.group_limit == 5
     assert settings.stale_days == 90
+
+
+def test_in_progress_order_defaults_to_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+
+    assert registry.in_progress_order() == []
+
+
+def test_in_progress_order_round_trips(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+
+    registry.set_in_progress_order([["repo", "group:Editor polish"], ["repo", "task:7"]])
+
+    assert registry.in_progress_order() == [
+        ["repo", "group:Editor polish"], ["repo", "task:7"]]
+
+
+def test_in_progress_order_survives_a_project_switch(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    registry.set_in_progress_order([["repo", "task:1"]])
+
+    # session.json is read-modify-write (invariant 17): setting one key must
+    # not drop the others, which is what would silently reset the running list.
+    registry.set_last_project("other")
+
+    assert registry.in_progress_order() == [["repo", "task:1"]]
+    assert registry.last_project() == "other"
+
+
+def test_a_hand_edited_in_progress_order_is_filtered(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    (tmp_path).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "session.json").write_text(
+        '{"in_progress_order": ["repo", ["repo", "task:1"], ["repo"], [1, 2]]}',
+        encoding="utf-8", newline="\n")
+
+    # The renderer indexes these by position, so a bare string where a pair
+    # belongs would iterate as characters. Only the well-formed pair survives.
+    assert registry.in_progress_order() == [["repo", "task:1"]]

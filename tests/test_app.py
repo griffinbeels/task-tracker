@@ -755,3 +755,26 @@ def test_place_group_rejects_an_unknown_group(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().place_group("repo", "Nope", {"bucket": "now"})
+
+
+def test_set_in_progress_order_round_trips(tmp_path):
+    make_repo(tmp_path)
+
+    app.Api().set_in_progress_order([["repo", "task:3"], ["repo", "group:G"]])
+
+    assert app.Api().get_state()["in_progress_order"] == [
+        ["repo", "task:3"], ["repo", "group:G"]]
+
+
+def test_set_in_progress_order_rejects_a_malformed_entry(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_in_progress_order([["repo"]])
+
+
+def test_set_in_progress_order_rejects_a_non_string_key(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_in_progress_order([["repo", 7]])

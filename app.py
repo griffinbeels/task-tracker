@@ -82,6 +82,7 @@ class Api:
             "unreadable": unreadable,
             "last_project": registry.last_project(),
             "collapsed": registry.collapsed_view(),
+            "in_progress_order": registry.in_progress_order(),
         }
 
     def set_collapsed(self, projects, groups):
@@ -98,6 +99,21 @@ class Api:
             pairs.append([_text(pair[0], "project"), _text(pair[1], "group")])
         registry.set_collapsed_view(
             [_text(name, "project") for name in projects], pairs)
+
+    def set_in_progress_order(self, pairs):
+        """The order of the IN PROGRESS list — see registry.in_progress_order.
+
+        Entries are [project, block key], where a key is "group:<name>" or
+        "task:<id>". Sent wholesale for the same reason set_collapsed is: the
+        renderer owns the list, so two partial writes cannot race into
+        disagreeing halves of it.
+        """
+        cleaned = []
+        for pair in pairs:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise ValueError("an in-progress entry is [project, block key]")
+            cleaned.append([_text(pair[0], "project"), _text(pair[1], "key")])
+        registry.set_in_progress_order(cleaned)
 
     def set_last_project(self, name):
         registry.set_last_project(name)

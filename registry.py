@@ -216,3 +216,45 @@ def set_collapsed_view(projects, groups) -> None:
         "projects": [str(name) for name in projects],
         "groups": [[str(pair[0]), str(pair[1])] for pair in groups],
     })
+
+
+# The order of the IN PROGRESS list, as [project, block key] pairs, where a key
+# is "group:<name>" or "task:<id>" — the same keys inProgressGroupKeys() counts.
+#
+# It cannot come from `Task.order`, and that is not a shortcut: `order` is a
+# per-BUCKET position, so two running tasks in different buckets both hold 0
+# perfectly legitimately, and the sequence a user drags them into is not
+# expressible in the task files at all. Renumbering could not fix it either —
+# groups.renumber restarts each bucket at 0 by design, which would undo any
+# cross-bucket sequence on the next write.
+#
+# It is not the task files' business anyway. This is the order of what is on
+# screen right now, which is view state, and session.json is where the fold
+# state already lives for exactly that reason — invariant 17 anticipated it.
+# Being view state also keeps it out of a tracked repo's diffs: reordering the
+# running list is not a change to any task.
+#
+# BLOCKS, not rows: inside a group the member order is the group's own and is
+# shared with the bucket view, so it stays groups.reorder_members' business and
+# the two views can never disagree about it.
+#
+# Filtered rather than trusted on the way out, like collapsed_view above — the
+# file is hand-editable, and the renderer indexes these by position.
+def in_progress_order() -> list[list]:
+    raw = _read_session().get("in_progress_order")
+    if not isinstance(raw, list):
+        return []
+    return [[pair[0], pair[1]] for pair in raw
+            if isinstance(pair, list) and len(pair) == 2
+            and all(isinstance(part, str) for part in pair)]
+
+
+def set_in_progress_order(pairs) -> None:
+    """Replace the whole list. Stale entries — a task completed, a group
+    disbanded — simply stop matching anything the renderer draws, and the next
+    reorder writes the list wholesale, so it self-cleans rather than needing a
+    sweep. Same wholesale rule as set_collapsed_view, for the same reason: two
+    partial writes cannot race into disagreeing halves of one list.
+    """
+    _update_session(in_progress_order=[[str(pair[0]), str(pair[1])]
+                                       for pair in pairs])
