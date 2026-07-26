@@ -46,6 +46,26 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .done { opacity: 0; font-size: 10px; }
 .task:hover .done { opacity: .6; }
 
+/* Hover-revealed the same way .done is, and for the same reason it uses
+   opacity rather than display: the button keeps its box in the row at all
+   times, so revealing it cannot shove the title sideways. Borderless because
+   it is a glyph, not a labelled control — the hover fill is what shows you
+   where the click target is. */
+.copy { opacity: 0; display: flex; align-items: center; padding: 2px;
+        color: inherit; background: none; border: none; border-radius: 4px;
+        cursor: pointer; }
+.task:hover .copy { opacity: .6; }
+.task:hover .copy:hover { opacity: 1; background: rgba(127, 127, 127, .18); }
+/* Copying writes to the clipboard and nothing else, so without this the click
+   has no visible result at all. Last, and listed for both states, so it also
+   holds if the pointer leaves the row while the check is still showing. */
+.copy.copied, .task:hover .copy.copied { opacity: 1; color: #4ec98a;
+                                         background: none; }
+/* The click target must be the <button>: taskRow's row-click handler ignores
+   clicks whose target closest('input, select, button') matches, and lets
+   everything else open the editor. */
+.copy svg { pointer-events: none; display: block; }
+
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }

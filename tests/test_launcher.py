@@ -67,6 +67,44 @@ def test_nothing_selected_is_an_empty_prompt():
     assert launcher.build_prompt([]) == ""
 
 
+def test_a_task_with_no_body_falls_back_to_its_title():
+    # `BUG: ` on its own says nothing. The title is the only text the task has,
+    # so it is what gets handed over — still verbatim, just a different field.
+    prompt = launcher.build_prompt([make_task(1, "Replay audio desync", "BUG", "")])
+
+    assert prompt == "BUG: Replay audio desync"
+
+
+def test_a_whitespace_only_body_counts_as_no_body():
+    prompt = launcher.build_prompt([make_task(1, "Replay audio desync", "BUG", "  \n\n")])
+
+    assert prompt == "BUG: Replay audio desync"
+
+
+def test_copy_prompt_puts_the_hand_off_text_on_the_clipboard(monkeypatch):
+    copied = {}
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: copied.update(text=text))
+    task = make_task(1, "Replay audio desync", "BUG", "drifts after 3s")
+
+    returned = launcher.copy_prompt([task])
+
+    assert copied["text"] == "BUG: drifts after 3s"
+    assert returned == copied["text"]
+
+
+def test_copy_prompt_does_not_touch_the_task(tmp_path, monkeypatch):
+    # Copying is not a commitment to work on something — unlike hand_off, it
+    # leaves status and started exactly as they were.
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
+
+    launcher.copy_prompt([task])
+
+    reloaded = store.list_tasks(tmp_path)[0]
+    assert reloaded.status == "open"
+    assert reloaded.started is None
+
+
 def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
     captured = {}
 

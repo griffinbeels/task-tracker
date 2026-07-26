@@ -163,6 +163,16 @@ class Api:
         project = _project(project_name)
         store.reorder_bucket(Path(project.path), bucket, [int(i) for i in ordered_ids])
 
+    def copy_task_prompt(self, project_name, task_id):
+        """The task's hand-off text, on the clipboard. Nothing is written.
+
+        Takes the project by name rather than assuming the selected one, so
+        this is safe from the search and all-projects views where a row can
+        belong to any project (ids are per-project — invariant 6).
+        """
+        _, task = self._find(project_name, task_id)
+        return launcher.copy_prompt([task])
+
     def hand_off(self, project_name, task_ids):
         project = _project(project_name)
         wanted = [int(i) for i in task_ids]
