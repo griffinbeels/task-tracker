@@ -270,6 +270,11 @@ class Api:
         _, task = self._find(project_name, task_id)
         return _task_dict(store.complete_task(task), project_name)
 
+    def restore_task(self, project_name, task_id):
+        """Undo a completion — see store.restore_task for where it lands."""
+        _, task = self._find(project_name, task_id)
+        return _task_dict(store.restore_task(task), project_name)
+
     # delete_tasks and complete_tasks below each pair a store.py mutation with
     # a groups.renumber call for every bucket it touched — a domain rule
     # ("removing tasks from a bucket obliges a renumber of that bucket"), not

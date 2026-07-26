@@ -590,3 +590,34 @@ def test_delete_tasks_leaves_another_project_alone(tmp_path):
     app.Api().delete_tasks("repo", [mine.id])
 
     assert [t.title for t in store.list_tasks(other)] == ["Theirs"]
+
+
+def test_restore_task_returns_the_reopened_task(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "Finished", "body", "BUG")
+    app.Api().complete_task("repo", task.id)
+
+    payload = app.Api().restore_task("repo", task.id)
+
+    assert payload["status"] == "open"
+    assert payload["done"] is None
+    assert payload["project"] == "repo"
+    # Task.path is a Path, which does not survive the bridge as JSON.
+    assert "path" not in payload
+
+
+def test_a_restored_task_is_open_on_disk(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "Finished", "body", "BUG")
+    app.Api().complete_task("repo", task.id)
+
+    app.Api().restore_task("repo", task.id)
+
+    assert store.list_tasks(repo)[0].status == "open"
+
+
+def test_restore_task_raises_on_an_unknown_id(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().restore_task("repo", 99)
