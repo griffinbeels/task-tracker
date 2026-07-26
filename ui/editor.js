@@ -50,6 +50,21 @@ function chip(label, selected, onClick, color) {
   return button;
 }
 
+// A swatch, unlike a chip, wears its colour whether or not it is selected —
+// the circle itself is the choice, not a label. That means selection cannot
+// reuse "fill it in" the way .chip.on does (it is already filled), so a ring
+// plays the same role instead: a difference you see, not one you have to
+// look for. Named via a title attribute rather than a text label, so the
+// choice is still hoverable and readable by assistive tech.
+function swatch(name, selected, onClick) {
+  const button = document.createElement('button');
+  button.className = 'swatch' + (selected ? ' on' : '');
+  button.style.background = colorHex(name);
+  button.title = name;
+  button.onclick = onClick;
+  return button;
+}
+
 // Bytes for each attachment path we have already read, so re-rendering does not
 // re-read from disk. Keyed by the `file://` URL that lives in the body.
 const attachmentBytes = new Map();
@@ -155,6 +170,9 @@ function renderChips() {
   document.getElementById('editor-buckets').replaceChildren(
     ...BUCKETS.map(b => chip(b, editorContext.bucket === b,
       () => { editorContext.bucket = b; renderChips(); })));
+  document.getElementById('editor-colors').replaceChildren(
+    ...Object.keys(CLAUDE_COLORS).map(name => swatch(name, editorContext.color === name,
+      () => { editorContext.color = name; renderChips(); })));
 }
 
 // Every action button always exists in the markup; this just shows the ones
@@ -165,8 +183,8 @@ function showEditorActions(visibleIds) {
 }
 
 // The single entry point. context is
-// { mode, title, body, project, type, bucket, noteId, taskId }; mode is one
-// of 'capture' | 'triage' | 'edit'.
+// { mode, title, body, project, type, bucket, color, noteId, taskId }; mode is
+// one of 'capture' | 'triage' | 'edit'.
 function openEditor(context) {
   editorContext = {
     mode: context.mode,
@@ -175,6 +193,11 @@ function openEditor(context) {
     bucket: context.bucket || 'now',
     noteId: context.noteId ?? null,
     taskId: context.taskId ?? null,
+    // Seeded once per open, same as every other member here — a colour the
+    // user picks must survive picking a different project afterwards, so
+    // nothing but a swatch click may write this again (invariant 11's "one
+    // keystroke marks it yours", applied to a click instead of a keystroke).
+    color: context.color || suggestColor(context.project || currentProject),
   };
 
   // Suppressing a title write is only ever right for a *guessed* title, and
@@ -282,7 +305,7 @@ document.getElementById('editor-save').onclick = async () => {
     // line survives to the task. file_note falls back to the note's own
     // text only when this argument is omitted.
     if (await callApi('file_note', note.id, editorContext.project, title,
-        editorContext.type, editorContext.bucket, body) === API_FAILED) return;
+        editorContext.type, editorContext.bucket, body, editorContext.color) === API_FAILED) return;
     triageQueue.splice(triageIndex, 1);
     afterNoteRemoved();
     await refresh();
@@ -298,7 +321,12 @@ document.getElementById('editor-save').onclick = async () => {
     // untouched content, so matching it means genuinely untouched: write
     // loadedBody back unchanged, byte for byte. A mismatch means the user
     // really edited, so send what the editor has now.
-    const fields = { title, type: editorContext.type, bucket: editorContext.bucket };
+    // color is a chip selection, not prose — invariant 13's write-only-when-
+    // changed treatment exists for the body because Toast UI renormalises
+    // markdown on every round-trip; a colour has no such round-trip drift, so
+    // it goes in unconditionally like title/type/bucket, never gated on body's
+    // changed check above.
+    const fields = { title, type: editorContext.type, bucket: editorContext.bucket, color: editorContext.color };
     if (body !== normalisedBody) fields.body = body;
     // Moving buckets without a new order carries the old bucket's position
     // across, which drops the task at an arbitrary point in the target list.
@@ -318,7 +346,7 @@ document.getElementById('editor-save').onclick = async () => {
   }
 
   if (await callApi('create_task', editorContext.project, title, body,
-      editorContext.type, editorContext.bucket) === API_FAILED) return;
+      editorContext.type, editorContext.bucket, editorContext.color) === API_FAILED) return;
   closeEditor();
   await refresh();
 };

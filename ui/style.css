@@ -125,6 +125,17 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .chip.on { opacity: 1; font-weight: 600; border-color: transparent;
            background: rgba(127, 127, 127, .3); }
 
+/* A swatch carries its colour as its own fill whether or not it is picked, so
+   selection cannot borrow the chip's "add a fill" trick — there is nothing
+   left to fill in. A ring stands in for it: still a difference you see at a
+   glance, not an outline you have to hunt for against a background that is
+   already colourful. */
+.swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%;
+          border: 2px solid transparent; cursor: pointer; opacity: .55; }
+.swatch:hover { opacity: .85; }
+.swatch.on { opacity: 1; border-color: rgba(255, 255, 255, .8);
+             box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+
 .actions { display: flex; gap: 6px; align-items: center; }
 .actions .spacer { flex: 1; }
 /* Unstyled <button> is what read as lazy — these are the same 28px control

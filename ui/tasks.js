@@ -67,6 +67,7 @@ function taskRow(task) {
       body: task.body,
       type: task.type,
       bucket: task.bucket,
+      color: task.color,
     });
   };
 
