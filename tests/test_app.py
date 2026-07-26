@@ -131,17 +131,21 @@ def test_file_note_rejects_a_non_string_body(tmp_path):
         app.Api().file_note(note["id"], "repo", "Replay audio desync", "BUG", "now", body=42)
 
 
-def test_save_attachment_returns_an_absolute_forward_slash_path(tmp_path):
+def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     import base64
+    from pathlib import Path
+    from urllib.request import url2pathname
+    from urllib.parse import urlparse
     repo = make_repo(tmp_path)
     url = "data:image/png;base64," + base64.b64encode(b"pixels").decode()
 
     returned = app.Api().save_attachment("repo", url)
 
-    # Forward slashes because a backslash is an escape character in a markdown
-    # link target; absolute so the editor can render it from file:// and the
-    # handed-off session can open it from the project root.
+    # A bare `C:/repos/x/.tasks/attachments/a.png` cannot be rendered: in a URL
+    # a leading `C:` parses as a *scheme*, so the browser never treats it as a
+    # path and the image silently fails to load. It needs the file:// scheme to
+    # be a URL at all. Backslashes stay out either way — one is an escape
+    # character in a markdown link target.
+    assert returned.startswith("file:///")
     assert "\\" not in returned
-    assert returned.startswith(repo.as_posix())
-    from pathlib import Path
-    assert Path(returned).read_bytes() == b"pixels"
+    assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"

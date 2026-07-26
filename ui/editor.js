@@ -45,15 +45,40 @@ function getEditor() {
     hideModeSwitch: true,
     theme: 'dark',
     height: '100%',
-    // Trimmed to what a notepad needs — no tables, images or the raw-markdown
-    // mode switch (hidden above), which this overlay has no use for.
+    // Trimmed to what a notepad needs — no tables, and no raw-markdown mode
+    // switch (hidden above), which this overlay has no use for. Images are
+    // absent deliberately: they arrive by Ctrl+V, not by hunting a toolbar.
     toolbarItems: [
       ['heading', 'bold', 'italic', 'strike'],
       ['ul', 'ol', 'task'],
       ['quote', 'code'],
     ],
+    hooks: { addImageBlobHook: savePastedImage },
   });
   return toastEditor;
+}
+
+// Fires for both paste and drop, with the image itself and a callback that
+// inserts a reference. Toast UI's default hook inlines the whole image as a
+// base64 data URL, which would bury a note's prose under a quarter-megabyte
+// of it and hand that to Claude verbatim — so this replaces it with a file on
+// disk and a link to it.
+//
+// Position is not something this passes: the editor inserts at its own current
+// selection, which is what makes the image land where the caret was rather
+// than at the end. Not calling `insert` at all is how a failure is reported —
+// a link to an image that was never written is worse than no image, and
+// callApi has already told the user what went wrong.
+function savePastedImage(blob, insert) {
+  const project = editorContext && editorContext.project;
+  if (!project) return;
+  const reader = new FileReader();
+  reader.onload = async event => {
+    const url = await callApi('save_attachment', project, event.target.result);
+    if (url === API_FAILED) return;
+    insert(url, blob.name || 'screenshot');
+  };
+  reader.readAsDataURL(blob);
 }
 
 // Clicking a chip must re-render only the chip rows. Earlier this logic lived

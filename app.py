@@ -125,9 +125,18 @@ class Api:
         return _task_dict(task, project_name)
 
     def save_attachment(self, project_name, data_url):
+        """Persist a pasted image and return a URL the editor can render.
+
+        as_uri(), not as_posix(): the markdown this lands in is rendered as
+        HTML, and `C:/repos/x/a.png` is not a URL — a leading `C:` parses as a
+        scheme, so the browser never resolves it as a path and the image
+        silently fails to load. The file:// form is also unambiguous for the
+        Claude session the body is handed to, which is the other half of why
+        the path is absolute.
+        """
         project = _project(project_name)
         path = store.save_attachment(Path(project.path), data_url)
-        return path.as_posix()
+        return path.as_uri()
 
     def complete_task(self, project_name, task_id):
         _, task = self._find(project_name, task_id)
