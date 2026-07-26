@@ -49,6 +49,62 @@ def test_a_jpeg_keeps_its_own_extension(tmp_path):
     assert store.save_attachment(tmp_path, url).suffix == ".jpg"
 
 
+def test_an_attachment_reads_back_as_a_renderable_data_url(tmp_path):
+    # data:, not file:: the browser declines to load a file:// subresource into
+    # a file:// document, so a file:// src renders as a broken glyph. The body
+    # on disk keeps the path; only the display is inlined.
+    path = store.save_attachment(tmp_path, PNG_DATA_URL)
+
+    assert store.attachment_data_url(tmp_path, path.as_uri()) == PNG_DATA_URL
+
+
+def test_a_plain_path_is_accepted_as_well_as_a_file_url(tmp_path):
+    path = store.save_attachment(tmp_path, PNG_DATA_URL)
+
+    assert store.attachment_data_url(tmp_path, str(path)) == PNG_DATA_URL
+
+
+def test_a_reference_outside_the_attachments_folder_is_refused(tmp_path):
+    # A task body is a hand-editable file, and this reference is handed to
+    # "read these bytes" and to os.startfile. Anything outside the project's
+    # own attachments folder has no business on either path.
+    store.ensure_tasks_dir(tmp_path)
+    outsider = tmp_path / "secrets.png"
+    outsider.write_bytes(PNG_BYTES)
+
+    with pytest.raises(ValueError):
+        store.resolve_attachment(tmp_path, outsider.as_uri())
+
+
+def test_traversal_back_out_of_the_attachments_folder_is_refused(tmp_path):
+    store.ensure_tasks_dir(tmp_path)
+    (tmp_path / "elsewhere.png").write_bytes(PNG_BYTES)
+    escaping = store.attachments_dir(tmp_path) / ".." / ".." / "elsewhere.png"
+
+    with pytest.raises(ValueError):
+        store.resolve_attachment(tmp_path, str(escaping))
+
+
+def test_a_non_image_extension_is_refused(tmp_path):
+    # Without this, a body could point open_attachment at an .exe and clicking
+    # the "image" would run it.
+    planted = store.attachments_dir(tmp_path)
+    planted.mkdir(parents=True, exist_ok=True)
+    executable = planted / "payload.exe"
+    executable.write_bytes(b"MZ")
+
+    with pytest.raises(ValueError):
+        store.resolve_attachment(tmp_path, str(executable))
+
+
+def test_a_missing_attachment_is_refused_rather_than_crashing(tmp_path):
+    store.ensure_tasks_dir(tmp_path)
+    absent = store.attachments_dir(tmp_path) / "never-existed.png"
+
+    with pytest.raises(ValueError):
+        store.resolve_attachment(tmp_path, str(absent))
+
+
 @pytest.mark.parametrize("bad", [
     "not a data url at all",
     "data:image/png,notbase64encoded",        # missing the ;base64 marker

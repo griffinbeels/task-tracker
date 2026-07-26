@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import yaml
 
@@ -212,6 +214,49 @@ def save_attachment(project_path: Path, data_url: str) -> Path:
     path = directory / f"{name}{extension}"
     path.write_bytes(data)
     return path
+
+
+_EXTENSION_MIMES = {ext: mime for mime, ext in _ATTACHMENT_EXTENSIONS.items()}
+
+
+def resolve_attachment(project_path: Path, reference: str) -> Path:
+    """Turn a body's image reference into a path, or refuse.
+
+    The reference comes out of a task body, which is a hand-editable file, and
+    it is handed to us by the renderer. So it is untrusted input on a path that
+    ends in "read these bytes" and "hand this to the shell" — anything outside
+    the project's own attachments folder is refused, as is any extension we do
+    not write ourselves. Without the extension check, a body could point
+    open_attachment at an .exe and the click would run it.
+    """
+    path = Path(url2pathname(urlparse(reference).path)
+                if reference.startswith("file:") else reference)
+    directory = attachments_dir(project_path).resolve()
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"no such attachment: {reference}") from error
+    if directory not in resolved.parents:
+        raise ValueError(f"not inside this project's attachments: {reference}")
+    if resolved.suffix.lower() not in _EXTENSION_MIMES:
+        raise ValueError(f"not an image this app writes: {resolved.suffix}")
+    return resolved
+
+
+def attachment_data_url(project_path: Path, reference: str) -> str:
+    """An attachment as a `data:` URL, which is the only form that renders.
+
+    A `file://` URL is a perfectly valid URL and the sanitiser leaves it alone
+    in WYSIWYG mode — the browser simply declines to load a `file://`
+    subresource into a `file://` document, so the image comes out as a broken
+    glyph with its alt text. `data:` is exempt for <img>, so the bytes travel
+    inline. This is display only: the body on disk keeps the path, so it stays
+    short and a handed-off session can still open the real file.
+    """
+    path = resolve_attachment(project_path, reference)
+    mime = _EXTENSION_MIMES[path.suffix.lower()]
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def save_task(task: Task) -> Task:

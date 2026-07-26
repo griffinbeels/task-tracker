@@ -1,6 +1,7 @@
 """pywebview window and the JS bridge. This module is wiring only."""
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -137,6 +138,22 @@ class Api:
         project = _project(project_name)
         path = store.save_attachment(Path(project.path), data_url)
         return path.as_uri()
+
+    def read_attachment(self, project_name, reference):
+        """The bytes behind a body's image reference, as a renderable data URL."""
+        project = _project(project_name)
+        return store.attachment_data_url(Path(project.path), reference)
+
+    def open_attachment(self, project_name, reference):
+        """Hand the real file to whatever the user opens images with.
+
+        Full-size viewing with zoom and pan, for free, instead of a half-built
+        lightbox in a 420px window. store.resolve_attachment is what keeps this
+        from being an arbitrary-file-launcher: the reference comes from a
+        hand-editable task body.
+        """
+        project = _project(project_name)
+        os.startfile(store.resolve_attachment(Path(project.path), reference))
 
     def complete_task(self, project_name, task_id):
         _, task = self._find(project_name, task_id)

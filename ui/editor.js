@@ -50,6 +50,49 @@ function chip(label, selected, onClick, color) {
   return button;
 }
 
+// Bytes for each attachment path we have already read, so re-rendering does not
+// re-read from disk. Keyed by the `file://` URL that lives in the body.
+const attachmentBytes = new Map();
+
+// The body on disk stores a path; a path is what a handed-off Claude session can
+// open. But the browser refuses to load a `file://` subresource into a `file://`
+// document, so a `file://` src renders as a broken glyph with its alt text —
+// which is exactly what shipped. `data:` is exempt for <img>, so the bytes are
+// swapped in *on the DOM node only*. The ProseMirror document keeps the path,
+// which is what makes it impossible for a data URL to reach disk: nothing here
+// touches the markdown.
+//
+// Re-runs on every change because ProseMirror rebuilds the img from the
+// document's own attributes, putting the file:// src back each time.
+async function showAttachments() {
+  const images = [...document.querySelectorAll('#editor-body img')];
+  for (const image of images) {
+    const source = image.getAttribute('src') || '';
+    if (!source.startsWith('file:')) continue;
+    if (!attachmentBytes.has(source)) {
+      const project = editorContext && editorContext.project;
+      if (!project) continue;
+      const data = await callApi('read_attachment', project, source);
+      if (data === API_FAILED) continue;
+      attachmentBytes.set(source, data);
+    }
+    // Remember the path before overwriting src — the click handler needs the
+    // real file, and a data URL cannot be handed to the OS image viewer.
+    image.dataset.attachment = source;
+    image.setAttribute('src', attachmentBytes.get(source));
+  }
+}
+
+// Clicking a thumbnail opens the real file in whatever views images on this
+// machine: full size with zoom and pan for free, rather than a lightbox built
+// into a 420px window.
+document.getElementById('editor-body').addEventListener('click', event => {
+  const image = event.target.closest('img');
+  if (!image || !image.dataset.attachment) return;
+  event.preventDefault();
+  callApi('open_attachment', editorContext.project, image.dataset.attachment);
+});
+
 function getEditor() {
   if (toastEditor) return toastEditor;
   toastEditor = new toastui.Editor({
@@ -68,6 +111,7 @@ function getEditor() {
     ],
     hooks: { addImageBlobHook: savePastedImage },
   });
+  toastEditor.on('change', showAttachments);
   return toastEditor;
 }
 
@@ -89,6 +133,9 @@ function savePastedImage(blob, insert) {
   reader.onload = async event => {
     const url = await callApi('save_attachment', project, event.target.result);
     if (url === API_FAILED) return;
+    // The bytes are already in hand, so seed the display cache rather than
+    // making showAttachments read straight back off the disk we just wrote.
+    attachmentBytes.set(url, event.target.result);
     insert(url, blob.name || 'screenshot');
   };
   reader.readAsDataURL(blob);
@@ -165,6 +212,7 @@ function openEditor(context) {
   const editor = getEditor();
   editor.setMarkdown(loadedBody, true);
   normalisedBody = editor.getMarkdown();
+  showAttachments();
 
   renderChips();
   // A task cannot change project — ids are per-project, so a move would mean

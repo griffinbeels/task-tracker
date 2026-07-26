@@ -119,6 +119,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
+/* A screenshot at natural size is a wall in a 420px column — you lose the
+   sentence it was pasted into, which is the whole point of pasting it there.
+   Capped to a thumbnail, and clickable through to the real file at full size.
+   zoom-in is the cursor that promises exactly that. */
+#editor-body img { max-width: 100%; max-height: 130px; height: auto;
+                   border-radius: 4px; cursor: zoom-in; vertical-align: middle;
+                   border: 1px solid rgba(127, 127, 127, .22); }
+#editor-body img:hover { border-color: rgba(127, 127, 127, .55); }
+
 /* Two conservative softenings of the library's own chrome, which is boxier
    than anything else in the window. Nothing here changes behaviour: if a
    future version drops these class names the editor simply looks default
