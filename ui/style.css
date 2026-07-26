@@ -225,16 +225,17 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    NOW, NEXT and SOMEDAY have no border of their own, so this is the only time
    they are drawn as boxes at all; without it the drop had a rectangle you
    could not see, and which box had claimed the cursor near a seam was a guess.
-   IN PROGRESS already draws its own border, so it only takes the wash and
-   tucks the line just inside it rather than doubling it. */
    The offset is negative on purpose: a section is full width, so an outline
    drawn outside it would reach past the window and can put a horizontal
    scrollbar on the page — a drop hint is not worth a scrollbar. */
 section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -1px;
                     border-radius: 6px; background: rgba(48, 164, 108, .05); }
-/* Louder here, because in this one section the box IS the target: landing
-   anywhere in it claims the task, and there is no preview row to say so. */
-#in-progress.drop-zone { outline-width: 2px; background: rgba(48, 164, 108, .08); }
+/* IN PROGRESS is the same rule with the volume up, not a different one: in
+   this one section the box IS the target — landing anywhere in it claims the
+   task, and there is no preview row to say so. Everything about WHERE a drop
+   lands is identical to a bucket's; only this weight differs. */
+#in-progress.drop-zone { outline: 2px solid rgba(48, 164, 108, .75);
+                         background: rgba(48, 164, 108, .08); }
 
 /* There is no second, "this comes loose" outline. It belonged to a target that
    no longer exists: leaving a group was a drop on a heading, and it is now

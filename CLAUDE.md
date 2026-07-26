@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 359 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 360 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -519,6 +519,25 @@ Break one of these and the failure is silent. Each cost a bug.
     negative): a section is full width, and an outline drawn outside it reaches
     past the window and can add a horizontal scrollbar.
 
+    **IN PROGRESS is a bucket section with one difference, and adding a second
+    one is a bug.** Every part of this — which box owns the cursor, the group
+    boxes inside it, the slot nearest the cursor, the pair band, the outlines —
+    is the same code reached the same way. The single difference is that IN
+    PROGRESS renders a *partial* view of several buckets at once, ordered by
+    project and then group rather than by anything the user chose, so there is
+    no one bucket for `reorder_bucket` to renumber: `sectionPlacement` reports
+    `canReorder: false`, and that one flag is what suppresses the top-level
+    position (a preview there would show a placement that the next render
+    discards). Reordering *within* a group still works there, because a group's
+    members do share a bucket and are contiguous.
+
+    Anything else that behaves differently between the two is a defect, not a
+    design. It has already happened twice — the section box existed only for IN
+    PROGRESS, then existed for both in the JS while a broken CSS comment
+    deleted the bucket rule — and both times it read as a missing feature
+    rather than as a bug, because the elevated section looked deliberate.
+    A new drag behaviour lands in both or in neither.
+
 ## Data on disk
 
 ```
@@ -575,6 +594,14 @@ show two unrelated tasks under one id at different points in time.
   half-forgotten in each.
 - **Never add a CDN reference.** The editor is vendored so the app works
   offline; a convention test enforces it.
+- **Extend a CSS comment BEFORE its closing `*/`, never after.** Prose written
+  after the marker is not a comment: CSS reads from there to the next `{` as
+  one selector, fails to parse it, and **silently discards the entire rule that
+  follows**. That deleted `section.drop-zone` on 2026-07-26 — the JS added the
+  class, the rule sat in the file looking correct in the diff, and no bucket
+  section ever drew its drop box. It happened twice the same day.
+  `test_the_stylesheet_has_no_stray_comment_markers` now fails the build on an
+  unbalanced marker in either direction.
 - **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`,
   `groups.py` and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from

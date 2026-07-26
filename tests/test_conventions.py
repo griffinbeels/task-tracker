@@ -227,3 +227,28 @@ def test_the_editor_assets_are_loaded_from_vendor_not_a_cdn():
         "A CDN reference makes the app require a network connection to edit a "
         "task. Load the vendored copies in ui/vendor/ instead."
     )
+
+
+def test_the_stylesheet_has_no_stray_comment_markers():
+    """An unbalanced comment silently DELETES the rule after it.
+
+    Twice on 2026-07-26 a comment was extended by writing the new prose after
+    its closing `*/` instead of before it. CSS then reads everything from there
+    to the next `{` as one selector, cannot parse it, and drops the whole rule
+    — so `section.drop-zone` was never defined and no bucket section ever drew
+    its drop box. Nothing errors, nothing logs, and the JS that adds the class
+    looks correct in the diff.
+
+    Strip every well-formed comment and no marker should survive. A leftover
+    `*/` is prose that escaped its comment; a leftover `/*` is one never
+    closed, which eats every rule until the next `*/`.
+    """
+    css = (REPO / "ui" / "style.css").read_text(encoding="utf-8")
+    stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+
+    for marker in ("*/", "/*"):
+        assert marker not in stripped, (
+            f"Unbalanced CSS comment: a stray {marker} in ui/style.css. The "
+            f"rule following it is silently discarded by the browser — extend "
+            f"a comment BEFORE its closing marker, not after it."
+        )
