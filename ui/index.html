@@ -19,6 +19,13 @@
       <label><input type="checkbox" id="all-projects"> All projects</label>
       <button id="spin-up" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in.">Spin up Claude</button>
     </div>
+    <div id="selection-bar" class="actions" hidden>
+      <span id="selection-count"></span>
+      <span class="spacer"></span>
+      <button id="selection-done">Done</button>
+      <button id="selection-delete" class="danger">Delete</button>
+      <button id="selection-clear" class="quiet">Clear</button>
+    </div>
     <div id="wip-warning" hidden></div>
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
@@ -73,6 +80,7 @@
     <script src="state.js"></script>
     <script src="tasks.js"></script>
     <script src="groups.js"></script>
+    <script src="selection.js"></script>
     <script src="editor.js"></script>
     <script src="triage.js"></script>
     <script src="settings.js"></script>

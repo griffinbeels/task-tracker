@@ -161,6 +161,13 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
+#selection-bar { margin-bottom: 8px; }
+/* .actions sets display: flex, which a bare `hidden` attribute loses to on
+   equal specificity — the same trap .overlay[hidden] and .chips[hidden]
+   already document above. */
+#selection-bar[hidden] { display: none; }
+#selection-count { font-size: 11px; opacity: .6; }
+
 /* A screenshot at natural size is a wall in a 420px column — you lose the
    sentence it was pasted into, which is the whole point of pasting it there.
    Capped to a thumbnail, and clickable through to the real file at full size.

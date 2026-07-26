@@ -125,6 +125,10 @@ function groupBlock(block, options = {}) {
   // by hand lights it up too.
   selectAll.onchange = () => {
     rows.forEach(row => { row.querySelector('.select').checked = selectAll.checked; });
+    // Assigning .checked above does not fire a change event, so the delegated
+    // listener in selection.js never sees a whole group being selected —
+    // without this the count would silently stay stale.
+    renderSelectionBar();
   };
   rows.forEach(row => row.querySelector('.select').addEventListener('change', () => {
     selectAll.checked = rows.every(other => other.querySelector('.select').checked);

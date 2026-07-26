@@ -181,16 +181,9 @@ function selectedIds() {
 }
 
 document.getElementById('spin-up').onclick = async () => {
-  const selected = selectedIds();
-  // Ids are per-project, so a mixed selection cannot be handed to one
-  // session — and one session per working tree is the design anyway.
-  const projects = new Set(selected.map(s => s.project));
-  if (projects.size > 1) { alert('Select tasks from one project at a time.'); return; }
-  // Selecting nothing is a real request, not a mistake: open a session in the
-  // project you are looking at and leave its prompt empty.
-  const project = projects.size ? [...projects][0] : currentProject;
-  if (!project) return;
-  if (await callApi('hand_off', project, selected.map(s => s.id)) === API_FAILED) return;
+  const picked = selectedInOneProject();
+  if (!picked) return;
+  if (await callApi('hand_off', picked.project, picked.ids) === API_FAILED) return;
   await refresh();
 };
 
@@ -289,6 +282,7 @@ function render() {
     }
   }
   renderWipWarning();
+  renderSelectionBar();
   const unreadable = state.unreadable || [];
   const badFiles = document.getElementById('unreadable-warning');
   badFiles.hidden = unreadable.length === 0;
