@@ -192,6 +192,35 @@ class Api:
         _, task = self._find(project_name, task_id)
         return _task_dict(store.complete_task(task), project_name)
 
+    def delete_tasks(self, project_name, task_ids):
+        """Erase every file in this selection, then repair the buckets it hollowed out.
+
+        The bucket set is captured before any file is touched: after a delete
+        the task object is gone, so its bucket could not be read afterwards.
+        """
+        project, tasks = self._tasks(project_name, task_ids)
+        buckets = {task.bucket for task in tasks}
+        for task in tasks:
+            store.delete_task(task)
+        for bucket in buckets:
+            groups.renumber(Path(project.path), bucket)
+        return len(tasks)
+
+    def complete_tasks(self, project_name, task_ids):
+        """Move every task in this selection to done/, then repair the buckets.
+
+        Same reason as delete_tasks for capturing buckets first: a completed
+        task still reads its old bucket, but it is no longer live, so leaving
+        it out of the renumber pass would leave a hole in the run.
+        """
+        project, tasks = self._tasks(project_name, task_ids)
+        buckets = {task.bucket for task in tasks}
+        for task in tasks:
+            store.complete_task(task)
+        for bucket in buckets:
+            groups.renumber(Path(project.path), bucket)
+        return len(tasks)
+
     def reorder_bucket(self, project_name, bucket, ordered_ids):
         project = _project(project_name)
         store.reorder_bucket(Path(project.path), bucket, [int(i) for i in ordered_ids])

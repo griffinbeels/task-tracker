@@ -274,3 +274,81 @@ def test_reset_to_open_still_raises_on_an_unknown_id(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().reset_to_open("repo", [999])
+
+
+def test_delete_tasks_erases_every_file_and_returns_the_count(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+    kept = store.create_task(repo, "C", "body", "BUG")
+
+    deleted = app.Api().delete_tasks("repo", [first.id, second.id])
+
+    assert deleted == 2
+    assert [t.id for t in store.list_tasks(repo)] == [kept.id]
+
+
+def test_delete_tasks_acts_once_on_a_repeated_id(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    assert app.Api().delete_tasks("repo", [task.id, task.id]) == 1
+    assert store.list_tasks(repo) == []
+
+
+def test_delete_tasks_raises_on_an_unknown_id_and_deletes_nothing(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().delete_tasks("repo", [task.id, 999])
+
+    assert len(store.list_tasks(repo)) == 1
+
+
+def test_delete_tasks_closes_the_hole_it_leaves_in_the_bucket(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    middle = store.create_task(repo, "B", "body", "BUG")
+    last = store.create_task(repo, "C", "body", "BUG")
+    assert [t.order for t in (first, middle, last)] == [0, 1, 2]
+
+    app.Api().delete_tasks("repo", [middle.id])
+
+    remaining = sorted(store.list_tasks(repo), key=lambda t: t.order)
+    assert [t.order for t in remaining] == [0, 1]
+
+
+def test_complete_tasks_moves_them_all_to_the_archive(tmp_path):
+    repo = make_repo(tmp_path)
+    first = store.create_task(repo, "A", "body", "BUG")
+    second = store.create_task(repo, "B", "body", "BUG")
+
+    assert app.Api().complete_tasks("repo", [first.id, second.id]) == 2
+
+    assert store.list_tasks(repo, include_done=False) == []
+    assert len(store.list_tasks(repo, include_done=True)) == 2
+    assert all(t.status == "done" for t in store.list_tasks(repo))
+
+
+def test_complete_tasks_raises_on_an_unknown_id(tmp_path):
+    repo = make_repo(tmp_path)
+    store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().complete_tasks("repo", [999])
+
+
+def test_delete_tasks_leaves_another_project_alone(tmp_path):
+    # Ids are per-project (invariant 6): every project has a task 1.
+    repo = make_repo(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    registry.add_project("other", str(other))
+    mine = store.create_task(repo, "Mine", "body", "BUG")
+    theirs = store.create_task(other, "Theirs", "body", "BUG")
+    assert mine.id == theirs.id
+
+    app.Api().delete_tasks("repo", [mine.id])
+
+    assert [t.title for t in store.list_tasks(other)] == ["Theirs"]
