@@ -83,33 +83,6 @@ def spawn_claude(project_path: Path,
     )
 
 
-def hand_off(project_path: Path, tasks: list[store.Task],
-             launch: list[str] | None = None) -> str:
-    """Open a session in the project with the selected tasks in its prompt box.
-
-    The text is typed into the new window rather than submitted for you: it
-    arrives as an editable prompt, so you can add to it or think again before
-    sending. The clipboard copy is the backup for a session that took too long
-    to come up, and the reason typing is allowed to fail silently.
-
-    With nothing selected this is simply "open Claude in this project" —
-    nothing is typed, and the clipboard is left alone.
-    """
-    prompt = build_prompt(tasks)
-    session = spawn_claude(project_path, launch)
-    if prompt:
-        pyperclip.copy(prompt)
-        console_input.paste_when_ready(session.pid, prompt)
-
-    today = datetime.now(timezone.utc).date().isoformat()
-    for task in tasks:
-        task.status = "in-progress"
-        task.started = task.started or today
-        store.save_task(task)
-
-    return prompt
-
-
 # A tab label longer than this is unreadable, and it doubles as what keeps
 # Claude Code inserting a pasted `/rename` argument literally rather than
 # collapsing it into a `[Pasted text]` placeholder — a short line pastes as
@@ -202,3 +175,30 @@ def setup_commands(tasks: list[store.Task], name: str | None = None) -> list[str
         commands.append(f"/color {color}")
 
     return commands
+
+
+def hand_off(project_path: Path, tasks: list[store.Task],
+             launch: list[str] | None = None) -> str:
+    """Open a session in the project with the selected tasks in its prompt box.
+
+    The text is typed into the new window rather than submitted for you: it
+    arrives as an editable prompt, so you can add to it or think again before
+    sending. The clipboard copy is the backup for a session that took too long
+    to come up, and the reason typing is allowed to fail silently.
+
+    With nothing selected this is simply "open Claude in this project" —
+    nothing is typed, and the clipboard is left alone.
+    """
+    prompt = build_prompt(tasks)
+    session = spawn_claude(project_path, launch)
+    if prompt:
+        pyperclip.copy(prompt)
+        console_input.paste_when_ready(session.pid, prompt)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    for task in tasks:
+        task.status = "in-progress"
+        task.started = task.started or today
+        store.save_task(task)
+
+    return prompt
