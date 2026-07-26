@@ -374,8 +374,8 @@ function renameInPlace(nameElement, project, current) {
 // before (see the note in wireDrag).
 
 function clearDropAffordance(root) {
-  root.querySelectorAll('.drop-into').forEach(
-    element => element.classList.remove('drop-into'));
+  root.querySelectorAll('.drop-into, .drop-zone').forEach(
+    element => element.classList.remove('drop-into', 'drop-zone'));
 }
 
 function groupOf(element) {
@@ -426,19 +426,19 @@ function sectionPlacement(section) {
 // and is still a real drop.
 //
 // "Already there" means the same group AND the same status, which is what lets
-// a NOW member of group G be dropped on G's header inside IN PROGRESS — that
+// a NOW member of group G be dropped into G's box inside IN PROGRESS — that
 // claims it — while the same drop in its own section stays a no-op.
-function placement(destination, dragged, isGroup, element) {
+function placement(destination, dragged, isGroup) {
   const current = draggedState(dragged, isGroup);
   if (!current) return null;
   // A group drag never changes membership, so the destination's `group` is
   // not about it — place_group fills in the name. Comparing the two would
   // read every group drag as "become loose" and so never as a no-op, which
-  // would light up the heading of the bucket the group is already in.
+  // would light up the box the group is already in.
   const settled = (isGroup || destination.group === current.group)
     && destination.status === current.status
     && (destination.bucket === null || destination.bucket === current.bucket);
-  return settled ? null : { kind: 'place', ...destination, element };
+  return settled ? null : { kind: 'place', ...destination };
 }
 
 // Grouping must be aimed; reordering must not. The band is a third of a row's
@@ -453,22 +453,35 @@ const PAIR_INSET = 12;
 // of the box; only the twitch is absorbed.
 const GROUP_STICKY = 8;
 
-// The section the cursor is in, or the nearest one. Nearest rather than none,
-// because the margins between the boxes are a few pixels of nothing and a drag
-// that dies in one reads as the app ignoring the drop.
+// The section the cursor is in. A section owns exactly its own rectangle, and
+// the margin between two of them belongs to the one BELOW.
+//
+// Not "the nearest", which is what this was: nearest splits the margin down
+// the middle, so a box with a visible border went on claiming about ten pixels
+// past the edge it draws — and a border reads as a hard edge, so a drop caught
+// beyond it looks like the app misreading the cursor. Handing the whole gap
+// downwards makes the rule one you can see: inside the outline or not.
+//
+// Measured rather than hit-tested. `event.target.closest` would answer with
+// whatever element happens to be under the pointer, and the dragged row is
+// still in the flow — so it could name the section the row came FROM while the
+// cursor is over another one.
 function sectionUnder(event) {
-  const direct = event.target.closest('section[data-bucket], #in-progress');
-  if (direct) return direct;
-  let best = null;
-  let shortest = Infinity;
-  for (const candidate of document.querySelectorAll(
-      '#task-list section[data-bucket], #task-list #in-progress')) {
+  const sections = [...document.querySelectorAll(
+    '#task-list section[data-bucket], #task-list #in-progress')];
+  if (!sections.length) return null;
+  const pointerY = event.clientY;
+  const inside = sections.find(candidate => {
     const box = candidate.getBoundingClientRect();
-    const gap = event.clientY < box.top ? box.top - event.clientY
-      : event.clientY > box.bottom ? event.clientY - box.bottom : 0;
-    if (gap < shortest) { shortest = gap; best = candidate; }
-  }
-  return best;
+    return pointerY >= box.top && pointerY <= box.bottom;
+  });
+  if (inside) return inside;
+  // Past the end of the list — the empty space below SOMEDAY is a great deal
+  // of the window, and it belongs to the last section rather than to nothing.
+  const last = sections[sections.length - 1];
+  if (pointerY > last.getBoundingClientRect().bottom) return last;
+  return sections.find(
+    candidate => pointerY < candidate.getBoundingClientRect().top) || last;
 }
 
 // The blocks a container orders, minus the one being dragged. A top-level list
@@ -546,7 +559,7 @@ function dropIntent(event, dragged, draggedIsGroup) {
   if (!draggedIsGroup) {
     const target = pairTarget(section, event, dragged, project);
     if (target) return { kind: 'pair', over: target, element: target,
-                         status: lands.status };
+                         status: lands.status, section };
   }
 
   // 2. Inside a group's box. A group is one level deep, so a dragged group
@@ -559,7 +572,8 @@ function dropIntent(event, dragged, draggedIsGroup) {
     // IN PROGRESS renders only part of a bucket, so it cannot renumber one.
     // Its members can still trade their own slots, which is what `sort` is.
     if (!lands.canReorder && name === groupOf(dragged)) {
-      return { kind: 'sort', preview: { container, before } };
+      return { kind: 'sort', preview: { container, before }, element: container,
+               section };
     }
     // A bucket section needs no `sort`: it draws the whole bucket, so the
     // ordered id list it hands place_task already positions the member.
@@ -577,9 +591,11 @@ function dropIntent(event, dragged, draggedIsGroup) {
     // IN PROGRESS has no order anyone chose — its rows sort by project and
     // then group — so there is no slot to compute and nothing to preview. The
     // no-op check matters here for the same reason: without a position to
-    // change, a loose running row dropped back in its own box means nothing.
-    return placement({ bucket: null, group: null, status: lands.status },
-                     dragged, draggedIsGroup, section);
+    // change, a loose running row dropped back in its own box means nothing,
+    // and an outline would be promising something.
+    const claim = placement({ bucket: null, group: null, status: lands.status },
+                            dragged, draggedIsGroup);
+    return claim && { ...claim, section };
   }
   const blocks = blocksIn(section, dragged, '.task, .group');
   return { kind: 'place', bucket: lands.bucket, group: null, status: lands.status,
@@ -628,12 +644,17 @@ function wireDrag() {
         container.insertBefore(dragged, before);
       }
     }
-    // An outline on top of that, for the outcomes a position cannot show:
-    // becoming part of a group, or being claimed into the running region.
-    // There is no second look any more — the dashed "comes loose" outline went
-    // with the target it belonged to. Leaving a group is not a target now, it
+    // The two rectangles the rule is written against (invariant 28), drawn as
+    // the two rectangles it is written against. The section always: it is the
+    // category this will land in, and seeing which one has claimed the cursor
+    // is the difference between trusting the drop and guessing at it. The
+    // inner target only when there is one — a group to join, a row to pair
+    // with — which is why it is the louder of the two.
+    //
+    // There is no "comes loose" look. Leaving a group is not a target now, it
     // is what being outside every group's box means, and the preview stepping
-    // the row out of the group's rail says that better than an outline could.
+    // the row out of the group's rail says it better than an outline could.
+    intent.section.classList.add('drop-zone');
     if (intent.element) intent.element.classList.add('drop-into');
   });
 

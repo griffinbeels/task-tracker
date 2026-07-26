@@ -217,14 +217,24 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
   outline: 2px solid rgba(48, 164, 108, .75); outline-offset: -2px;
   border-radius: 5px; }
 
-/* The exception to "an outline, not a fill", and the reason is that this one
-   is not a row: the whole IN PROGRESS box is a single drop target, so it has
-   to read as a zone rather than as a line around something. A box that only
-   gained an outline would look like a row that had grown, and the point of
-   lighting the whole rectangle is to say that all of it accepts the drop. */
-#in-progress.drop-into { outline: 2px solid rgba(48, 164, 108, .75);
-                         outline-offset: -1px;
-                         background: rgba(48, 164, 108, .07); }
+/* The section a drop will land in, drawn for the whole time a drag is over
+   one. The outer of the two rectangles the rule reads (invariant 28) — the
+   inner one is .drop-into above, on a group to join or a row to pair with — so
+   it is deliberately the quieter: a thin line and a wash rather than a hard
+   outline, because it says "this category" and not "this thing".
+   NOW, NEXT and SOMEDAY have no border of their own, so this is the only time
+   they are drawn as boxes at all; without it the drop had a rectangle you
+   could not see, and which box had claimed the cursor near a seam was a guess.
+   IN PROGRESS already draws its own border, so it only takes the wash and
+   tucks the line just inside it rather than doubling it. */
+   The offset is negative on purpose: a section is full width, so an outline
+   drawn outside it would reach past the window and can put a horizontal
+   scrollbar on the page — a drop hint is not worth a scrollbar. */
+section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -1px;
+                    border-radius: 6px; background: rgba(48, 164, 108, .05); }
+/* Louder here, because in this one section the box IS the target: landing
+   anywhere in it claims the task, and there is no preview row to say so. */
+#in-progress.drop-zone { outline-width: 2px; background: rgba(48, 164, 108, .08); }
 
 /* There is no second, "this comes loose" outline. It belonged to a target that
    no longer exists: leaving a group was a drop on a heading, and it is now

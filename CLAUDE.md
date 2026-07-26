@@ -498,6 +498,26 @@ Break one of these and the failure is silent. Each cost a bug.
       drag, so the live preview displaces every block below it — feed that back
       in and the preview chooses its own next position, and the row flips
       between two slots while the cursor holds still.
+    - **A section owns exactly its own rectangle, and the margin between two
+      belongs to the one BELOW.** `sectionUnder` used to take the *nearest*,
+      which splits a margin down the middle and let a bordered box go on
+      claiming about ten pixels past the edge it draws — and a drawn border
+      reads as a hard edge, so a drop caught beyond it looks like the cursor
+      being misread. The exception is the space past the last section, which is
+      most of the window and belongs to it rather than to nothing.
+    - **It is measured, never hit-tested.** `event.target.closest` answers with
+      whatever element is under the pointer, and the dragged row is still in
+      the flow — so it can name the section the row came FROM while the cursor
+      is over a different one.
+
+    **Both rectangles are drawn, because both are read.** `.drop-zone` marks
+    the section for the whole time a drag is over one, and `.drop-into` the
+    inner target when there is one. NOW, NEXT and SOMEDAY have no border of
+    their own, so this is the only time they are boxes at all — without it the
+    rule had a rectangle nobody could see, and which box had claimed the cursor
+    near a seam was a guess. The section outline is inset (`outline-offset` is
+    negative): a section is full width, and an outline drawn outside it reaches
+    past the window and can add a horizontal scrollbar.
 
 ## Data on disk
 
