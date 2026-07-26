@@ -353,15 +353,29 @@ function renameInPlace(nameElement, project, current) {
 // because they are not placements: `pair` names a NEW group, and `sort`
 // permutes one group's own slots. A refusal is null.
 //
-// Three zones over a row, unchanged: the middle half means "group these two",
-// the outer quarters mean "reorder". Inside a group's container every position
-// means "join this group", because a drop between two children would write an
-// order interleaving a non-member into the group's contiguous run and the next
-// renumber would silently eject it below the block.
+// WHERE a drop lands is read from GEOMETRY, not from `event.target`. Every
+// section is a box: anywhere inside it means "this category", at the slot
+// nearest the cursor. Every group is a nested box inside that one: anywhere
+// inside it means "and in this group". Those are the two rectangles a user can
+// actually see, so they are the two the rule is written against — an
+// element-based rule kept disagreeing with them, because the padding of a box
+// belongs to the box on screen and to nothing at all in the DOM.
+//
+// Reordering is the common gesture and grouping the rare one, so reordering is
+// what everything defaults to and grouping has to be AIMED: it needs the
+// cursor inside a band a third of a row tall, inset from both ends. This
+// replaces an even split — the middle half of a row grouped, the outer
+// quarters reordered — which made the rarer, more surprising outcome as easy
+// to hit as the common one.
+//
+// The dragged element is excluded from every measurement. Including it would
+// feed the preview back into the geometry that produced it: the live move
+// slides the row under the cursor, which is what silently broke the drop
+// before (see the note in wireDrag).
 
 function clearDropAffordance(root) {
-  root.querySelectorAll('.drop-into, .drop-loose').forEach(
-    element => element.classList.remove('drop-into', 'drop-loose'));
+  root.querySelectorAll('.drop-into').forEach(
+    element => element.classList.remove('drop-into'));
 }
 
 function groupOf(element) {
@@ -427,114 +441,150 @@ function placement(destination, dragged, isGroup, element) {
   return settled ? null : { kind: 'place', ...destination, element };
 }
 
+// Grouping must be aimed; reordering must not. The band is a third of a row's
+// height, centred, and inset from both ends — "very clearly on top of that
+// task" rather than merely nearest to it. Everything outside it reorders.
+const PAIR_BAND = 1 / 3;
+const PAIR_INSET = 12;
+
+// A group keeps a few pixels of grip on the row already inside it, so that
+// sorting within a group and overshooting the last member by a pixel does not
+// throw the row out of the group. Leaving is still one deliberate drag clear
+// of the box; only the twitch is absorbed.
+const GROUP_STICKY = 8;
+
+// The section the cursor is in, or the nearest one. Nearest rather than none,
+// because the margins between the boxes are a few pixels of nothing and a drag
+// that dies in one reads as the app ignoring the drop.
+function sectionUnder(event) {
+  const direct = event.target.closest('section[data-bucket], #in-progress');
+  if (direct) return direct;
+  let best = null;
+  let shortest = Infinity;
+  for (const candidate of document.querySelectorAll(
+      '#task-list section[data-bucket], #task-list #in-progress')) {
+    const box = candidate.getBoundingClientRect();
+    const gap = event.clientY < box.top ? box.top - event.clientY
+      : event.clientY > box.bottom ? event.clientY - box.bottom : 0;
+    if (gap < shortest) { shortest = gap; best = candidate; }
+  }
+  return best;
+}
+
+// The blocks a container orders, minus the one being dragged. A top-level list
+// is rows and group containers together — a group occupies one slot, which is
+// what keeps its members contiguous (invariant 16).
+function blocksIn(container, dragged, selector) {
+  return [...container.children].filter(child =>
+    child !== dragged && child.matches(selector));
+}
+
+// The slot the cursor is nearest: before the first block whose middle is below
+// it, or the end. Midpoints rather than edges, so the answer changes as the
+// cursor passes the middle of a row and not as it crosses a seam.
+//
+// Measured as if the dragged block were not in the flow. It IS in the flow —
+// HTML5 drag leaves the element where it is, and the preview then moves it —
+// so every block after it sits one row lower than it otherwise would. Leave
+// that in and the preview decides its own next position: the row lands between
+// two slots, displaces the one below it, and the next reading picks the other
+// slot, so the list flips between them while the cursor holds still.
+function slotFor(blocks, pointerY, dragged) {
+  const displaced = dragged ? dragged.getBoundingClientRect().height : 0;
+  const at = blocks.findIndex(block => {
+    const box = block.getBoundingClientRect();
+    const after = dragged
+      && (dragged.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return pointerY < box.top + box.height / 2 - (after ? displaced : 0);
+  });
+  return at === -1 ? blocks.length : at;
+}
+
+function withinBox(element, event, grow = 0) {
+  const box = element.getBoundingClientRect();
+  return event.clientX >= box.left - grow && event.clientX <= box.right + grow
+    && event.clientY >= box.top - grow && event.clientY <= box.bottom + grow;
+}
+
+// The group box the cursor is inside. The dragged row's OWN group is not
+// excluded — that is how sorting within a group works — it just gets the extra
+// grip.
+function groupUnder(section, event, dragged) {
+  const mine = groupOf(dragged);
+  return [...section.querySelectorAll('.group')].find(container =>
+    container !== dragged
+    && withinBox(container, event,
+                 container.dataset.group === mine ? GROUP_STICKY : 0)) || null;
+}
+
+// A loose top-level row the cursor is very clearly on top of — the one gesture
+// here that makes a new group, so the one that has to be aimed.
+function pairTarget(section, event, dragged, project) {
+  return [...section.querySelectorAll('.task')].find(row => {
+    if (row === dragged || row.dataset.project !== project) return false;
+    if (row.parentElement.classList.contains('group')) return false;
+    const box = row.getBoundingClientRect();
+    const margin = box.height * (1 - PAIR_BAND) / 2;
+    return event.clientY >= box.top + margin && event.clientY <= box.bottom - margin
+      && event.clientX >= box.left + PAIR_INSET && event.clientX <= box.right - PAIR_INSET;
+  }) || null;
+}
+
 function dropIntent(event, dragged, draggedIsGroup) {
-  const section = event.target.closest('section[data-bucket], #in-progress');
+  const section = sectionUnder(event);
   if (!section) return null;
   const lands = sectionPlacement(section);
   const project = dragged.dataset.project;
 
-  // The WHOLE IN PROGRESS box, not just its heading. It is drawn as a bordered
-  // box with an invitation written inside it, so it has to behave like one —
-  // the dead strip beside the heading and around the line was exactly the
-  // "nothing happened" the box's own text promises against. The affordance is
-  // the box itself for the same reason: a drop zone lights up as a zone.
-  //
-  // Bucket sections deliberately do NOT do this. A reorder drag crosses their
-  // gaps constantly and there event.target is the section itself, so releasing
-  // in one would quietly dissolve the grouping being rearranged. IN PROGRESS
-  // has no top-level reorder at all, so it has no such gaps to cross.
-  //
-  // Only for something not already running, though. A running row inside a
-  // group would otherwise be dissolved out of it by overshooting the last row
-  // while sorting within it — a few pixels of padding away — and the project
-  // heading is the aimable target for that on purpose.
-  const wholeBox = () => {
-    if (lands.canReorder) return null;
-    const current = draggedState(dragged, draggedIsGroup);
-    if (!current || current.status === 'in-progress') return null;
-    return placement({ bucket: null, group: null, status: 'in-progress' },
-                     dragged, draggedIsGroup, section);
-  };
+  // One project at a time. Ids are per-project and so is a group name, so a
+  // cross-project drop has nothing coherent to mean. A bucket section shows
+  // one project and says so; IN PROGRESS spans every project, and takes each
+  // row on its own terms.
+  if (lands.bucket && section.dataset.project !== project) return null;
 
-  // A bucket's heading: one target, one meaning — "belongs to this list, to no
-  // group". The heading rather than the region, for the gaps reason above.
-  const sectionTarget = event.target.closest('section > h2, .wip-empty');
-  if (sectionTarget && sectionTarget.parentElement === section) {
-    if (!lands.bucket) return wholeBox();
-    // A bucket section shows one project, so it must match.
-    if (section.dataset.project !== project) return null;
-    return placement({ bucket: lands.bucket, group: null, status: lands.status },
-                     dragged, draggedIsGroup, sectionTarget);
+  // 1. Grouping — the aimed gesture, so it is tried first and refuses easily.
+  if (!draggedIsGroup) {
+    const target = pairTarget(section, event, dragged, project);
+    if (target) return { kind: 'pair', over: target, element: target,
+                         status: lands.status };
   }
 
-  const projectHeading = event.target.closest('.project-heading');
-  if (projectHeading) {
-    if (projectHeading.parentElement.dataset.project !== project) return null;
-    return placement({ bucket: lands.bucket, group: null, status: lands.status },
-                     dragged, draggedIsGroup, projectHeading);
+  // 2. Inside a group's box. A group is one level deep, so a dragged group
+  // never enters one — it reorders past it at the top level instead.
+  const container = draggedIsGroup ? null : groupUnder(section, event, dragged);
+  if (container && container.dataset.project === project) {
+    const name = container.dataset.group;
+    const members = blocksIn(container, dragged, '.task');
+    const before = members[slotFor(members, event.clientY, dragged)] || null;
+    // IN PROGRESS renders only part of a bucket, so it cannot renumber one.
+    // Its members can still trade their own slots, which is what `sort` is.
+    if (!lands.canReorder && name === groupOf(dragged)) {
+      return { kind: 'sort', preview: { container, before } };
+    }
+    // A bucket section needs no `sort`: it draws the whole bucket, so the
+    // ordered id list it hands place_task already positions the member.
+    return { kind: 'place', bucket: null, group: name, status: lands.status,
+             element: container, section, positioned: lands.canReorder,
+             preview: lands.canReorder ? { container, before } : null };
   }
 
-  const header = event.target.closest('.group-header');
-  if (header && header.parentElement !== dragged) {
-    // Dropping a group onto a group does not merge them: a group IS its name,
-    // so merging silently destroys one of the two names.
-    if (draggedIsGroup) return null;
-    if (header.parentElement.dataset.project !== project) return null;
-    // No bucket named here: the group owns its own (invariant 16), so joining
-    // is what sets it. That is what moves a someday task into now when it is
-    // dropped onto a group living there.
-    return placement({ bucket: null, group: header.parentElement.dataset.group,
-                       status: lands.status }, dragged, draggedIsGroup, header);
-  }
-
-  const over = event.target.closest('.task');
-
-  // Over the row being dragged — which is where the pointer ends up as soon as
-  // the live move slides it under the cursor, and it is the whole of the "it
-  // moved on screen and nothing was saved" bug. Returning null here left
-  // `intent` empty at release, so `drop` returned before calling anything: the
-  // DOM showed the row in its new section and the next render put it back,
-  // because nothing had been written. There IS a destination — the row is
-  // already sitting in it — so commit where it sits. `over` is deliberately
-  // absent: there is nothing to insert relative to, only a position to keep.
-  if (over && (over === dragged || dragged.contains(over))) {
-    return lands.canReorder ? { kind: 'move', section } : wholeBox();
-  }
-
-  // One project at a time, in every context. Task ids are per-project and so
-  // is a group name, so a cross-project drop has nothing coherent to mean.
-  if (!over || over.dataset.project !== project) return wholeBox();
-
-  const inGroup = over.parentElement.classList.contains('group')
-    ? over.parentElement.dataset.group : null;
-  // A group is one level deep. Never let a container land inside another.
-  if (draggedIsGroup && inGroup) return null;
-
-  const box = over.getBoundingClientRect();
-  const offset = (event.clientY - box.top) / box.height;
-  if (!draggedIsGroup && !inGroup && offset > 0.25 && offset < 0.75) {
-    return { kind: 'pair', over, element: over, status: lands.status };
-  }
-
+  // 3. Anywhere else in the box: this category, no group, nearest slot. The
+  // headings, the padding, the gaps between blocks and the empty line all land
+  // here — they are inside the rectangle the user is aiming at, so they behave
+  // like it. This is what a grouped row dropped clear of its group's box rides
+  // out on, which is why leaving a group needs no target of its own any more.
   if (!lands.canReorder) {
-    // IN PROGRESS. A loose row's edge has nothing to reorder — this list's
-    // order is by project and group rather than anything anyone chose — so it
-    // falls back to the box, like every other part of it that is not a row of
-    // its own.
-    if (!inGroup) return wholeBox();
-    // Inside one group there IS a position to drop into. Its members share a
-    // bucket and sit contiguously (invariant 16), so they can trade their own
-    // slots without touching the rest of that bucket — which is the only
-    // reason a section rendering part of a bucket can reorder anything.
-    if (inGroup === groupOf(dragged)) return { kind: 'sort', over, after: offset > 0.5 };
-    return placement({ bucket: null, group: inGroup, status: lands.status },
-                     dragged, draggedIsGroup, over);
+    // IN PROGRESS has no order anyone chose — its rows sort by project and
+    // then group — so there is no slot to compute and nothing to preview. The
+    // no-op check matters here for the same reason: without a position to
+    // change, a loose running row dropped back in its own box means nothing.
+    return placement({ bucket: null, group: null, status: lands.status },
+                     dragged, draggedIsGroup, section);
   }
-  // A reorder. The row moves live and where it LANDED decides what it belongs
-  // to — inside a container it joins, in a top-level gap it comes loose — so
-  // no group is named here. The section is carried because the drop needs its
-  // bucket and its id list, and by then the pointer may have left it.
-  return { kind: 'move', over, after: offset > 0.5, section };
+  const blocks = blocksIn(section, dragged, '.task, .group');
+  return { kind: 'place', bucket: lands.bucket, group: null, status: lands.status,
+           section, positioned: true,
+           preview: { container: section, before: blocks[slotFor(blocks, event.clientY, dragged)] || null } };
 }
 
 function wireDrag() {
@@ -565,26 +615,26 @@ function wireDrag() {
     clearDropAffordance(list);
     intent = dropIntent(event, dragged, draggedIsGroup);
     if (!intent) return;
-    if (intent.kind === 'move' || intent.kind === 'sort') {
-      // No `over` means the pointer is on the dragged row itself: it is
-      // already where it is going, so there is nothing to insert it against
-      // and no affordance to draw — the row under the cursor IS the preview.
-      if (intent.over) {
-        intent.over.parentElement.insertBefore(
-          dragged, intent.after ? intent.over.nextSibling : intent.over);
+    // The live move IS the affordance for a reorder: the row is drawn where it
+    // would land, indented into a group's rail or clear of it, which says more
+    // than an outline could. `before` is measured with the dragged element
+    // excluded, so inserting it cannot change the answer that put it there.
+    if (intent.preview) {
+      const { container, before } = intent.preview;
+      // Only when it actually moves. dragover fires continuously, and an
+      // insertBefore that changes nothing still invalidates layout for every
+      // rect read on the next one.
+      if (dragged.parentElement !== container || dragged.nextSibling !== before) {
+        container.insertBefore(dragged, before);
       }
-    } else {
-      // Two outcomes, two looks: solid means "becomes part of this", dashed
-      // means "comes loose from what it was in". One outline for both would
-      // make the gesture that dissolves a grouping look like the one that
-      // makes it. Being claimed into IN PROGRESS is joining the running
-      // region, so it is solid; being dropped back into a bucket is leaving
-      // it, so it is dashed. A status change is not a third kind of outcome —
-      // it is these same two, seen from the region that gained or lost a row.
-      const joins = intent.kind === 'pair' || intent.group !== null
-        || intent.status === 'in-progress';
-      intent.element.classList.add(joins ? 'drop-into' : 'drop-loose');
     }
+    // An outline on top of that, for the outcomes a position cannot show:
+    // becoming part of a group, or being claimed into the running region.
+    // There is no second look any more — the dashed "comes loose" outline went
+    // with the target it belonged to. Leaving a group is not a target now, it
+    // is what being outside every group's box means, and the preview stepping
+    // the row out of the group's rail says that better than an outline could.
+    if (intent.element) intent.element.classList.add('drop-into');
   });
 
   list.addEventListener('drop', async event => {
@@ -647,40 +697,25 @@ function wireDrag() {
       return;
     }
 
-    if (settled.kind === 'place') {
-      const destination = { bucket: settled.bucket, group: settled.group,
-                            status: settled.status };
-      const outcome = wasGroup
-        ? await callApi('place_group', project, name, destination)
-        : await callApi('place_task', project, Number(row.dataset.id), destination);
-      if (outcome === API_FAILED) return;
-      // Before the refresh, while state.tasks still counts the member on its
-      // way out — a group that just lost its last one does not exist any more,
-      // and nothing would ever unfold its leftover entry.
-      if (!wasGroup && settled.group !== wasInGroup) {
-        await forgetFoldIfEmptied(project, wasInGroup);
-      }
-      await refresh();
-      return;
-    }
-
-    // A reorder. Where the row landed decides what it belongs to, and which
-    // section it landed in decides its bucket and its status — that is the
-    // whole of dragging between now/next/someday. The DOM is the last writer
-    // and rightly so: it is what the user just saw. Members stay contiguous
-    // because a group's rows live inside its own container, and folded rows
-    // are still in there (invariant 18) so the list has no hole in it.
-    const lands = sectionPlacement(settled.section);
-    const landed = wasGroup ? null : groupOf(row);
-    const ids = [...settled.section.querySelectorAll('.task')].map(
-      element => Number(element.dataset.id));
+    const destination = { bucket: settled.bucket, group: settled.group,
+                          status: settled.status };
+    // Read AFTER the live move, so the ids say what the user is looking at.
+    // Members stay contiguous because a group's rows live inside its own
+    // container, and folded rows are still in there (invariant 18) so the list
+    // has no hole in it. Null for a section that cannot renumber a bucket.
+    const ids = settled.positioned
+      ? [...settled.section.querySelectorAll('.task')].map(
+          element => Number(element.dataset.id))
+      : null;
     const outcome = wasGroup
-      ? await callApi('place_group', project, name,
-          { bucket: lands.bucket, status: lands.status }, ids)
+      ? await callApi('place_group', project, name, destination, ids)
       : await callApi('place_task', project, Number(row.dataset.id),
-          { bucket: lands.bucket, group: landed, status: lands.status }, ids);
+                      destination, ids);
     if (outcome === API_FAILED) return;
-    if (!wasGroup && landed !== wasInGroup) {
+    // Before the refresh, while state.tasks still counts the member on its way
+    // out — a group that just lost its last one does not exist any more, and
+    // nothing would ever unfold its leftover entry.
+    if (!wasGroup && settled.group !== wasInGroup) {
       await forgetFoldIfEmptied(project, wasInGroup);
     }
     await refresh();

@@ -463,18 +463,41 @@ Break one of these and the failure is silent. Each cost a bug.
     with no `over` to insert against. Any future gesture that moves the dragged
     element during `dragover` inherits this.
 
-    **The IN PROGRESS box is one drop target, all of it.** It is drawn as a
-    bordered box with an invitation written inside it, so the strip beside its
-    heading and around that line has to accept a drop too — anything else is a
-    dead zone in the middle of something that says "drag a task here". The
-    affordance is the box itself, and bucket sections deliberately do *not*
-    work this way: a reorder drag crosses their gaps constantly with
-    `event.target` set to the section, and releasing in one would dissolve the
-    grouping being rearranged. IN PROGRESS has no top-level reorder, so it has
-    no such gaps. The one exclusion is a row that is *already* running — the
-    box would otherwise ungroup it when a sort within its own group overshot
-    the last row by a few pixels of padding, and the project heading is the
-    aimable target for that.
+28. **Where a drop lands is read from geometry, not from `event.target`.** Two
+    rectangles decide everything, and they are the two the user can see. Every
+    **section** is a box: anywhere inside it means "this category", at the slot
+    nearest the cursor. Every **group** is a nested box inside one: anywhere
+    inside it means "and in this group". Padding, headings, the gaps between
+    blocks and the empty line are all inside the rectangle they look like they
+    are inside, which an element-based rule could not say — the padding of a
+    box belongs to the box on screen and to nothing at all in the DOM, so every
+    one of those was a dead strip where a drop silently did nothing.
+
+    This replaced a set of aimed targets: a heading meant "leave your group", a
+    group header meant "join", and the region between blocks meant nothing on
+    purpose, because releasing there might dissolve the grouping being
+    rearranged. That caution is answered by the geometry rather than by
+    refusing: inside the group's box you stay in it, outside it you leave, and
+    both are visible before you let go. **Leaving a group therefore has no
+    target of its own any more**, and neither does joining one.
+
+    Three consequences worth keeping:
+
+    - **Grouping is aimed, reordering is not.** Reorganising is the common
+      gesture, so it is what everything defaults to; making a new group needs
+      the cursor inside a band a third of a row tall, inset from both ends
+      (`PAIR_BAND`, `PAIR_INSET`). It used to be an even split — the middle
+      half of a row grouped — which made the rarer and more surprising outcome
+      exactly as easy to hit as the common one.
+    - **A group keeps `GROUP_STICKY` pixels of grip on its own member.**
+      Without it, sorting inside a group and overshooting the last row by one
+      pixel throws the row out of the group. Leaving still costs one deliberate
+      drag clear of the box; only the twitch is absorbed.
+    - **Every measurement excludes the dragged element, and `slotFor`
+      discounts its height.** The element stays in the flow during an HTML5
+      drag, so the live preview displaces every block below it — feed that back
+      in and the preview chooses its own next position, and the row flips
+      between two slots while the cursor holds still.
 
 ## Data on disk
 
@@ -647,6 +670,18 @@ show two unrelated tasks under one id at different points in time.
   onto its heading, then fold something to force a re-render: the task must
   still be where you put it. It moved on screen and was never written, which
   no amount of reading the diff would have shown.
+
+  Six more for the geometry (invariant 28), which has no aimed targets left to
+  lean on. Hold the cursor still on a seam between two rows: the preview must
+  settle on one slot and stay there, not flicker between two. Drag slowly down
+  a bucket that contains a group — the row must step into the group's rail
+  while inside its box and back out below it, and where it is drawn is where it
+  must land. Sort a row inside a group and overshoot the last member by a
+  pixel: it must stay in the group. Drag it a clear centimetre below the group:
+  it must leave. Drop on a bucket's `NOW`/`NEXT`/`SOMEDAY` heading: it must
+  land at the top of that bucket, ungrouped, since a heading is now just the
+  top of the box. And drag a row over another row's *edge* rather than its
+  centre — it must reorder, never group; grouping must need the middle third.
 
 ## Parallel features (worktrees)
 
