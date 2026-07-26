@@ -35,6 +35,30 @@ def _text(value, field: str) -> str:
     return value
 
 
+_DESTINATION_FIELDS = ("bucket", "group", "status")
+
+
+def _destination(payload) -> dict:
+    """The three fields a drop resolves to — refused rather than coerced.
+
+    A key outside the three is an error, not something to ignore: a misspelled
+    field would otherwise half-apply, and the drop would look like it worked
+    while silently leaving out whichever part was typed wrong. A missing key
+    means None, which every field reads as "unchanged" (see groups.place).
+
+    Values go through _text for the reason it exists: a group name arriving
+    from JS as a number would become the group "5" and look deliberate.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("destination must be an object")
+    unknown = sorted(set(payload) - set(_DESTINATION_FIELDS))
+    if unknown:
+        raise ValueError(f"unknown destination field(s): {unknown}")
+    return {field: (None if payload.get(field) is None
+                    else _text(payload[field], field))
+            for field in _DESTINATION_FIELDS}
+
+
 def _task_dict(task: store.Task, project_name: str) -> dict:
     payload = asdict(task)
     payload.pop("path", None)
@@ -361,6 +385,55 @@ class Api:
         project = _project(project_name)
         groups.set_bucket(Path(project.path), _text(name, "name"),
                           _text(bucket, "bucket"))
+
+    def place_task(self, project_name, task_id, destination, ordered_ids=None):
+        """Where one dragged task landed — bucket, group and status together.
+
+        One call rather than a sequence of update_task/group_tasks/
+        reorder_bucket, because the states between those calls are ones no
+        rule permits and a raise part-way through would leave one on disk.
+        groups.place owns the domain checks; this refuses only what says the
+        JS caller is broken, which is the same split update_task makes
+        (invariant 23).
+
+        `ordered_ids` is the destination bucket's full id list, read off the
+        DOM after the live reorder, or omitted for a drop on a heading — which
+        has no position in it and means "at the end".
+        """
+        project = _project(project_name)
+        groups.place(Path(project.path), [int(task_id)],
+                     ordered_ids=ordered_ids, **_destination(destination))
+
+    def place_group(self, project_name, name, destination, ordered_ids=None):
+        """Where a dragged group landed. Every member moves, always.
+
+        A group lives in one bucket (invariant 16), so there is no such thing
+        as moving part of one — a header reading "2 of 5" in IN PROGRESS still
+        moves all five. That deliberately differs from the `done` button
+        beside it, which acts on the two rows it drew: done completes tasks, a
+        drag moves the group.
+
+        Members are resolved by name from disk rather than sent by the
+        renderer, so a list that went stale between the drag starting and the
+        drop landing cannot leave part of a group behind.
+        """
+        project = _project(project_name)
+        name = _text(name, "name")
+        fields = _destination(destination)
+        # A group IS its name (invariant 15). Moving one is not an opportunity
+        # to rename it, and pointing it at another name would be the merge
+        # that every other path here refuses.
+        if fields["group"] is not None and fields["group"] != name:
+            raise ValueError("a group drag cannot rename or merge the group")
+        fields["group"] = name
+
+        members = [task.id for task
+                   in store.list_tasks(Path(project.path), include_done=False)
+                   if task.group == name]
+        if not members:
+            raise ValueError(f"no group named {name} in this project")
+        groups.place(Path(project.path), members,
+                     ordered_ids=ordered_ids, **fields)
 
     def reset_to_open(self, project_name, task_ids):
         """Retract "in progress" for these tasks — see store.reset_to_open."""

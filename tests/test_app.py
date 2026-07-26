@@ -644,3 +644,85 @@ def test_restore_task_raises_on_an_unknown_id(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().restore_task("repo", 99)
+
+
+def test_place_task_moves_it_between_buckets(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG", "someday")
+
+    app.Api().place_task("repo", task.id, {"bucket": "now"})
+
+    assert store.list_tasks(repo)[0].bucket == "now"
+
+
+def test_place_task_claims_a_task_as_in_progress(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    app.Api().place_task("repo", task.id, {"status": "in-progress"})
+
+    assert store.list_tasks(repo)[0].status == "in-progress"
+
+
+def test_place_task_rejects_an_unknown_destination_key(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().place_task("repo", task.id, {"bucketed": "now"})
+
+    assert store.list_tasks(repo)[0].bucket == "now"
+
+
+def test_place_task_rejects_a_destination_that_is_not_a_dict(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().place_task("repo", task.id, "now")
+
+
+def test_place_task_rejects_an_unknown_bucket(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    with pytest.raises(ValueError):
+        app.Api().place_task("repo", task.id, {"bucket": "urgent"})
+
+
+def test_place_task_rejects_a_non_string_group(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    # str(5) would create a group called "5" and look like it worked.
+    with pytest.raises(ValueError):
+        app.Api().place_task("repo", task.id, {"group": 5})
+
+
+def test_place_group_moves_every_member(tmp_path):
+    repo = make_repo(tmp_path)
+    one = store.create_task(repo, "One", "body", "BUG")
+    two = store.create_task(repo, "Two", "body", "BUG")
+    groups.assign(repo, [one.id, two.id], "G")
+
+    app.Api().place_group("repo", "G", {"bucket": "someday"})
+
+    assert {t.bucket for t in store.list_tasks(repo)} == {"someday"}
+
+
+def test_place_group_claims_every_member(tmp_path):
+    repo = make_repo(tmp_path)
+    one = store.create_task(repo, "One", "body", "BUG")
+    two = store.create_task(repo, "Two", "body", "BUG")
+    groups.assign(repo, [one.id, two.id], "G")
+
+    app.Api().place_group("repo", "G", {"status": "in-progress"})
+
+    assert {t.status for t in store.list_tasks(repo)} == {"in-progress"}
+
+
+def test_place_group_rejects_an_unknown_group(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().place_group("repo", "Nope", {"bucket": "now"})
