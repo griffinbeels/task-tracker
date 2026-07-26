@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 284 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 294 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -31,7 +31,7 @@ library. No framework, no HTTP server, no bundler.
 
 | File | Owns |
 |---|---|
-| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD, the colour vocabulary (`CLAUDE_COLORS`) |
+| `store.py` | Task dataclass, markdown+frontmatter round-trip, `.tasks/` layout, CRUD — moving a task into `done/` and back out of it again — the colour vocabulary (`CLAUDE_COLORS`) |
 | `registry.py` | `~/.task-tracker/projects.json`, `settings.json` and `session.json` |
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
@@ -50,7 +50,7 @@ library. No framework, no HTTP server, no bundler.
 | `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
-| `ui/settings.js` | Progress view, type editor, git-tracking toggle |
+| `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
 The seven scripts **share one global scope** and load in the order
@@ -419,7 +419,19 @@ show two unrelated tasks under one id at different points in time.
   the window must come back on *that* project, at the same size and position,
   and `run.bat` must restore it too — the selection is restored on every launch,
   not just the button's. Narrow the window and the picker must shrink rather
-  than pushing ⚙ off the row.
+  than pushing ⚙ off the row. For the group block's `done` button and the
+  tree's type scale: a group of 2 → `done` completes both with no prompt and
+  the block disappears; a group of 5 → `done` asks first, and Cancel leaves
+  all five untouched; in IN PROGRESS, a header reading `2 of 5` → `done`
+  completes those 2 while the other 3 stay in their bucket and the group
+  survives; a group header's checkbox must line up exactly with a top-level
+  task row's; dragging a group by its header must still work, and pressing
+  `done` must not start a drag. And for restore: open a completed task from
+  Progress and close without changing anything — `git status` in a tracked
+  project shows no diff at all; edit its body and save — the change lands and
+  the file stays in `done/`; press Restore — it leaves the progress list and
+  reappears at the bottom of its original bucket; and the editor's Restore
+  action is absent when editing an open task.
 
 ## Parallel features (worktrees)
 
@@ -474,6 +486,9 @@ the tracker, select this project, and they are the backlog. Highlights:
 - Triage chips are mouse-only; the spec called for single-key assignment.
 - Nothing ever writes `## Outcome`; the progress view renders it but it can only
   arrive by hand-editing.
+- **Restore is singular.** `store.restore_task` and `Api.restore_task` mirror
+  `complete_task` exactly, one task at a time; nothing restores a whole batch
+  out of `done/` the way the selection bar and a group header complete one.
 - **Two groups can never be merged**, by drag or on spin-up — both paths refuse
   rather than guess which name survives. If that becomes wanted it needs an
   explicit gesture with an explicit choice.
