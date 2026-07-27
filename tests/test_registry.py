@@ -423,3 +423,25 @@ def test_a_hand_edited_zoom_whole_window_is_not_trusted(stored):
     write_settings(json.dumps({"zoom_whole_window": stored}))
 
     assert registry.load_settings().zoom_whole_window is False
+
+
+def test_other_windows_may_cover_the_tracker_by_default():
+    assert registry.load_settings().always_on_top is False
+
+
+def test_always_on_top_round_trips():
+    settings = registry.load_settings()
+    settings.always_on_top = True
+    registry.save_settings(settings)
+
+    assert registry.load_settings().always_on_top is True
+
+
+@pytest.mark.parametrize("stored", ["yes", 1, None, []])
+def test_a_hand_edited_always_on_top_is_not_trusted(stored):
+    # Same rule as the flag above, and the same reason: a truthy string here
+    # would pin the window in front of everything else with nothing on screen
+    # admitting why.
+    write_settings(json.dumps({"always_on_top": stored}))
+
+    assert registry.load_settings().always_on_top is False

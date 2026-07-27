@@ -82,6 +82,26 @@ def _destination(payload) -> dict:
             for field in _DESTINATION_FIELDS}
 
 
+def _apply_on_top(on_top: bool) -> None:
+    """Push the always-on-top preference at the window that is already open.
+
+    A preference that only took effect on the next launch would read as the
+    checkbox being broken, so this runs on every save. It is lifted out of
+    Api.save_settings and named so the wiring is testable at all: under pytest
+    `webview.windows` is empty, and that emptiness is also what guarantees the
+    suite never touches a window.
+
+    pywebview's own set_on_top is the one window operation its WinForms backend
+    does not marshal onto the UI thread, and a bridge call runs off it — so this
+    reaches Form.TopMost from another thread. That is legal Win32 (SetWindowPos
+    across threads posts to the owner and blocks), and .NET's cross-thread guard
+    is inert without a debugger attached. If it ever does raise, callApi surfaces
+    it rather than losing it.
+    """
+    if webview.windows:
+        webview.windows[0].on_top = on_top
+
+
 def _task_dict(task: store.Task, project_name: str) -> dict:
     payload = asdict(task)
     payload.pop("path", None)
@@ -572,9 +592,11 @@ class Api:
             # off — this payload's shape has grown twice and an older caller
             # must not raise.
             zoom_whole_window=payload.get("zoom_whole_window") is True,
+            always_on_top=payload.get("always_on_top") is True,
             types=[registry.TaskType(**t) for t in payload["types"]],
         )
         registry.save_settings(settings)
+        _apply_on_top(settings.always_on_top)
         return asdict(settings)
 
     def count_tasks_with_type(self, name):
@@ -625,11 +647,13 @@ def main() -> None:
         js_api=Api(),
         width=geometry["width"], height=geometry["height"],
         x=geometry["x"], y=geometry["y"],
-        on_top=geometry["on_top"],
+        # A preference rather than geometry, so it comes from settings.json —
+        # where the checkbox that flips it writes it — and not from window.json.
+        on_top=registry.load_settings().always_on_top,
     )
     window.events.closing += lambda: window_state.save({
         "width": window.width, "height": window.height,
-        "x": window.x, "y": window.y, "on_top": window.on_top,
+        "x": window.x, "y": window.y,
     }, webview.screens)
     # destroy() closes the window, which fires `closing` on the UI thread and
     # saves geometry there — the socket thread must not read window.x/width

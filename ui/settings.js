@@ -234,6 +234,8 @@ document.getElementById('settings-button').onclick = () => {
   // pending state to keep in sync.
   document.getElementById('zoom-whole-window').checked =
     !!state.settings.zoom_whole_window;
+  document.getElementById('always-on-top').checked =
+    !!state.settings.always_on_top;
   renderTypeEditor();
   renderTrackedEditor();
   document.getElementById('settings').hidden = false;
@@ -286,6 +288,10 @@ document.getElementById('settings-save').onclick = async () => {
   // every refresh, so ticking the box scales the header without settings.js
   // knowing anything about how zoom works.
   settings.zoom_whole_window = document.getElementById('zoom-whole-window').checked;
+  // Unlike the flag above, this one is not applied by the refresh below —
+  // save_settings pushes it straight at the live window, because nothing the
+  // renderer can do reaches the frame the OS draws around it.
+  settings.always_on_top = document.getElementById('always-on-top').checked;
 
   if (await callApi('save_settings', { ...settings, types }) === API_FAILED) return;
   pendingTypes = [];

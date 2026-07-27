@@ -47,6 +47,12 @@ class Settings:
     # difference between the two — the list, Progress and Settings scale
     # either way.
     zoom_whole_window: bool = False
+    # Whether the window sits above every other window on the desktop. Off by
+    # default, which is a reversal: this app opened always-on-top for its whole
+    # life and never asked. "Maybe I want other windows to cover it! Who says!"
+    # A tracker you cannot put behind the thing you are working on is a tracker
+    # in the way, and the pinned case is the one worth opting into.
+    always_on_top: bool = False
     types: list[TaskType] = field(default_factory=default_types)
 
 
@@ -183,6 +189,10 @@ def load_settings() -> Settings:
         # truthy string quietly turning header scaling on would read as the
         # checkbox being wrong rather than as the file being wrong.
         zoom_whole_window=raw.get("zoom_whole_window") is True,
+        # Same real-bool-or-off rule, and the same reason: a truthy string here
+        # would pin the window in front of everything with nothing on screen
+        # admitting why, which reads as the checkbox being broken.
+        always_on_top=raw.get("always_on_top") is True,
         types=_types_from(raw.get("types")) or default_types(),
     )
 

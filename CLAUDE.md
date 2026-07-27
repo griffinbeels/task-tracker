@@ -84,7 +84,7 @@ bundler.
 | `claude_console` (shared) | Not in this repo. Spawning the session into this machine's default terminal — Windows Terminal, running PowerShell — the pid to type into, typing into the console's input buffer, the rebuilt environment, and `safe_line`/`cap`. It no longer dresses the console: the forced font and the session icon both went with the `conhost.exe` pin on 2026-07-26, and that repo's CLAUDE.md says why each is impossible under Windows Terminal |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
-| `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
+| `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it. **Geometry and nothing else** — `on_top` used to ride along here and was never assigned by anything, so it round-tripped `True` forever; it is `Settings.always_on_top` now |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
@@ -713,7 +713,7 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
 ~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types,
-                                zoom_whole_window (off)
+                                zoom_whole_window (off), always_on_top (off)
 ~/.task-tracker/session.json    last_project, which groups/projects are folded,
                                 the order of the IN PROGRESS list, and how far
                                 each of the two regions is zoomed
@@ -886,6 +886,23 @@ show two unrelated tasks under one id at different points in time.
   `.tasks/` folder outside the app, then tick its box — the alert appears
   *and* the box goes back to where it was, because a box left ticked over an
   untracked project is the claim you would act on right before committing.
+
+  And five for **"Keep this window in front of everything else"**, which is the
+  one setting whose effect is entirely outside the window — no test can see the
+  frame the OS draws, and pywebview's `set_on_top` is the single window
+  operation its WinForms backend does not marshal onto the UI thread, so
+  "the write happened" and "the window moved" are genuinely different claims
+  here. Launch with it unticked and click another window: the tracker must go
+  behind it. Tick it and press Save: it must come to the front **immediately**,
+  with no restart — this is the whole point of `_apply_on_top`, and a value
+  that only takes effect next launch reads as the checkbox being broken. Untick
+  and Save: another window must be able to cover it again, immediately. Press ↻
+  with it ticked, and again with it unticked: the state must survive the
+  restart both ways, since the replacement reads `settings.json` rather than
+  inheriting anything. And move and resize the window, close it, relaunch: the
+  geometry must still come back — `on_top` left `window.json` in the same
+  change, and the file is written key by key, so a mistake there would silently
+  take the position with it.
 
   And Escape, in all three overlays: it must close the editor, the settings
   panel and the progress view. Open a completed task from Progress so the

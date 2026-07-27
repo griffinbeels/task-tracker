@@ -12,6 +12,13 @@ keeps the last position that was on a screen rather than overwriting it with the
 sentinel, and loading discards a rectangle that no longer overlaps anything —
 which also covers the window left on a monitor that has since been unplugged,
 the same symptom from a different cause.
+
+Geometry and nothing else. `on_top` used to ride along here as "a preference
+rather than geometry", and it was never anything but geometry's passenger:
+nothing ever assigned `window.on_top`, so it round-tripped True forever. It is
+`Settings.always_on_top` now, written the moment the settings panel saves rather
+than at window-close — which matters on a machine that has taken a bugcheck
+mid-session — and a second copy here is how the two would drift.
 """
 
 import json
@@ -20,7 +27,7 @@ from pathlib import Path
 import registry
 import store
 
-DEFAULTS = {"width": 420, "height": 900, "x": None, "y": None, "on_top": True}
+DEFAULTS = {"width": 420, "height": 900, "x": None, "y": None}
 
 
 def _state_file() -> Path:
@@ -69,18 +76,16 @@ def load(screens) -> dict:
     geometry = _stored()
     if on_screen(geometry, screens):
         return geometry
-    # Unreachable: keep the preference that is not geometry, and let the window
-    # open at its default size wherever the OS puts a new one.
-    return {**DEFAULTS, "on_top": geometry["on_top"]}
+    # Unreachable: open at the default size, wherever the OS puts a new window.
+    return dict(DEFAULTS)
 
 
 def save(geometry: dict, screens) -> None:
     """Record this geometry, or keep the last good one if it is off-screen."""
     kept = geometry if on_screen(geometry, screens) else _stored()
+    # Written key by key rather than wholesale, which is also what drops a
+    # legacy `on_top` out of an existing file on the first close after it moved.
     store.write_text_atomic(_state_file(), json.dumps({
         "width": kept["width"], "height": kept["height"],
         "x": kept["x"], "y": kept["y"],
-        # on_top is a preference rather than geometry, so it is taken from the
-        # window even when the rectangle it came with is thrown away.
-        "on_top": geometry["on_top"],
     }, indent=2))

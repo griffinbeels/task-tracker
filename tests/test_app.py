@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 import app
@@ -863,3 +865,53 @@ def test_saving_settings_does_not_reset_the_zoom(tmp_path):
                              "types": [{"name": "BUG", "color": "#e5484d"}]})
 
     assert app.Api().get_state()["zoom"]["app"] == 1.7
+
+
+def test_save_settings_carries_the_always_on_top_flag(tmp_path):
+    make_repo(tmp_path)
+    payload = {"group_limit": 5, "stale_days": 90, "always_on_top": True,
+               "types": [{"name": "BUG", "color": "#e5484d"}]}
+
+    app.Api().save_settings(payload)
+
+    assert registry.load_settings().always_on_top is True
+
+
+def test_save_settings_defaults_always_on_top_off(tmp_path):
+    # Same reason the whole-window flag above tolerates its own absence: this
+    # payload's shape has now grown three times, and an older caller must not
+    # raise.
+    make_repo(tmp_path)
+    payload = {"group_limit": 5, "stale_days": 90,
+               "types": [{"name": "BUG", "color": "#e5484d"}]}
+
+    app.Api().save_settings(payload)
+
+    assert registry.load_settings().always_on_top is False
+
+
+def test_saving_settings_pins_the_live_window_without_a_restart(tmp_path, monkeypatch):
+    # A preference that needed a relaunch to take effect would read as broken.
+    # Every other save_settings test in this file exercises the other half of
+    # _apply_on_top — with no window open it must do nothing at all, which is
+    # what keeps this suite from touching one.
+    make_repo(tmp_path)
+    window = SimpleNamespace(on_top=False)
+    monkeypatch.setattr(app.webview, "windows", [window])
+
+    app.Api().save_settings({"group_limit": 5, "stale_days": 90,
+                             "always_on_top": True,
+                             "types": [{"name": "BUG", "color": "#e5484d"}]})
+
+    assert window.on_top is True
+
+
+def test_unpinning_releases_the_live_window(tmp_path, monkeypatch):
+    make_repo(tmp_path)
+    window = SimpleNamespace(on_top=True)
+    monkeypatch.setattr(app.webview, "windows", [window])
+
+    app.Api().save_settings({"group_limit": 5, "stale_days": 90,
+                             "types": [{"name": "BUG", "color": "#e5484d"}]})
+
+    assert window.on_top is False
