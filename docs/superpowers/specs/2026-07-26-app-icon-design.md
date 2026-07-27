@@ -169,6 +169,43 @@ None of that was visible in the contrast measurement, which passed all ten both
 times. A number says something is there; it cannot say it reads as a robotic
 notepad. Both checks were needed and neither substitutes for the other.
 
+## What shipped
+
+**Wink**, with **Both Ticked** kept beside it as the runner-up.
+
+`ui/icon.svg` is extracted verbatim from the gallery symbol rather than
+retyped, so what ships is what was judged. The runner-up sits in
+`ui/icon-alternates/both-ticked.svg`, one copy away from being the icon:
+
+```powershell
+Copy-Item ui\icon-alternates\both-ticked.svg ui\icon.svg
+& ".venv\Scripts\python.exe" tools\build_icon.py
+```
+
+**Keeping an alternate is what makes a stale `.ico` likely**, so it comes with
+the check that catches one. Copy the alternate across, forget the rebuild, and
+the committed icon is no longer the artwork in the tree — silently, because
+nothing in an `.ico` records which SVG produced it. `build_icon.py` writes the
+source hash to `ui/icon.build.json`, and
+`test_the_committed_icon_was_built_from_the_committed_artwork` fails the build
+when the two disagree, naming the command to run.
+
+A second guard, `test_every_shipped_svg_stands_alone`, refuses any SVG under
+`ui/` containing a `<use>`. Lifting a candidate out of the gallery with one
+still in it renders as **nothing at all** — the rasteriser succeeds, the `.ico`
+packs, and the taskbar shows an empty square, because a missing reference is
+not an error. It is the one failure in this feature that produces no symptom
+anywhere except on screen.
+
+Verified against `System.Drawing.Icon` itself: 110,646 bytes, 8 frames, every
+size Windows asks for reachable — 16/20/24/32 for the title bar across
+100–200% DPI, 32/40/48/64 for the taskbar.
+
+**Not verified here, and cannot be:** what it looks like on the real taskbar.
+Claude may not run `app.py` — it opens a window on the user's desktop and
+writes to their real `~/.task-tracker/`. The by-hand check is `run.bat`, then
+look at the taskbar button and the title-bar corner.
+
 ## Files
 
 | Path | Role |
