@@ -278,6 +278,75 @@ function wireDrag() {
     }, 16);
   }
 
+  const SETTLE_MS = 160;
+  const FLASH_MS = 700;
+  const FLASH_EASE = 'cubic-bezier(.25, .1, .25, 1)';
+
+  // The card flies from your hand to the slot it claimed, and only THEN does the
+  // gap stop being a gap. Sequential, not simultaneous: a placeholder collapsing
+  // while the thing that fills it is still in the air is what jitters, and it is
+  // the specific mistake Reardon's essay names.
+  //
+  // Resolves either way, and cannot hang: a settle interrupted by the next drag
+  // has its animation cancelled, and a frame budget that eats `onfinish` still
+  // leaves the gap open forever without the timeout.
+  function settleCard(held, row) {
+    const done = () => {
+      held.remove();
+      if (row) row.classList.remove('dragging-source');
+    };
+    if (!row || !row.isConnected) { done(); return Promise.resolve(); }
+
+    // Measured with the lift transform OFF. The flight ends at `scale(1)`, so its
+    // translate applies to the UNSCALED box — read the scaled rect instead and the
+    // card lands short by however much the lift grew it. The transition is
+    // suspended for the read so the probe cannot animate anything itself.
+    const lift = held.style.transform;
+    held.style.transition = 'none';
+    held.style.transform = 'none';
+    const rest = held.getBoundingClientRect();
+    held.style.transform = lift;
+    const target = row.getBoundingClientRect();
+
+    // transform, never left/top: those are layout properties, cannot be
+    // composited, and would put the flight on the main thread beside a FLIP that
+    // is not.
+    const flight = held.animate(
+      [{ transform: lift },
+       { transform: 'translate(' + (target.left - rest.left) + 'px,'
+                                 + (target.top - rest.top) + 'px) scale(1)' }],
+      { duration: SETTLE_MS, easing: DISPLACE_EASE, fill: 'forwards' });
+    return new Promise(resolve => {
+      const land = () => { done(); resolve(); };
+      flight.onfinish = land;
+      flight.oncancel = land;
+      setTimeout(() => { if (held.isConnected) land(); }, SETTLE_MS + 120);
+    });
+  }
+
+  // What just moved, lit up once. The row is looked up AFTER the commit, because
+  // `refresh()` rebuilds #task-list with replaceChildren and the element that was
+  // dragged is gone by then — flashing it would animate a detached node.
+  //
+  // Matched by dataset rather than by a built selector, the same way
+  // focusGroupName does: a group name is unvalidated user text out of a
+  // hand-editable file, so there is no selector to escape wrongly.
+  //
+  // backgroundColor, not the `background` shorthand, which does not interpolate.
+  // It outranks `.task:hover` for its 700ms, and that is right — the flash is the
+  // news, not the hover.
+  function flash(project, id, groupName) {
+    const element = [...document.querySelectorAll(
+      groupName ? '#task-list .group' : '#task-list .task')].find(
+      candidate => candidate.dataset.project === project
+        && (groupName ? candidate.dataset.group === groupName
+                      : Number(candidate.dataset.id) === id));
+    if (!element) return;
+    element.animate([{ backgroundColor: 'rgba(48, 164, 108, .34)' },
+                     { backgroundColor: 'rgba(48, 164, 108, 0)' }],
+                    { duration: FLASH_MS, easing: FLASH_EASE });
+  }
+
   // Every ending, told which one it is. This is `dragend` and `drop` collapsed
   // into one function, which is why `wrote` is gone: the caller knows.
   async function finish(cancelled) {
@@ -291,8 +360,8 @@ function wireDrag() {
     const row = dragged;
     const wasInGroup = draggedGroup;
     const wasGroup = draggedIsGroup;
-    if (card) { card.held.remove(); card = null; }
-    if (row) row.classList.remove('dragging-source');
+    const held = card ? card.held : null;
+    card = null;
     document.body.classList.remove('dragging');
     clearDropAffordance(list);
     // The frozen layout belongs to one gesture. Left standing it would answer the
@@ -301,10 +370,30 @@ function wireDrag() {
     clearFrozen();
     dragged = null;
     intent = null;
+
     // Nothing was written, so nothing may be left looking moved. The preview is a
-    // REAL DOM move and this is the only thing that ever undoes it.
-    if (cancelled || !settled || !row) { undoPreview(); return; }
+    // REAL DOM move and this is the only thing that ever undoes it. FIRST, before
+    // the card flies anywhere: an abandoned card flies back to where the row
+    // started, and that is only where the row IS once the preview is undone.
+    const abandoned = cancelled || !settled || !row;
+    if (abandoned) undoPreview();
+
+    // Awaited before the write, which is what makes the order deterministic rather
+    // than a race. `commit` calls `refresh()`, and a redraw landing mid-flight
+    // draws the row at its destination while a card is still flying towards it —
+    // two of the same task on screen, which is the thing this whole change
+    // removed. 160ms is nothing against a local file write.
+    if (held) await settleCard(held, row);
+    if (abandoned) return;
+
     await commit(settled, row, wasInGroup, wasGroup);
+    // After the commit, so it can find the row `refresh()` drew. Not for a pair:
+    // that opens its new group's name box focused, and a flash under an open text
+    // box is noise competing with the one thing asking for attention.
+    if (settled.kind !== 'pair') {
+      flash(row.dataset.project, Number(row.dataset.id),
+            wasGroup ? row.dataset.group : null);
+    }
   }
 
   window.addEventListener('pointermove', event => {
