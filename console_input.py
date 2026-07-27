@@ -39,12 +39,15 @@ under `pythonw.exe`, which has no console at all.
 """
 
 import ctypes
+import shutil
 import threading
 import time
 from contextlib import contextmanager
 from ctypes import wintypes
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
 PASTE_START = "\x1b[200~"
 PASTE_END = "\x1b[201~"
@@ -91,6 +94,30 @@ FONT_TIMEOUT = 10.0
 # TrueType face, against 0 for the raster default.
 _TRUETYPE_FAMILY = 54
 _NORMAL_WEIGHT = 400
+
+# The image a session's icon is taken from, and how long to keep trying to put
+# it on the window — the same wait the font needs, for the same reason: the
+# console does not exist for the first moments after Popen returns.
+#
+# Resolved on PATH rather than taken from the launch command, because a
+# per-project override like `pwsh -c claude` still opens a Claude session and
+# should still say so on the taskbar.
+SESSION_IMAGE = "claude"
+ICON_TIMEOUT = 10.0
+
+# ICON_BIG is what the taskbar and Alt+Tab draw; ICON_SMALL is the title bar.
+# Setting one leaves the other on conhost's class icon.
+WM_SETICON = 0x0080
+ICON_SMALL, ICON_BIG = 0, 1
+
+# A cross-process SendMessage blocks until the receiving process pumps its
+# message queue, and this runs on the hand-off's daemon thread. SMTO_ABORTIFHUNG
+# plus a bound means a wedged console costs the icon rather than the thread.
+_SMTO_ABORTIFHUNG = 0x0002
+_ICON_SEND_MS = 1000
+
+# The one pair of handles every session's window is given. See session_icons.
+_icons = None
 
 # Enough of a command line to recognise it by in the prompt box. Distinctive
 # enough not to match the box's own placeholder hint, and short enough to
@@ -165,6 +192,13 @@ class CONSOLE_FONT_INFOEX(ctypes.Structure):
 
 kernel32.CreateFileW.restype = wintypes.HANDLE
 kernel32.AttachConsole.argtypes = [wintypes.DWORD]
+shell32.ExtractIconExW.argtypes = [wintypes.LPCWSTR, ctypes.c_int,
+                                   ctypes.POINTER(wintypes.HICON),
+                                   ctypes.POINTER(wintypes.HICON), wintypes.UINT]
+user32.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                       wintypes.WPARAM, wintypes.LPARAM,
+                                       wintypes.UINT, wintypes.UINT,
+                                       ctypes.POINTER(wintypes.WPARAM)]
 
 
 def utf16_code_units(text: str) -> list[int]:
@@ -345,6 +379,86 @@ def use_font(pid: int, face: str = SESSION_FACE,
         time.sleep(POLL_SECONDS)
 
 
+def session_icons() -> tuple[int, int]:
+    """The large and small icons a session's window wears, extracted once.
+
+    One pair serves every session, and **nothing ever destroys them**:
+    `DestroyIcon` on a handle a live window is holding is how an icon goes
+    blank, and every open session is holding this one. Extraction is cheap
+    enough to make the cache about correctness rather than speed — measured at
+    0.000 s against a 265 MB `claude.exe`.
+
+    `(0, 0)` when `claude` is not on PATH, or when the image it names carries
+    no icons. That is a session without an icon, not a session that failed.
+    """
+    global _icons
+    if _icons is None:
+        image = shutil.which(SESSION_IMAGE)
+        large, small = wintypes.HICON(), wintypes.HICON()
+        if image:
+            shell32.ExtractIconExW(image, 0, ctypes.byref(large),
+                                   ctypes.byref(small), 1)
+        _icons = (large.value or 0, small.value or 0)
+    return _icons
+
+
+def _apply_icon(icons: tuple[int, int]) -> bool:
+    """Put `icons` on the attached console's window, or say it could not.
+
+    Reads the window handle directly rather than through `console_window`,
+    which takes the attachment lock this is already holding.
+
+    A window handle of 0 is the ordinary case of being early — the console
+    exists before its window does — and also the permanent case for a console
+    opened with CREATE_NO_WINDOW, which has no window at all (measured:
+    `GetConsoleWindow` answers 0 for one). Neither is an error; both are a
+    console this cannot dress.
+    """
+    window = kernel32.GetConsoleWindow()
+    if not window:
+        return False
+    for kind, icon in ((ICON_BIG, icons[0]), (ICON_SMALL, icons[1])):
+        answer = wintypes.WPARAM(0)
+        if not user32.SendMessageTimeoutW(window, WM_SETICON, kind, icon,
+                                          _SMTO_ABORTIFHUNG, _ICON_SEND_MS,
+                                          ctypes.byref(answer)):
+            return False
+    return True
+
+
+def use_icon(pid: int, timeout: float = ICON_TIMEOUT) -> bool:
+    """Give the spawned session's window the icon of the thing running in it.
+
+    A console window wears the icon of the image its host was launched as, not
+    of the program inside it — so pinning the host (invariant 10) quietly cost
+    the session its Anthropic logo and left every hand-off looking like any
+    other terminal on the taskbar. Measured 2026-07-26, comparing icons pixel
+    by pixel: a window from `conhost.exe claude …` carries conhost.exe's icon
+    byte-for-byte, while `claude.exe` has one of its own two resource groups
+    away.
+
+    Setting it from here is the cheap half of the fix. The expensive half — a
+    shortcut handed to conhost as STARTF_TITLEISLINKNAME, which makes conhost
+    load the icon itself — would own the handle for the window's whole life,
+    and costs `subprocess.Popen` in the eight lines that carry invariants 8 and
+    10. This does not: the handles belong to *this* process, so a session that
+    outlives the tracker is left holding a dead one (measured: an icon handle
+    goes invalid the moment its process exits, and neither LR_SHARED nor a
+    module-resource load changes that).
+    """
+    icons = session_icons()
+    if not all(icons):
+        return False
+    deadline = time.monotonic() + timeout
+    while True:
+        with _attached(pid) as attached:
+            if attached and _apply_icon(icons):
+                return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(POLL_SECONDS)
+
+
 def is_ready(screen: str) -> bool:
     return any(marker in screen for marker in READY_MARKERS)
 
@@ -514,9 +628,11 @@ def deliver(pid: int, commands: list[str], prompt: str) -> None:
     box; pasting on top of it would hand over the task prose glued to half a
     slash command.
 
-    The font goes first, before the wait for a prompt box — it is the one
-    thing here that does not need the session to be up, only its console to
-    exist, and a session opened with nothing selected gets it too.
+    The icon and the font go first, before the wait for a prompt box — they
+    are the two things here that do not need the session to be up, only its
+    console to exist, and a session opened with nothing selected gets both.
+    The icon leads: the taskbar button is there from the moment the window is,
+    and it is what tells this window apart from every other console.
 
     Returns nothing: this runs off the caller's thread, on a daemon thread
     with no one left to hand a result to.
@@ -524,6 +640,7 @@ def deliver(pid: int, commands: list[str], prompt: str) -> None:
     # Passed rather than defaulted, like every other timeout here: a default
     # is bound at import, so the module attribute is the only spelling a test
     # can shorten.
+    use_icon(pid, timeout=ICON_TIMEOUT)
     use_font(pid, timeout=FONT_TIMEOUT)
     timeout = READY_TIMEOUT
     for command in commands:
