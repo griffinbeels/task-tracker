@@ -6,6 +6,8 @@ constantly — what is worth pinning is the two places this code can be wrong
 about a dump it is handed, and the byte layout it writes.
 """
 import base64
+import hashlib
+import json
 import struct
 import sys
 from pathlib import Path
@@ -96,6 +98,45 @@ def test_a_frame_that_is_not_square_rgba_is_refused():
     """Silently packing a short frame writes an .ico that draws as noise."""
     with pytest.raises(ValueError, match="not 16x16 RGBA"):
         build_icon.pack_ico({16: b"\x00" * 4})
+
+
+def test_the_committed_icon_was_built_from_the_committed_artwork():
+    """A stale .ico is silent — nothing in it says which SVG produced it.
+
+    The way this goes wrong is now a workflow the repo invites: copy an
+    alternate from ui/icon-alternates/ over ui/icon.svg, commit, and ship an
+    icon that is not the artwork in the tree. build_icon.py records the source
+    hash so that mistake fails here instead of on someone's taskbar.
+    """
+    stamp = json.loads(build_icon.STAMP.read_text(encoding="utf-8"))
+    actual = hashlib.sha256(build_icon.SOURCE.read_bytes()).hexdigest()
+
+    assert actual == stamp["sha256"], (
+        f"{build_icon.SOURCE.name} has changed since {build_icon.TARGET.name} "
+        f"was built — run: python tools/build_icon.py")
+    assert stamp["sizes"] == list(build_icon.SIZES)
+
+    count = struct.unpack_from("<H", build_icon.TARGET.read_bytes(), 4)[0]
+    assert count == len(build_icon.SIZES), "the .ico holds a different frame count"
+
+
+@pytest.mark.parametrize("artwork", sorted(
+    [build_icon.SOURCE] + list((build_icon.REPO / "ui" / "icon-alternates").glob("*.svg"))))
+def test_every_shipped_svg_stands_alone(artwork):
+    """A <use> is how one of these silently becomes a blank icon.
+
+    The gallery draws each candidate from a <symbol>, and lifting one out with
+    a <use> still in it produces markup that renders as nothing at all — a
+    missing reference is not an error, so the rasteriser succeeds, the .ico
+    packs, and the taskbar shows an empty square. Every file here must carry
+    its own geometry.
+    """
+    markup = artwork.read_text(encoding="utf-8")
+
+    assert "<use" not in markup, (
+        f"{artwork.name} references something outside itself and will render blank")
+    assert markup.count("<svg") == 1 and "</svg>" in markup
+    assert 'viewBox="0 0 32 32"' in markup, "the 32-unit grid is what keeps 16px on whole pixels"
 
 
 def test_the_size_ladder_stays_addressable():

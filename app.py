@@ -658,7 +658,12 @@ def main() -> None:
     # saves geometry there — the socket thread must not read window.x/width
     # itself, those properties are only safe to touch on the UI thread.
     singleton.serve(lock, window.destroy)
-    webview.start()
+    # One .ico feeds both surfaces: WinForms' Form.Icon becomes ICON_SMALL, the
+    # title-bar corner, and ICON_BIG, the taskbar button and Alt+Tab. Without
+    # it the backend falls back to ExtractIconW(sys.executable) - which is why
+    # this app wore the Python logo, a default nobody chose rather than a
+    # placeholder. Built from ui/icon.svg by tools/build_icon.py.
+    webview.start(icon=str(Path(__file__).parent / "ui" / "icon.ico"))
 
 
 if __name__ == "__main__":

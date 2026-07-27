@@ -1,0 +1,14 @@
+<!-- Task Tracker's app icon. Extracted verbatim from the "Wink"
+     candidate in tools/icon-gallery.html, which is where it was judged.
+     Rebuild ui/icon.ico after any edit: python tools/build_icon.py -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+  <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+  <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+  <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+  <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+  stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 15 Q20.1 10.9 23.25 15" fill="none" stroke="#14181c" stroke-width="2.3"
+  stroke-linecap="round"/>
+  <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+</svg>

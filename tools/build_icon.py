@@ -20,6 +20,8 @@ System.Drawing.Icon still loads, but asking that loader for 256 hands back 128
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import re
 import struct
 import subprocess
@@ -30,6 +32,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SOURCE = REPO / "ui" / "icon.svg"
 TARGET = REPO / "ui" / "icon.ico"
+# What TARGET was built from. The .ico is committed, so the way it goes wrong
+# is silent: edit the artwork — or copy an alternate over it, which this repo
+# now invites — commit, and ship an icon that is not the one in the tree.
+# Nothing about the .ico says which SVG produced it, so this records it, and
+# tests/test_build_icon.py fails the build when the two disagree.
+STAMP = REPO / "ui" / "icon.build.json"
 
 # The title bar's ladder (SM_CXSMICON: 16 at 100% DPI, 20 at 125%, 24 at 150%,
 # 32 at 200%) and the taskbar's (32, 40, 48, 64 across the same range), plus 128
@@ -187,8 +195,14 @@ def main() -> int:
               f"tools/icon-gallery.html first", file=sys.stderr)
         return 1
 
-    frames = rasterise(SOURCE.read_text(encoding="utf-8"))
+    artwork = SOURCE.read_bytes()
+    frames = rasterise(artwork.decode("utf-8"))
     TARGET.write_bytes(pack_ico(frames))
+    STAMP.write_text(
+        json.dumps({"source": SOURCE.name,
+                    "sha256": hashlib.sha256(artwork).hexdigest(),
+                    "sizes": list(SIZES)}, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
     print(f"{TARGET.relative_to(REPO)}: {len(SIZES)} frames "
           f"({', '.join(str(size) for size in SIZES)}), "
           f"{TARGET.stat().st_size:,} bytes")
