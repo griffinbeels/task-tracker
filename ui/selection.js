@@ -50,9 +50,11 @@ document.getElementById('task-list').addEventListener('change', event => {
 document.getElementById('selection-clear').onclick = () => {
   // Both halves are needed — a group header left ticked with no members
   // ticked reads as a broken render.
-  document.querySelectorAll('.task .select:checked')
+  // #task-list-scoped: a dragged row's clone in #drag-layer is not part of the
+  // selection, and Clear must not pretend to have cleared it.
+  document.querySelectorAll('#task-list .task .select:checked')
     .forEach(box => { box.checked = false; });
-  document.querySelectorAll('.select-group:checked')
+  document.querySelectorAll('#task-list .select-group:checked')
     .forEach(box => { box.checked = false; });
   renderSelectionBar();
 };

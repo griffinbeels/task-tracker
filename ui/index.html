@@ -60,6 +60,14 @@
     <div id="unreadable-warning" hidden></div>
     <main id="task-list"></main>
 
+    <!-- What you are holding mid-drag. Outside #task-list on purpose: the drop
+         path reads section.querySelectorAll('.task') and the FLIP sweeps
+         .task, .group — a clone inside the list would be counted by both. Its
+         RANK is what puts it above the selection bar (style.css), never its
+         position here; this file's order stopped deciding anything about paint
+         the moment those ranks existed. -->
+    <div id="drag-layer"></div>
+
     <!-- Write first, name it second. The title sits BELOW the body because you
          do not know what a thought is called until you have finished having
          it. -->
@@ -144,6 +152,8 @@
     <script src="zoom.js"></script>
     <script src="tasks.js"></script>
     <script src="groups.js"></script>
+    <script src="drag-geometry.js"></script>
+    <script src="drag.js"></script>
     <script src="inprogress.js"></script>
     <script src="selection.js"></script>
     <script src="editor.js"></script>
