@@ -43,6 +43,17 @@ let loadedBucket = null;
 // regroup from a no-op. null for an ungrouped task and for the two modes that
 // create rather than edit.
 let loadedGroup = null;
+// Everything the overlay was showing the instant this open finished — the
+// title box and the five chip selections. Cancel compares against it to answer
+// one question: would closing now throw away something the user did?
+//
+// Against the state at the END of the open, not against the task on disk,
+// because those differ in triage by design: a note whose title the user has
+// already typed keeps that title across a Skip away and back (invariant 11),
+// and the box showing it is the starting point of THIS visit rather than an
+// unsaved edit made during it. The body is not in here — it has its own
+// baseline in normalisedBody, for the reason invariant 13 exists.
+let openedWith = null;
 
 function chip(label, selected, onClick, color) {
   const button = document.createElement('button');
@@ -386,11 +397,103 @@ function openEditor(context) {
 
   document.getElementById('editor').hidden = false;
   editor.focus();
+  // Last, so it records what every branch above settled on rather than what
+  // the arguments asked for — the two differ in triage, where the title write
+  // is deliberately suppressed.
+  openedWith = editorFields();
+}
+
+// The chip selections and the title, as one comparable value. Not the body:
+// Toast UI renormalises markdown on every round-trip, so that comparison has
+// to be against normalisedBody and is made separately in editorIsDirty.
+function editorFields() {
+  return {
+    title: document.getElementById('editor-title').value,
+    project: editorContext.project,
+    type: editorContext.type,
+    bucket: editorContext.bucket,
+    color: editorContext.color,
+    group: editorContext.group,
+  };
+}
+
+// Would closing right now lose something? Every mode asks the same question of
+// the same two baselines, which is what makes the answer right in all three
+// without a per-mode rule: capture starts blank, so "anything typed at all"
+// falls out of it; edit starts full, so an untouched task closes silently
+// instead of putting a dialog in front of every look at one.
+//
+// Chip changes count. A discarded colour pick is a discarded decision, and
+// losing decisions quietly is the whole reason this prompt exists.
+function editorIsDirty() {
+  if (!editorContext || !openedWith) return false;
+  const now = editorFields();
+  if (Object.keys(now).some(key => now[key] !== openedWith[key])) return true;
+  // normalisedBody is what THIS load's round-trip produced from the untouched
+  // content (invariant 13). Comparing against the file instead would report
+  // every hand-written task as edited and ask before every cancel.
+  return getEditor().getMarkdown() !== normalisedBody;
+}
+
+// Cancel, from the button or from Escape — the two are one action and must
+// ask on the same terms. closeEditor below stays the unconditional close, and
+// is what every save path uses: two functions, one of which asks, rather than
+// a flag on one that a future caller has to remember to pass.
+function cancelEditor() {
+  if (editorIsDirty()
+      && !confirm("Discard what you've written? None of it has been saved.")) {
+    return;
+  }
+  closeEditor();
 }
 
 function closeEditor() {
   document.getElementById('editor').hidden = true;
 }
+
+// Shift+Tab walks body → title → each visible action button → back to the
+// body. Forward, on the key that conventionally goes backward, because Tab
+// belongs to the body: Toast UI binds it to list indent, so it cannot be the
+// key that escapes. One key that always advances, usable from the one place
+// the conventional one is unavailable.
+//
+// The buttons are read from the DOM rather than listed, so the ring is
+// automatically whichever set showEditorActions left visible — Later and
+// Cancel in capture, Skip and Discard in triage, Restore on a done task — and
+// a button added later joins by existing.
+function editorFocusStops() {
+  const stops = [
+    { element: document.getElementById('editor-body'), focus: () => getEditor().focus() },
+    { element: document.getElementById('editor-title'),
+      focus: () => document.getElementById('editor-title').focus() },
+  ];
+  for (const button of document.querySelectorAll('#editor > .actions button')) {
+    if (!button.hidden) stops.push({ element: button, focus: () => button.focus() });
+  }
+  return stops;
+}
+
+// Where the ring starts when the focus is not on it — on a chip, which plain
+// Tab still reaches, or nowhere at all. The title, not the body: the body is
+// where you already are if you are anywhere in the editor, and dropping the
+// caret into someone's prose because they clicked a colour would be the
+// disorienting answer. It is also the first stop that can always take focus,
+// which keeps the key from looking dead in the one case where the body's own
+// focus() does not land.
+const EDITOR_TITLE_STOP = 1;
+
+// Capture phase, so it runs before ProseMirror's own Shift+Tab handler on the
+// contenteditable and stopPropagation keeps the event from ever reaching it.
+// The cost, which is real: Shift+Tab no longer outdents a list item in the
+// body. Backspace at the start of the item still does.
+document.getElementById('editor').addEventListener('keydown', event => {
+  if (event.key !== 'Tab' || !event.shiftKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const stops = editorFocusStops();
+  const here = stops.findIndex(stop => stop.element.contains(document.activeElement));
+  stops[here < 0 ? EDITOR_TITLE_STOP : (here + 1) % stops.length].focus();
+}, true);
 
 // Triage is the only mode that ever suppresses a title write, so it is the
 // only mode with anything to record — and the claim is recorded against the
@@ -538,6 +641,6 @@ document.getElementById('editor-later').onclick = async () => {
   await refresh();
 };
 
-document.getElementById('editor-cancel').onclick = closeEditor;
+document.getElementById('editor-cancel').onclick = cancelEditor;
 
 document.getElementById('capture-button').onclick = () => openEditor({ mode: 'capture' });

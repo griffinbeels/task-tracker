@@ -166,6 +166,13 @@ async function refresh() {
   }
   renderProjectPicker();
   render();
+  // After render, and on every refresh rather than only the first: this reads
+  // both the stored sizes and the whole-window setting, and the settings
+  // overlay's Save is a refresh() — so the header starting or stopping
+  // scaling lands here without settings.js knowing anything about zoom.
+  // syncZoom lives in zoom.js, which loads after this file; same
+  // resolved-at-call-time cross-file pattern as inProgressGroupKeys() below.
+  syncZoom();
 }
 
 document.getElementById('add-project').onclick = async () => {
@@ -204,11 +211,14 @@ document.getElementById('restart-button').onclick = () => callApi('restart');
 //
 // Escape is Cancel, deliberately — the editor's own Cancel button discards
 // unsaved edits too, and a key that meant something softer than the button next
-// to it would be the surprising one.
+// to it would be the surprising one. That is why it goes through
+// cancelEditor() and not closeEditor(): Cancel asks before throwing away
+// something written, so Escape has to ask on exactly the same terms or the two
+// stop being the same action.
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || event.defaultPrevented) return;
   const editor = document.getElementById('editor');
-  if (!editor.hidden) { closeEditor(); return; }
+  if (!editor.hidden) { cancelEditor(); return; }
   for (const id of ['settings', 'progress']) {
     const overlay = document.getElementById(id);
     if (!overlay.hidden) { overlay.hidden = true; return; }

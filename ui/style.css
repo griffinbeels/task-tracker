@@ -374,6 +374,22 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
+/* Where the keyboard is. Shift+Tab walks the editor from the body to the title
+   to these buttons and Enter fires the one it lands on — and until this rule
+   existed nothing on screen said which one that was, which is the same defect
+   as the ring not working. White rather than the drag's green: green means
+   "a drop lands here" everywhere else in this window, and focus is not that.
+   :focus-visible, not :focus, so a mouse click on a button does not leave a
+   ring sitting behind the click.
+   The chips are included because they are focusable too — plain Tab still
+   reaches them, and a focus you cannot see there is the same problem one row
+   up. .quiet drops to .5 opacity, so it gets its opacity back while focused
+   for the same reason it does on hover: the outline would otherwise be the
+   brightest part of a control you can barely read. */
+.actions button:focus-visible, .chip:focus-visible, .swatch:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, .75); outline-offset: 1px; }
+.actions button.quiet:focus-visible { opacity: 1; }
+
 /* Neutral fill, in the same idiom as every other surface that reads as a
    plain container rather than a state (see .chip.on, #editor-title) — never
    #group-limit-warning's orange, which means "warning" in this window and the bar is
@@ -439,3 +455,19 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 #settings { overflow: auto; }
 .type-row, .tracked-row { display: flex; align-items: center; gap: 6px; }
 .type-name { flex: 1; }
+
+/* What the last Ctrl+/- produced, for the second it takes to read it. It earns
+   its place at the ends of the ladder: at 100% the key changes nothing, and a
+   key that silently does nothing reads as broken rather than as a floor.
+   z-index above #editor's 1, because the editor is one of the two regions it
+   reports on and would otherwise paint over it.
+   pointer-events: none is load-bearing, not tidiness — this floats over the
+   task list, and the drop handler asks event.target what it landed on
+   (invariant 28's one hit-test). A badge that could be the answer would eat a
+   drop in the bottom-right corner of the window. */
+#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 2;
+              font-size: 11px; padding: 3px 9px; border-radius: 11px;
+              color: #ddd; background: rgba(18, 18, 18, .93);
+              border: 1px solid rgba(127, 127, 127, .3);
+              pointer-events: none; }
+#zoom-badge[hidden] { display: none; }

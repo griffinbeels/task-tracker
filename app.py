@@ -83,7 +83,31 @@ class Api:
             "last_project": registry.last_project(),
             "collapsed": registry.collapsed_view(),
             "in_progress_order": registry.in_progress_order(),
+            "zoom": registry.zoom_view(),
         }
+
+    def set_zoom(self, scope, factor):
+        """How far one region of the window is scaled up.
+
+        Refused rather than clamped, which is the opposite of what
+        registry.zoom_view does to the same values: a factor off the ladder
+        here means the JS caller computed one wrong, and silently correcting it
+        would hide that (invariant 23). A hand-edited file is the other case,
+        and repairing THAT is right, because the alternative is a window the
+        user cannot read their way out of.
+
+        bool is checked before the numeric test because it is an int in Python,
+        so `True` would otherwise pass as a zoom of 1.0 and look deliberate.
+        """
+        if scope not in registry.ZOOM_SCOPES:
+            raise ValueError(f"unknown zoom scope: {scope}")
+        if isinstance(factor, bool) or not isinstance(factor, (int, float)):
+            raise ValueError("zoom factor must be a number")
+        if not registry.ZOOM_MIN <= factor <= registry.ZOOM_MAX:
+            raise ValueError(
+                f"zoom factor must be between {registry.ZOOM_MIN} "
+                f"and {registry.ZOOM_MAX}")
+        registry.set_zoom(scope, float(factor))
 
     def set_collapsed(self, projects, groups):
         """Which group blocks and project headings are folded away.
@@ -519,6 +543,12 @@ class Api:
                 raise ValueError(f"{key} must be 1 or more")
         settings = registry.Settings(
             **counts,
+            # `is True` rather than bool(): a checkbox always sends a real
+            # boolean, so anything else is a caller that has gone wrong, and
+            # coercing it would store a preference nobody set. Absent means
+            # off — this payload's shape has grown twice and an older caller
+            # must not raise.
+            zoom_whole_window=payload.get("zoom_whole_window") is True,
             types=[registry.TaskType(**t) for t in payload["types"]],
         )
         registry.save_settings(settings)

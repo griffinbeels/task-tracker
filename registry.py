@@ -39,7 +39,28 @@ class Settings:
     # costs an hour later, so the key on disk was renamed with it.
     group_limit: int = 5
     stale_days: int = 90
+    # Whether Ctrl+/- scales the header and toolbar along with the list. Off by
+    # default: the window is habitually about 420px wide, where the top row is
+    # already close to full, and growing it crowds the picker against ⚙.
+    # Whether that matters is a question about use rather than about layout, so
+    # both answers ship and this chooses between them. It is the ONLY
+    # difference between the two — the list, Progress and Settings scale
+    # either way.
+    zoom_whole_window: bool = False
     types: list[TaskType] = field(default_factory=default_types)
+
+
+# The window's two independently sized regions. The editor overlay is one;
+# everything else — the list, Progress, Settings, and the header/toolbar when
+# the setting above says so — is the other.
+ZOOM_SCOPES = ("app", "editor")
+# 1.0 is a floor rather than a default: "a minimum of 100% scale, as it is
+# right now". 2.0 is where a 420px-wide window stops holding a readable line.
+# ui/zoom.js states this range a second time, as store.CLAUDE_COLORS and
+# ui/state.js's copy already do — the JS clamps before calling, this refuses
+# after. Change one and change the other.
+ZOOM_MIN = 1.0
+ZOOM_MAX = 2.0
 
 
 def _projects_file() -> Path:
@@ -157,6 +178,11 @@ def load_settings() -> Settings:
         # number; nothing writes it any more, so it drops out on the next save.
         group_limit=positive(raw.get("group_limit", raw.get("wip_limit")), defaults.group_limit),
         stale_days=positive(raw.get("stale_days"), defaults.stale_days),
+        # A real bool or nothing. This flag decides which elements a keypress
+        # scales, and "off" is the answer that cannot surprise anyone — a
+        # truthy string quietly turning header scaling on would read as the
+        # checkbox being wrong rather than as the file being wrong.
+        zoom_whole_window=raw.get("zoom_whole_window") is True,
         types=_types_from(raw.get("types")) or default_types(),
     )
 
@@ -258,3 +284,43 @@ def set_in_progress_order(pairs) -> None:
     """
     _update_session(in_progress_order=[[str(pair[0]), str(pair[1])]
                                        for pair in pairs])
+
+
+# How far each region of the window is scaled up, 1.0 being the size it has
+# always been. View state, like the fold state and the IN PROGRESS order above:
+# it describes how this machine's window is being looked at right now and says
+# nothing about any task, so it belongs beside them in session.json rather than
+# on Settings — which Api.save_settings rebuilds from the overlay's own fields,
+# and would therefore wipe it on every save.
+#
+# Repaired rather than trusted, like everything else read out of this file, and
+# the consequence of not doing so is worse here than for the others: a
+# hand-edited zoom of 40 opens a window holding one word, with no way back
+# except editing a file nobody knows exists — the same unrecoverable shape as
+# the off-screen geometry invariant 20 guards against. Api.set_zoom takes the
+# opposite line and refuses, because out of range THERE means the JS caller is
+# broken rather than the file being hand-edited (invariant 23).
+def zoom_view() -> dict:
+    raw = _read_session().get("zoom")
+    stored = raw if isinstance(raw, dict) else {}
+
+    def factor(value) -> float:
+        # bool first: it is an int in Python, so `"zoom": {"app": true}` would
+        # otherwise clamp to 1.0 and read as a deliberate reset rather than a
+        # typo.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return ZOOM_MIN
+        return float(min(max(value, ZOOM_MIN), ZOOM_MAX))
+
+    return {scope: factor(stored.get(scope)) for scope in ZOOM_SCOPES}
+
+
+def set_zoom(scope: str, factor: float) -> None:
+    """Resize one region. Api.set_zoom has validated both arguments.
+
+    Written through the whole dict rather than by key so the other scope keeps
+    its value — the same wholesale rule set_collapsed_view and
+    set_in_progress_order follow, one level down: two partial writes cannot
+    race into a session.json where only one region remembers its size.
+    """
+    _update_session(zoom={**zoom_view(), scope: float(factor)})

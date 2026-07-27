@@ -64,13 +64,25 @@ One factor per scope, one ladder shared by both.
 | scope | elements it scales |
 |---|---|
 | `editor` | `#editor` |
-| `app` | `#list-view`, `#progress`, `#settings` |
-| `app`, when `zoom_whole_window` is on | …and `header`, `#toolbar` |
+| `app` | `#task-list`, `#selection-bar`, `#group-limit-warning`, `#unreadable-warning`, `#progress`, `#settings` |
+| `app`, when `zoom_whole_window` is on | …and `#app-header`, `#toolbar` |
 
-`#list-view` is a new wrapper around the selection bar, the two warning banners
-and `#task-list`. It is a plain in-flow `<div>` — the overlays stay siblings of
-it, so nothing compounds: an element is in exactly one scope, and the scope it
-is not in has its `zoom` cleared rather than left at a stale value.
+A **list of existing top-level elements, not a new wrapper element**. Both
+work — an in-flow wrapper was measured scaling its subtree correctly — but the
+list needs no structural change to the page, which matters while a sibling
+branch is editing `index.html`, and it makes `zoomAssignments()` the single
+place a region is defined: an element joins a region by gaining a line there
+rather than by being relocated in the markup. Nothing compounds either way,
+because no listed element contains another.
+
+The margins between them still scale, since a margin belongs to the element
+that declares it — `#app-header`'s 10px bottom margin and `#selection-bar`'s
+8px both grow with their own box.
+
+**Every element is assigned on every apply, in or out.** The scope an element
+is *not* in has its `zoom` cleared rather than left alone, which is what makes
+turning the setting off put the header back instead of stranding it at
+whatever it was last scaled to.
 
 **Which scope a key press hits is decided by one question: is the editor open.**
 Open → `editor`. Otherwise → `app`. There is no mode, no focus rule and nothing
@@ -251,21 +263,24 @@ given.
 | file | change |
 |---|---|
 | `ui/zoom.js` | **new** — the scope table, the ladder, the key handler, the pill |
-| `ui/index.html` | `#list-view` wrapper, the pill element, the `<script>` tag |
+| `ui/index.html` | `id` on `<header>`, the pill element, the settings checkbox, the `<script>` tag |
 | `ui/editor.js` | the ring, `cancelEditor()`, the dirty check |
 | `ui/state.js` | Escape routes through `cancelEditor()`; `refresh()` applies zoom |
 | `ui/settings.js` | the `zoom_whole_window` checkbox |
-| `ui/style.css` | `:focus-visible` on action buttons, the pill |
+| `ui/style.css` | `:focus-visible` on the overlay's controls, the pill |
 | `registry.py` | `zoom_view` / `set_zoom`, `Settings.zoom_whole_window` |
 | `app.py` | `Api.set_zoom`, zoom in `get_state`, the flag in `save_settings` |
 
 `ui/zoom.js` loads immediately after `state.js` — it needs `callApi` and reads
 `state.zoom`, and `refresh()` calls into it, which is the same
 resolved-at-call-time cross-file pattern the other seven scripts already use.
+`test_every_ui_script_is_loaded_by_the_page` is new with it: a `.js` file with
+no `<script>` tag never runs, and every symbol it defines is then undefined at
+whichever call site reaches for it first.
 
-The zoom is applied to `#list-view`, which `render()` never replaces — the same
-property that lets `wireDrag` bind once to `#task-list` (invariant 27). Nothing
-re-applies zoom on a redraw.
+Every zoomed element survives every redraw — `render()` replaces the *children*
+of `#task-list`, never the element itself, which is the same property that lets
+`wireDrag` bind once to it (invariant 27). Nothing re-applies zoom on a redraw.
 
 ## Testing
 

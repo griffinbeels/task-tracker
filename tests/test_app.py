@@ -778,3 +778,88 @@ def test_set_in_progress_order_rejects_a_non_string_key(tmp_path):
 
     with pytest.raises(ValueError):
         app.Api().set_in_progress_order([["repo", 7]])
+
+
+def test_get_state_carries_both_zoom_scopes_at_full_size(tmp_path):
+    make_repo(tmp_path)
+
+    assert app.Api().get_state()["zoom"] == {"app": 1.0, "editor": 1.0}
+
+
+def test_set_zoom_round_trips_through_get_state(tmp_path):
+    make_repo(tmp_path)
+
+    app.Api().set_zoom("editor", 1.5)
+
+    assert app.Api().get_state()["zoom"] == {"app": 1.0, "editor": 1.5}
+
+
+def test_set_zoom_rejects_an_unknown_scope(tmp_path):
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_zoom("sidebar", 1.5)
+
+    assert app.Api().get_state()["zoom"] == {"app": 1.0, "editor": 1.0}
+
+
+@pytest.mark.parametrize("factor", [0.9, 0, -1, 2.1, 40])
+def test_set_zoom_refuses_a_factor_off_the_ladder(tmp_path, factor):
+    # 1.0 is the floor the user asked for — "a minimum of 100% scale, as it is
+    # right now" — and 2.0 the ceiling a 420px window can still be read at.
+    # Out of range here means the JS caller is broken, so this raises rather
+    # than clamping; clamping would hide the bug that produced it (invariant
+    # 23's split, the other half of which is registry.zoom_view repairing a
+    # hand-edited file).
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_zoom("app", factor)
+
+    assert app.Api().get_state()["zoom"]["app"] == 1.0
+
+
+@pytest.mark.parametrize("factor", ["1.5", None, True, [1.5]])
+def test_set_zoom_refuses_a_factor_that_is_not_a_number(tmp_path, factor):
+    # True is in the list because bool is an int in Python, so a stray boolean
+    # would otherwise pass the range check as a zoom of 1.0 and look deliberate.
+    make_repo(tmp_path)
+
+    with pytest.raises(ValueError):
+        app.Api().set_zoom("app", factor)
+
+
+def test_save_settings_carries_the_whole_window_flag(tmp_path):
+    make_repo(tmp_path)
+    payload = {"group_limit": 5, "stale_days": 90, "zoom_whole_window": True,
+               "types": [{"name": "BUG", "color": "#e5484d"}]}
+
+    app.Api().save_settings(payload)
+
+    assert registry.load_settings().zoom_whole_window is True
+
+
+def test_save_settings_defaults_the_whole_window_flag_off(tmp_path):
+    # The settings overlay is the only caller and always sends it, but a
+    # payload without the key must not raise — save_settings is the one bridge
+    # method whose payload shape has grown twice already.
+    make_repo(tmp_path)
+    payload = {"group_limit": 5, "stale_days": 90,
+               "types": [{"name": "BUG", "color": "#e5484d"}]}
+
+    app.Api().save_settings(payload)
+
+    assert registry.load_settings().zoom_whole_window is False
+
+
+def test_saving_settings_does_not_reset_the_zoom(tmp_path):
+    # The level is view state in session.json and the toggle is a preference in
+    # settings.json, deliberately: a level stored on Settings would be wiped
+    # every time this overlay saved, exactly as last_project would have been.
+    make_repo(tmp_path)
+    app.Api().set_zoom("app", 1.7)
+
+    app.Api().save_settings({"group_limit": 5, "stale_days": 90,
+                             "types": [{"name": "BUG", "color": "#e5484d"}]})
+
+    assert app.Api().get_state()["zoom"]["app"] == 1.7

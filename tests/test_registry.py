@@ -336,3 +336,90 @@ def test_a_hand_edited_in_progress_order_is_filtered(tmp_path, monkeypatch):
     # The renderer indexes these by position, so a bare string where a pair
     # belongs would iterate as characters. Only the well-formed pair survives.
     assert registry.in_progress_order() == [["repo", "task:1"]]
+
+
+def test_zoom_starts_at_full_size_in_both_scopes(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+
+    assert registry.zoom_view() == {"app": 1.0, "editor": 1.0}
+
+
+def test_zoom_round_trips_per_scope(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+
+    registry.set_zoom("editor", 1.4)
+
+    # One scope moving must not move the other: the list and the editor are
+    # sized independently, which is the whole point of there being two.
+    assert registry.zoom_view() == {"app": 1.0, "editor": 1.4}
+
+
+def test_zoom_survives_a_project_switch(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    registry.set_zoom("app", 1.6)
+
+    # session.json is read-modify-write (invariant 17).
+    registry.set_last_project("other")
+
+    assert registry.zoom_view()["app"] == 1.6
+    assert registry.last_project() == "other"
+
+
+def test_setting_one_zoom_scope_keeps_the_other(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    registry.set_zoom("app", 1.3)
+
+    registry.set_zoom("editor", 1.9)
+
+    assert registry.zoom_view() == {"app": 1.3, "editor": 1.9}
+
+
+@pytest.mark.parametrize("stored, expected", [
+    ({"app": 0.2}, 1.0),        # below the floor the user asked for
+    ({"app": 9}, 2.0),          # above the ceiling
+    ({"app": "1.5"}, 1.0),      # a string, not a number
+    ({"app": None}, 1.0),
+    ({"app": True}, 1.0),       # bool is an int in Python
+    ({}, 1.0),                  # key absent entirely
+])
+def test_a_hand_edited_zoom_is_repaired_not_trusted(tmp_path, monkeypatch, stored, expected):
+    # session.json is hand-editable, and this value scales the whole window —
+    # a zoom of 40 is a window with one word in it and no way back except
+    # editing the file nobody knows exists. Repaired on the way out
+    # (invariant 23's parsing half); Api.set_zoom refuses instead.
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    (tmp_path / "session.json").write_text(
+        json.dumps({"zoom": stored}), encoding="utf-8", newline="\n")
+
+    assert registry.zoom_view()["app"] == expected
+    assert registry.zoom_view()["editor"] == 1.0
+
+
+@pytest.mark.parametrize("raw", ['{"zoom": "big"}', '{"zoom": [1, 2]}', "{not json"])
+def test_a_zoom_of_the_wrong_shape_leaves_the_window_at_full_size(tmp_path, monkeypatch, raw):
+    monkeypatch.setattr(registry, "CONFIG_DIR", tmp_path)
+    (tmp_path / "session.json").write_text(raw, encoding="utf-8", newline="\n")
+
+    assert registry.zoom_view() == {"app": 1.0, "editor": 1.0}
+
+
+def test_the_header_scales_with_the_list_only_when_asked():
+    assert registry.load_settings().zoom_whole_window is False
+
+
+def test_zoom_whole_window_round_trips():
+    settings = registry.load_settings()
+    settings.zoom_whole_window = True
+    registry.save_settings(settings)
+
+    assert registry.load_settings().zoom_whole_window is True
+
+
+@pytest.mark.parametrize("stored", ["yes", 1, None, []])
+def test_a_hand_edited_zoom_whole_window_is_not_trusted(stored):
+    # settings.json is hand-editable and this flag decides which elements get
+    # scaled; anything but a real bool means the file was edited, and "off" is
+    # the answer that cannot surprise anyone.
+    write_settings(json.dumps({"zoom_whole_window": stored}))
+
+    assert registry.load_settings().zoom_whole_window is False
