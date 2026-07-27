@@ -33,9 +33,9 @@ run.bat                                          # launch (creates venv on first
 It lives at `C:\Users\griff\Desktop\code\claude-console`, one copy, shared with
 every project on this machine, and it owns everything that would be true of a
 session opened on a git diff or a form submission rather than on a task:
-spawning through `conhost.exe`, the focus watchdog, resolving the real `claude`
-pid inside the host, writing to the console's input buffer, the console font
-and icon, the rebuilt environment, and `safe_line`/`cap`.
+spawning the session into whatever this machine's default terminal is, resolving
+the pid to type into, writing to the console's input buffer, the rebuilt
+environment, and `safe_line`/`cap`.
 
 ```python
 session = claude_console.open_session(project_path, launch)
@@ -53,10 +53,13 @@ Three things about it that matter here:
   hook there runs *this* suite on every edit to the shared package, blocking
   if it goes red. Nothing is needed here to participate; if this checkout ever
   moves, update that file's `path`.
-- **`open_session` starts the focus watchdog itself.** `hand_off` used to, and
-  that is exactly why it moved: a second consumer could simply not call it, and
-  the failure is a window that steals focus two spawns in ten (invariant 10) —
-  which nobody reads as a missing call.
+- **A session window is allowed to take focus, and that changed on
+  2026-07-26.** It used to be forbidden — a pinned `conhost.exe`, plus a
+  watchdog that handed the keyboard back. The rule was over-broad: *"It's
+  totally fine if it steals focus for a sec when I ACTUALLY USE THE TOOL. I
+  just spawned up tasks!"* Pressing ⏎ on a hand-off is a human gesture and
+  earns the focus it takes. What must still open nothing is a **test**, and
+  that half is enforced by a conventions guard rather than remembered.
 - **The convention guard travelled with the code.** `claude-console` has its
   own `tests/test_conventions.py`. This repo's copy now has an *empty*
   allowlist, which is the assertion: nothing here opens a console at all.
@@ -78,7 +81,7 @@ bundler.
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, the spin-up rule, and `place` — the whole destination a drop resolves to. A group **is** its name — no ids, no registry |
 | `launcher.py` | Verbatim prompt assembly, clipboard, session naming and the `/rename`/`/color` command list — everything a hand-off is that is shaped by `store.Task`. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift. Opening the window and typing into it is `claude_console`'s |
-| `claude_console` (shared) | Not in this repo. Spawning through `conhost.exe` so the window is never the machine default terminal's to draw, the focus watchdog, the pid inside the host, typing into the console's input buffer, the font and icon it renders in, the rebuilt environment, and `safe_line`/`cap` |
+| `claude_console` (shared) | Not in this repo. Spawning the session into this machine's default terminal — Windows Terminal, running PowerShell — the pid to type into, typing into the console's input buffer, the rebuilt environment, and `safe_line`/`cap`. It no longer dresses the console: the forced font and the session icon both went with the `conhost.exe` pin on 2026-07-26, and that repo's CLAUDE.md says why each is impossible under Windows Terminal |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
@@ -230,56 +233,42 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
    silent, and both are why `paste()` polls for `READY_MARKERS` first. It is
    allowed to give up: the same text is on the clipboard.
 
-10. **Nothing this app opens may take focus.** Hand-off is triggered mid-thought
-    and mid-sentence; a console that activates itself swallows the next
-    keystrokes into a session you were not looking at. `spawn_claude` passes
-    `unfocused_startup()` (`STARTF_USESHOWWINDOW` + `SW_SHOWNOACTIVATE`).
-    Nothing needs the focus it would take — `claude_console.console_input` writes to the
-    console's input buffer, which does not require an active window. Any
-    future spawn gets the same treatment.
+10. **Focus is opt-in, and a hand-off is a human gesture that earns it.**
+    Rewritten 2026-07-26, and the correction came from the person the old rule
+    was written for: *"It's totally fine if it steals focus for a sec when I
+    ACTUALLY USE THE TOOL. I just spawned up tasks! […] The PROBLEM is when
+    you, Claude, are working on a task and running a whole bunch of tests."*
+    So a session window opening in front is correct, and the thing that must
+    open nothing at all is a **test**.
 
-    **`SW_SHOWNOACTIVATE` is not enough on Windows 11, and CREATE_NO_WINDOW is
-    the only reliable answer.** Windows 11 delegates every *new* console to
-    whatever is set as the default terminal application. When that is Windows
-    Terminal — the default on this machine — the console request is brokered
-    (`svchost` → `OpenConsole.exe`) and **Windows Terminal creates the window
-    itself**, so the spawner's `STARTUPINFO` never reaches it: a full,
-    activated Terminal window opens regardless of `wShowWindow`. Measured
+    **`CREATE_NO_WINDOW` is what anything other than a hand-off uses.** Windows
+    11 delegates every *new* console to whatever is set as the default terminal
+    application; when that is Windows Terminal — the default on this machine —
+    the request is brokered (`svchost` → `OpenConsole.exe`) and **WT creates
+    the window itself**, so the spawner's `STARTUPINFO` never reaches it and a
+    full, activated Terminal window opens regardless of `wShowWindow`. Measured
     2026-07-25 by spawning the same child three ways from a console-less
     parent: plain and `CREATE_NEW_CONSOLE + SW_SHOWNOACTIVATE` each opened a
     `CASCADIA_HOSTING_WINDOW_CLASS` window; `CREATE_NO_WINDOW` opened nothing.
-    A console created with `CREATE_NO_WINDOW` is still a real console —
-    `AttachConsole`, `WriteConsoleInput` and the screen buffer all work — so
-    anything that only needs to *reach* a console should use it.
-    `spawn_claude` is the deliberate exception: its window is the point.
+    A `CREATE_NO_WINDOW` console is still a real console — `AttachConsole`,
+    `WriteConsoleInput` and the screen buffer all work — so anything that only
+    needs to *reach* a console should use it. `spawn_claude` is the deliberate
+    exception: its window is the point.
 
-    **For that one window, the answer is to launch through `conhost.exe`.**
-    A console the tracker asks for by name is not delegated, so it is a
-    classic console whatever the default terminal is, and `SW_SHOWNOACTIVATE`
-    reaches it again. Measured 2026-07-26 with the default terminal set to
-    Windows Terminal, from a console-less parent: spawning the command
-    directly moved the foreground to `CASCADIA_HOSTING_WINDOW_CLASS` inside
-    400 ms and kept it; the same command through `conhost.exe` left the
-    foreground untouched for the whole run. This pins **only** the tracker's
-    own window — the user's terminal choice for everything else is theirs, and
-    the tracker no longer depends on what it happens to be, which is what
-    broke the day the setting changed underneath it.
+    **That exception is guarded, not trusted.** `claude-console`'s own
+    `tests/test_conventions.py` fails the build if any file but its `session.py`
+    names a new-console flag, in any spelling. This repo's copy of that guard
+    has an *empty* allowlist, which is the stronger assertion: nothing here
+    opens a console at all.
 
-    The cost is one more hop: `Popen` now names the host, and `AttachConsole`
-    refuses a host's pid, so `claude_console.session_pid` resolves conhost's child
-    before anything is typed. Get that wrong and the rename, the colour, the
-    prompt and the font all fail at once and all silently.
-
-    **Asking is still not a guarantee, so the ask is checked.** Even through
-    conhost, two spawns in ten took the foreground anyway (measured
-    2026-07-26 over ten), apparently depending on how promptly whatever was in
-    front was answering messages — a flake, which is worse than a rule,
-    because it survives testing. `claude_console.hold_focus` records the foreground
-    *before* the spawn and hands it back if this session's console turns out
-    to be holding it. It hands back only to that window, only when the thief
-    is this console, and only once inside 1.5 s: deliberately clicking the new
-    session is a human gesture and keeps its focus — what gets reversed is
-    focus nobody asked for.
+    **The `conhost.exe` pin is gone**, along with the focus watchdog, the forced
+    console font and the session icon that depended on it. conhost could not
+    draw the session — no monospaced font on this machine covers `U+23BF`, the
+    `⎿` on every tool result line. A session now opens in Windows Terminal
+    running PowerShell, and `claude_console.session_pid` is the `Popen` itself
+    rather than a child, because there is no host in between any more. The full
+    measurements, including why the taskbar icon cannot come back, live in
+    `claude-console/CLAUDE.md`.
 
 11. **A suggested value is written once, into an untouched field.** The title
     suggested from a note's first line is filled when that note first becomes
@@ -429,32 +418,27 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     prompt onto it — **Ctrl+U**, the one keystroke measured to empty the box.
     Escape, the obvious guess, does nothing to a typed line at all.
 
-25. **The spawned console is put on a font that has the glyphs Claude Code
-    paints.** Pinning the host (invariant 10) means the tracker's window is
-    always a classic console, and conhost's renderer font-links *some* missing
-    glyphs but not the quadrant block elements `U+2596`–`U+259F` — which is
-    exactly what Claude Code's logo is drawn from, and Consolas (what
-    `__DefaultTTFont__` resolves to) has none of them. So the session opened
-    on a row of boxes with the code point printed inside.
-    `claude_console.console_input.use_font` puts the console on **Cascadia Mono**, which
-    ships with Windows 11 and has all eight, using the attach the module
-    already performs — no registry, nothing machine-wide, and the size stays
-    whatever the console had. It reads the face back and reverts if it did not
-    take: an unknown face is not refused, conhost just picks something of its
-    own, which on a machine without this font would be a downgrade rather than
-    a fix. Setting it late is fine — the console repaints its whole buffer —
-    so it runs first in `deliver`, before the wait for a prompt box, which is
-    also why a hand-off with nothing selected still starts that thread.
+25. **The console is not put on a font any more, because the host it was
+    fighting is gone.** Nothing here does anything about rendering; a
+    WT-hosted session draws every glyph without help, and Windows Terminal
+    ignores the console font APIs outright.
 
-    Two things were measured and did **not** work, so nobody spends the
-    afternoon again: `HKCU\Console\UseDx` at 1 and 2 (conhost's DirectWrite
-    renderer) changed the rendering not at all, and `⎿` (`U+23BF`, the
-    tool-result elbow, on every tool call) still draws as a box — under
-    Consolas too, so the font change costs nothing there. No monospace font on
-    the machine has both that and the quadrants; Windows Terminal renders it
-    only because it falls back per glyph, and a WT-hosted window is the one
-    thing invariant 10 rules out. If the elbow ever matters enough, the lever
-    is a wider-coverage font, not a different host.
+    **This entry used to end with a wrong prediction, and that is the lesson
+    worth keeping.** It said: no monospaced font on the machine has both `⎿`
+    (`U+23BF`, the tool-result elbow, on every tool call) and the quadrant
+    blocks `U+2596`–`U+259F` the logo is drawn from; WT renders the elbow only
+    because it falls back per glyph; a WT-hosted window is the one thing
+    invariant 10 rules out; *"if the elbow ever matters enough, the lever is a
+    wider-coverage font, not a different host."*
+
+    Every fact in that was right and the conclusion was backwards. The elbow
+    did matter enough, and there is **no** wider-coverage font to reach for —
+    measured 2026-07-26 across every font installed on the machine, exactly
+    three cover both and all three are proportional, which conhost cannot use.
+    So the lever was the host after all, and invariant 10's constraint turned
+    out to be the thing that should give. When a note names two levers and
+    rules one out on a constraint, check the constraint before believing the
+    recommendation.
 
 26. **A drop resolves to one destination, applied by one call.** A drag can
     change a task's bucket, its group and whether it is running, all in one
