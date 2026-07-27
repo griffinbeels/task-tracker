@@ -414,6 +414,15 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
                    outline-offset: -1px; }
 .dragging-source > * { visibility: hidden; }
 
+/* A block on its way out. It is the REAL element a render removed — detached but
+   not destroyed — put back on screen in the drag layer at the rectangle it used to
+   occupy, so it dissolves where it was while the rows below close the space under
+   their own animation. No fill or shadow of its own: it should look exactly like
+   the row it was, right up until it is not there.
+   `margin: 0 !important` because it is out of the flow now and a margin would
+   offset it from the position it is being placed at by hand. */
+.leaving { position: fixed; margin: 0 !important; pointer-events: none; }
+
 /* For as long as a drag lasts. `user-select` is what the native API suppressed
    for free: without it, dragging across text selects it and the row arrives
    trailing a blue smear. The cursor is stated on the body rather than on the row

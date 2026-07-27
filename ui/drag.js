@@ -128,29 +128,65 @@ const FLIPPABLE = '.project-block, .group, .task';
 // guarantees the ancestor is seen first.
 function flipBlocks(mutate, identify, exclude) {
   const list = document.getElementById('task-list');
-  const before = new Map([...list.querySelectorAll(FLIPPABLE)]
-    .map(element => [identify(element), element.getBoundingClientRect()]));
+  // The ELEMENT is kept beside its rectangle, not just the rectangle. A block a
+  // render removes is detached rather than destroyed, so this map is the only
+  // remaining reference to it — which is what lets it be given an exit instead of
+  // being cloned for one.
+  const before = new Map([...list.querySelectorAll(FLIPPABLE)].map(
+    element => [identify(element), { element, rect: element.getBoundingClientRect() }]));
   mutate();
   const settled = [...list.querySelectorAll(FLIPPABLE)];
   for (const element of settled) {
     element.getAnimations().forEach(animation => animation.cancel());
   }
   const animated = [];
+  const arrived = [];
   for (const element of settled) {
     if (element === exclude || (exclude && exclude.contains(element))) continue;
     if (animated.some(done => done.contains(element))) continue;
     const was = before.get(identify(element));
-    // Absent means the block is new. Nothing to animate FROM, so it simply
-    // appears; giving it an entrance is Phase 3's job.
-    if (!was) continue;
+    if (!was) { arrived.push(element); continue; }
     const now = element.getBoundingClientRect();
-    const dx = was.left - now.left, dy = was.top - now.top;
+    const dx = was.rect.left - now.left, dy = was.rect.top - now.top;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
     element.animate(
       [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
       { duration: DISPLACE_MS, easing: DISPLACE_EASE });
     animated.push(element);
   }
+  const present = new Set(settled.map(identify));
+  const gone = [...before.entries()]
+    .filter(([key]) => !present.has(key))
+    .map(([, snapshot]) => snapshot);
+  return { arrived, gone };
+}
+
+// Where a fixed child of #drag-layer has to be told to sit, given where it should
+// APPEAR. The layer is a zoom region on purpose — the card is a clone of a row and
+// must be the size that row is now — and `position: fixed` inside a zoomed element
+// does not take viewport pixels. Probed rather than reasoned about: write 0, read,
+// write 100, read. Two lines, and it cannot be wrong about the engine.
+//
+// One implementation, used by the card that follows the pointer and by the corpse
+// of a row that has just been completed. Two copies of a coordinate mapping is two
+// chances to get a sign wrong.
+function layerMapping(element) {
+  element.style.left = '0px';
+  element.style.top = '0px';
+  const at0 = element.getBoundingClientRect();
+  element.style.left = '100px';
+  element.style.top = '100px';
+  const at100 = element.getBoundingClientRect();
+  return {
+    origin: { x: at0.left, y: at0.top },
+    scale: { x: (at100.left - at0.left) / 100 || 1,
+             y: (at100.top - at0.top) / 100 || 1 },
+  };
+}
+
+function placeInLayer(element, mapping, x, y) {
+  element.style.left = ((x - mapping.origin.x) / mapping.scale.x) + 'px';
+  element.style.top = ((y - mapping.origin.y) / mapping.scale.y) + 'px';
 }
 
 // What a block IS across a render, when the element itself will not survive one.
@@ -180,7 +216,45 @@ function keyOf(element) {
 // move is a pair — both rows gain a group container and step into its rail — and
 // that is a change worth seeing.
 function flipRender(mutate) {
-  flipBlocks(mutate, keyOf, null);
+  const { arrived, gone } = flipBlocks(mutate, keyOf, null);
+
+  // A block that has LEFT. It is detached but not destroyed, so it goes back on
+  // screen in the drag layer at the rectangle it used to occupy and dissolves
+  // there, while the FLIP above closes the space it left. Same duration and same
+  // easing as that slide, so the two read as one gesture rather than as a
+  // disappearance next to a shuffle.
+  //
+  // Not a height collapse: the rows below are already moving up under their own
+  // animation, and shrinking the corpse as well would say the space closed twice.
+  //
+  // Outermost only. Completing the last member of a group removes the row AND the
+  // group, and resurrecting both would show the row twice — once on its own and
+  // once inside its own container.
+  const buried = [];
+  for (const { element, rect } of gone) {
+    if (buried.some(done => done.contains(element))) continue;
+    buried.push(element);
+    element.classList.add('leaving');
+    element.style.width = rect.width + 'px';
+    document.getElementById('drag-layer').append(element);
+    placeInLayer(element, layerMapping(element), rect.left, rect.top);
+    element.animate([{ opacity: 1 }, { opacity: 0 }],
+                    { duration: DISPLACE_MS, easing: DISPLACE_EASE })
+      .finished.then(() => element.remove(), () => element.remove());
+  }
+
+  // A block that has ARRIVED. It already occupies its space — the rows below it
+  // have been pushed down and are animating there — so this is opacity and a few
+  // pixels of travel, not a height. Animating height as well would move everything
+  // below it a second time, against the FLIP that is already moving them.
+  const born = [];
+  for (const element of arrived) {
+    if (born.some(done => done.contains(element))) continue;
+    born.push(element);
+    element.animate(
+      [{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }],
+      { duration: DISPLACE_MS, easing: DISPLACE_EASE });
+  }
 }
 
 function wireDrag() {
@@ -295,20 +369,14 @@ function wireDrag() {
     layer.append(held);
 
     // `position: fixed` does NOT resolve against the viewport inside an element
-    // carrying CSS `zoom`, and #drag-layer is a zoom region on purpose. Probe the
-    // mapping instead of reasoning about it: two writes and two reads give the
-    // origin and the scale together, and cannot be wrong about the engine.
-    held.style.left = '0px';
-    held.style.top = '0px';
-    const at0 = held.getBoundingClientRect();
-    held.style.left = '100px';
-    held.style.top = '100px';
-    const at100 = held.getBoundingClientRect();
+    // carrying CSS `zoom`, and #drag-layer is a zoom region on purpose. The mapping
+    // is probed rather than reasoned about — see layerMapping, which the exit
+    // animation shares.
+    const mapping = layerMapping(held);
 
     card = {
       held,
-      origin: { x: at0.left, y: at0.top },
-      scale: { x: (at100.left - at0.left) / 100, y: (at100.top - at0.top) / 100 },
+      mapping,
       size: { w: box.width, h: box.height },
       grabX: press.x - box.left, grabY: press.y - box.top,
       startX: press.x,
@@ -514,7 +582,7 @@ function wireDrag() {
   });
 
   function move(event) {
-    const { held, origin, scale, grabX, grabY, startX, size } = card;
+    const { held, mapping, grabX, grabY, startX, size } = card;
     // Kept so the autoscroll tick can re-aim without a pointer event of its own.
     card.lastPointer = { clientX: event.clientX, clientY: event.clientY };
     // Rail-locked: the card tracks vertically and never sideways, so it stays
@@ -525,8 +593,7 @@ function wireDrag() {
     // feature that must not be animated.
     const cardX = startX - grabX;
     const cardY = event.clientY - grabY;
-    held.style.left = ((cardX - origin.x) / scale.x) + 'px';
-    held.style.top = ((cardY - origin.y) / scale.y) + 'px';
+    placeInLayer(held, mapping, cardX, cardY);
 
     // The card's CENTRE is what decides where this lands — Reardon's rule, and the
     // only place in the app that turns a pointer position into an aim point. It is
