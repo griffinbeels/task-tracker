@@ -18,8 +18,35 @@
 // delegated `change` listener in tasks.js.
 
 function clearDropAffordance(root) {
-  root.querySelectorAll('.drop-into, .drop-zone, .emptying').forEach(
-    element => element.classList.remove('drop-into', 'drop-zone', 'emptying'));
+  root.querySelectorAll('.drop-into, .drop-zone, .emptying, .pairing').forEach(
+    element => element.classList.remove(
+      'drop-into', 'drop-zone', 'emptying', 'pairing'));
+}
+
+// How long the card has to rest over a row before grouping is offered, and how
+// that offer is drawn.
+//
+// The band alone could not satisfy both things asked for — make grouping stricter
+// than reordering, then *"it basically feels impossible to trigger the group
+// creation"*. A band hard to hit by accident is equally hard to hit on purpose.
+// Time separates the two gestures instead of pixels: reordering happens while you
+// are moving, grouping when you stop, so making one easier cannot make the other
+// harder.
+//
+// 420ms is long enough that carrying a row past another does not arm it and short
+// enough to feel like an answer rather than a wait. It is armed rather than
+// applied: the preview appears first and one pixel of movement takes it back, which
+// is what *"signaling to the user 'hey looks like you want to make a group,
+// right?'"* asks for.
+const PAIR_DWELL_MS = 420;
+
+// The offer, drawn as the thing itself: both rows step into a group's rail and
+// indent, exactly as they will sit once the group exists. Not a symbol for the
+// outcome — the outcome, at 30% of the way there. The existing FLIP animates the
+// indent, because it is a real layout change like any other.
+function drawPairingPreview(target, dragged) {
+  target.classList.add('drop-into', 'pairing');
+  if (dragged) dragged.classList.add('pairing');
 }
 
 // A group about to cease existing, shown ceasing to exist.
@@ -293,6 +320,12 @@ function wireDrag() {
   // double-click-to-rename working on the same pixels a drag starts from.
   let press = null;
   const THRESHOLD = 4;
+  // The row the card is resting over, the clock counting how long it has, and the
+  // row the clock has armed. Reset on every change of row, so passing over three
+  // rows on the way somewhere arms none of them.
+  let dwellOver = null;
+  let dwellTimer = null;
+  let armedPair = null;
 
   // `wrote` used to live here, because `dragend` fired immediately after drop's
   // synchronous part and was the only thing that could tell an abandoned gesture
@@ -409,6 +442,10 @@ function wireDrag() {
     draggedFrom = isGroup ? from : (container || from);
     intent = null;
 
+    dwellOver = null;
+    armedPair = null;
+    clearTimeout(dwellTimer);
+    dwellTimer = null;
     element.classList.add('dragging-source');
     document.body.classList.add('dragging');
     move(event);
@@ -538,6 +575,10 @@ function wireDrag() {
     // the window having taken over.
     clearInterval(scrollTimer);
     scrollTimer = null;
+    clearTimeout(dwellTimer);
+    dwellTimer = null;
+    dwellOver = null;
+    armedPair = null;
     const settled = intent;
     const row = dragged;
     const wasInGroup = draggedGroup;
@@ -624,8 +665,27 @@ function wireDrag() {
     const probe = { x: cardX + size.w / 2, y: cardY + size.h / 2 };
 
     autoscroll(event.clientY);
+
+    // The dwell clock. `rowUnder` answers which row grouping WOULD be with; this
+    // only decides whether the card has stayed there. The timer re-runs `move`
+    // itself, because no pointer event arrives while the hand is still — the same
+    // reason the autoscroll tick re-aims.
+    const over = sectionUnder(probe);
+    const resting = draggedIsGroup || !over
+      ? null : rowUnder(over, probe, dragged, dragged.dataset.project);
+    if (resting !== dwellOver) {
+      dwellOver = resting;
+      armedPair = null;
+      clearTimeout(dwellTimer);
+      dwellTimer = resting ? setTimeout(() => {
+        if (!card || dwellOver !== resting) return;
+        armedPair = resting;
+        move(card.lastPointer);
+      }, PAIR_DWELL_MS) : null;
+    }
+
     clearDropAffordance(list);
-    intent = dropIntent(probe, dragged, draggedIsGroup);
+    intent = dropIntent(probe, dragged, draggedIsGroup, armedPair);
     if (!intent) return;
     // The live move IS the affordance for a reorder: the row is drawn where it
     // would land, indented into a group's rail or clear of it, which says more
@@ -656,7 +716,7 @@ function wireDrag() {
     if (intent.kind === 'pair') {
       // The exception, because a new group has no container to enter yet and
       // nothing else on screen would say which two rows are pairing.
-      intent.element.classList.add('drop-into');
+      drawPairingPreview(intent.element, dragged);
     } else if (intent.into && intent.into !== draggedFrom) {
       // A section reads as the category it is; a group reads as a thing to
       // join. Same rule, two weights.

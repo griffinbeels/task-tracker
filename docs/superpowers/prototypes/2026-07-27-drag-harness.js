@@ -6,7 +6,7 @@
 // each of which loads the REAL ui/*.js against a stubbed `window.pywebview.api`
 // and drives synthetic pointer events:
 //
-//   app-harness.html   70 assertions: the card, Reardon's aiming rule, the
+//   app-harness.html   81 assertions: the card, Reardon's aiming rule, the
 //                      motion sampled mid-transition, the settle's ordering,
 //                      leaving a group, enter and exit
 //   app-scroll.html    autoscroll, in a window short enough to scroll
@@ -24,6 +24,11 @@
 // activation eaten by the click suppressor, and a displacement curve 35%
 // travelled by its first painted frame.
 //
+// One workflow note: every assertion shares ONE function scope, so a `const`
+// name reused across blocks is a SyntaxError that leaves #results reading EMPTY
+// with no other clue. Extract the <script> out of the generated page and
+// `node --check` it before spending a browser run.
+//
 // Two things about the environment, or it will accuse working code (both are
 // also in ~/.claude/rules/spawned-processes.md): the virtual-time budget
 // advances setTimeout but NOT the document timeline, so animations sit at t=0
@@ -37,8 +42,11 @@
 // Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
 // Not the test suite that was declined — a one-off, in the scratchpad, so a UI
 // change is not handed over on the strength of its diff.
+// Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
+// Not the test suite that was declined — a one-off, in the scratchpad, so a UI
+// change is not handed over on the strength of its diff.
 const fs = require('fs');
-const UI = 'C:/Users/griff/Desktop/code/task_tracker/.claude/worktrees/drag-animation/ui';
+const UI = 'C:/Users/griff/Desktop/code/task_tracker/ui';
 
 // NOTE, having cost four rounds: a backtick anywhere inside the STUB / TEST /
 // SCROLL / HOLD template literals below — including inside a comment — terminates
@@ -365,8 +373,13 @@ const TEST = `
         halfway < full * 0.5, halfway.toFixed(1) + 'px remaining of ' + full.toFixed(1)
         + ' (linear would be ' + (full / 2).toFixed(1) + ')');
     animation.finish();
-    log('F5  the gap itself never animates — it IS the slot',
-        fP.getAnimations().length === 0, fP.getAnimations().length + ' on the gap');
+    // Reversed 2026-07-27. The gap MUST animate: a slot change swaps two things,
+    // and a dashed box the size of a row teleporting beside a neighbour that
+    // glides is what "it jumps" was. Asserting it stayed still was asserting the
+    // bug.
+    log('F5  the gap animates too, so both halves of the swap move',
+        fP.getAnimations().length === 1,
+        fP.getAnimations().length + ' animations on the gap');
 
     // Reversing direction must produce a fresh animation back the other way.
     pt('pointermove', fx, fy);
@@ -668,6 +681,78 @@ const TEST = `
           Object.keys(frames[0] || {}).filter(k => k !== 'offset'
             && k !== 'computedOffset' && k !== 'easing').join(','));
     }
+
+    // ================= above a group, and grouping by dwell =================
+    search.value = '';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(350);
+
+    const grp = document.querySelector('#task-list section[data-bucket="now"] .group');
+    const firstMember = grp.querySelector('.task');
+    const memBox = firstMember.getBoundingClientRect();
+    const grpTop = grp.getBoundingClientRect().top;
+    const headerHeight = memBox.top - grpTop;
+    out.push('DIAG group header is ' + headerHeight.toFixed(0) + 'px of what used to be'
+      + ' dead weight in the upward trigger');
+
+    pt('pointerdown', memBox.left + 90, memBox.top + memBox.height / 2, firstMember);
+    pt('pointermove', memBox.left + 96, memBox.top + memBox.height / 2);
+    log('A1  the first member does not leave upward on the first pixel',
+        firstMember.closest('.group') === grp);
+    // Half its own height plus a pixel: past its OWN top edge, which is the group's
+    // content top. Still well inside the old trigger, which needed the header too.
+    pt('pointermove', memBox.left + 90, memBox.top + memBox.height / 2 - (memBox.height / 2 + 1));
+    log('A2  half a row up is enough to leave the group',
+        firstMember.closest('.group') === null,
+        firstMember.closest('.group') ? 'still inside' : 'out');
+    const nowKids = [...firstMember.parentElement.children];
+    log('A3  and it lands ABOVE the group, not below it',
+        nowKids.indexOf(firstMember) < nowKids.indexOf(grp),
+        'row at ' + nowKids.indexOf(firstMember) + ', group at ' + nowKids.indexOf(grp));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(400);
+
+    // ---- grouping by dwell ----
+    const looseRows = [...document.querySelectorAll(
+      '#task-list section[data-bucket="next"] > .task')];
+    const mover = looseRows[0], onto = looseRows[1];
+    const dwBox = mover.getBoundingClientRect();
+    const dwOnto = onto.getBoundingClientRect();
+    // Deliberately NOT the middle quarter: 3px below the target's top edge, where
+    // the aimed band does not reach.
+    const restY = dwOnto.top + 3;
+    pt('pointerdown', dwBox.left + 90, dwBox.top + dwBox.height / 2, mover);
+    pt('pointermove', dwBox.left + 96, dwBox.top + dwBox.height / 2);
+    pt('pointermove', dwBox.left + 90, restY);
+    log('B1  resting outside the aimed band does not pair immediately',
+        !onto.classList.contains('pairing'),
+        onto.className);
+    await sleep(200);
+    log('B2  and not yet at 200ms', !onto.classList.contains('pairing'));
+    await sleep(400);
+    log('B3  after the dwell it OFFERS the group',
+        onto.classList.contains('pairing') && onto.classList.contains('drop-into'),
+        onto.className.replace('task ', ''));
+    log('B4  and draws both rows in the rail it would create',
+        mover.classList.contains('pairing'),
+        mover.className.replace('task ', ''));
+    log('B5  the offer indents them, so it previews the real layout',
+        parseFloat(getComputedStyle(onto).marginLeft) > 0,
+        'margin-left ' + getComputedStyle(onto).marginLeft);
+    // One pixel of movement off the row takes the offer back.
+    pt('pointermove', dwBox.left + 90, dwOnto.top - 6);
+    log('B6  moving off the row revokes it',
+        !onto.classList.contains('pairing') && !mover.classList.contains('pairing'));
+    // And it re-arms on returning, rather than being spent.
+    pt('pointermove', dwBox.left + 90, restY);
+    await sleep(600);
+    log('B7  and it re-arms on coming back', onto.classList.contains('pairing'));
+    const callsBeforePair = window.__CALLS.length;
+    pt('pointerup', dwBox.left + 90, restY);
+    await sleep(700);
+    const made = window.__CALLS.slice(callsBeforePair).map(c => c.name);
+    log('B8  releasing on the offer creates the group', made.includes('create_group'),
+        made.join(', ') || 'nothing');
   } catch (error) {
     out.push('THREW  ' + error.message + '\\n' + error.stack);
   }

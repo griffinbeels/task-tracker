@@ -193,6 +193,23 @@ const PAIR_BAND = 1 / 4;
 // both measure those wrappers. Leaving it out would freeze every box except the
 // two that decide which project's list a running row belongs to.
 let frozen = null;
+// A group's box for DECIDING, which is the span of its ROWS rather than of its
+// container. The header is chrome — it is not a row, nothing can be positioned
+// relative to it inside the group, and its height was pure dead weight in every
+// threshold a group took part in.
+//
+// Reported as *"it also feels really hard still to move a task ABOVE a group…
+// it won't trigger the move until we're half way past the group name"*
+// (2026-07-27), with the fix named exactly: the trigger should be the top-most
+// CARD in the group, not the label row. Measured: for a group's first member,
+// escaping upward cost **41px** of travel, all of it drawn on top of the header,
+// against **15px** — half a row, the same dead zone every other block has — once
+// the header comes out.
+//
+// Computed at freeze and never again, like everything else here: the preview
+// moves rows into and out of groups, so asking "which member is first" later
+// answers about a membership that the gesture itself changed.
+let frozenContent = null;
 // Where the page was scrolled to when it froze. A frozen box is in VIEWPORT
 // coordinates, and the probe is built from `event.clientY` which is too — so the
 // moment the page scrolls under the gesture, every cached box is stale by exactly
@@ -207,15 +224,25 @@ let frozenAtScrollY = 0;
 
 function freeze() {
   frozen = new Map();
+  frozenContent = new Map();
   frozenAtScrollY = window.scrollY;
   for (const element of document.querySelectorAll(
       '#task-list section, #task-list .project-block, #task-list .group, #task-list .task')) {
     frozen.set(element, element.getBoundingClientRect());
   }
+  for (const group of document.querySelectorAll('#task-list .group')) {
+    const box = frozen.get(group);
+    const first = group.querySelector('.task');
+    if (!box || !first || !frozen.has(first)) continue;
+    const top = frozen.get(first).top;
+    frozenContent.set(group,
+      new DOMRect(box.x, top, box.width, Math.max(box.bottom - top, 0)));
+  }
 }
 
 function clearFrozen() {
   frozen = null;
+  frozenContent = null;
 }
 
 // The box to decide against: frozen if this gesture froze one, live otherwise.
@@ -225,6 +252,17 @@ function clearFrozen() {
 function fbox(element) {
   const cached = frozen && frozen.get(element);
   if (!cached) return element.getBoundingClientRect();
+  const drift = window.scrollY - frozenAtScrollY;
+  if (!drift) return cached;
+  return new DOMRect(cached.x, cached.y - drift, cached.width, cached.height);
+}
+
+// The box every decision is made against: `fbox`, except a group answers with the
+// span of its rows. Used by everything — containment, thresholds, the pair band —
+// so "the header is not part of the group's target area" is stated once.
+function cbox(element) {
+  const cached = frozenContent && frozenContent.get(element);
+  if (!cached) return fbox(element);
   const drift = window.scrollY - frozenAtScrollY;
   if (!drift) return cached;
   return new DOMRect(cached.x, cached.y - drift, cached.width, cached.height);
@@ -272,7 +310,7 @@ function blocksIn(container, dragged, selector) {
   const live = [...container.children].filter(child =>
     child !== dragged && child.matches(selector));
   if (!frozen) return live;
-  return live.sort((first, second) => fbox(first).top - fbox(second).top);
+  return live.sort((first, second) => cbox(first).top - cbox(second).top);
 }
 
 // The slot the dragged block belongs in, by Reardon's rule: "once the centre
@@ -302,10 +340,10 @@ function blocksIn(container, dragged, selector) {
 function slotFor(blocks, centreY, dragged, container) {
   const home = Boolean(frozen) && frozen.has(dragged)
     && dragged.parentElement === container;
-  const mine = home ? fbox(dragged).top : null;
+  const mine = home ? cbox(dragged).top : null;
   let passed = 0;
   for (const block of blocks) {
-    const box = fbox(block);
+    const box = cbox(block);
     const threshold = home ? (box.top >= mine ? box.top : box.bottom)
                            : box.top + box.height / 2;
     if (centreY >= threshold) passed++;
@@ -314,7 +352,7 @@ function slotFor(blocks, centreY, dragged, container) {
 }
 
 function withinBox(element, probe) {
-  const box = fbox(element);
+  const box = cbox(element);
   return probe.x >= box.left && probe.x <= box.right
     && probe.y >= box.top && probe.y <= box.bottom;
 }
@@ -347,6 +385,17 @@ function groupUnder(section, probe, dragged) {
     container => container !== dragged && withinBox(container, probe)) || null;
 }
 
+// A loose top-level row the card is resting over, whether or not it is aimed at
+// the band. This is what the dwell clock watches: it answers "which row would
+// grouping be with, if you stayed here", and drag.js decides whether you have.
+function rowUnder(section, probe, dragged, project) {
+  return [...section.querySelectorAll('.task')].find(row => {
+    if (row === dragged || row.dataset.project !== project) return false;
+    if (row.parentElement.classList.contains('group')) return false;
+    return withinBox(row, probe);
+  }) || null;
+}
+
 // A loose top-level row the card is very clearly on top of — the one gesture
 // here that makes a new group, so the one that has to be aimed. Vertical only
 // now: see PAIR_BAND for why the horizontal inset went.
@@ -354,7 +403,7 @@ function pairTarget(section, probe, dragged, project) {
   return [...section.querySelectorAll('.task')].find(row => {
     if (row === dragged || row.dataset.project !== project) return false;
     if (row.parentElement.classList.contains('group')) return false;
-    const box = fbox(row);
+    const box = cbox(row);
     const margin = box.height * (1 - PAIR_BAND) / 2;
     return probe.y >= box.top + margin && probe.y <= box.bottom - margin;
   }) || null;
@@ -369,7 +418,7 @@ function pairTarget(section, probe, dragged, project) {
 // nothing in this file can reach for `event.clientY` and quietly aim one decision
 // with the mouse while every other one uses the card
 // (test_the_drag_geometry_never_reads_the_pointer_directly).
-function dropIntent(probe, dragged, draggedIsGroup) {
+function dropIntent(probe, dragged, draggedIsGroup, armedPair) {
   const section = sectionUnder(probe);
   if (!section) return null;
   const lands = sectionPlacement(section);
@@ -381,8 +430,30 @@ function dropIntent(probe, dragged, draggedIsGroup) {
   // row on its own terms.
   if (lands.bucket && section.dataset.project !== project) return null;
 
-  // 1. Grouping — the aimed gesture, so it is tried first and refuses easily.
+  // 1. Grouping, which is reachable two ways and neither makes reordering harder.
+  //
+  // AIMED: the middle quarter of a row, instantly. Precise, and rewards knowing
+  // where the band is.
+  //
+  // DWELLED (`armedPair`): anywhere over a row, if the card has rested there long
+  // enough. drag.js owns the clock; this only has to honour the answer, and only
+  // while the card is still over that row — moving off it disarms without the
+  // timer needing to know.
+  //
+  // Both exist because a band alone could not satisfy both things asked for: make
+  // grouping stricter than reordering (2026-07-26), and then *"it basically feels
+  // impossible to trigger the group creation"* (2026-07-27). A band that is hard
+  // to hit by accident is also hard to hit on purpose. Time separates them
+  // instead of pixels — reordering happens while you are MOVING, grouping when you
+  // stop — so making one easier no longer makes the other harder.
   if (!draggedIsGroup) {
+    if (armedPair && armedPair !== dragged && armedPair.isConnected
+        && armedPair.dataset.project === project
+        && !armedPair.parentElement.classList.contains('group')
+        && withinBox(armedPair, probe)) {
+      return { kind: 'pair', over: armedPair, element: armedPair,
+               status: lands.status, section, dwelled: true };
+    }
     const target = pairTarget(section, probe, dragged, project);
     if (target) return { kind: 'pair', over: target, element: target,
                          status: lands.status, section };

@@ -90,9 +90,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    — the header and the rows below it then read as two different columns. */
 :root { --caret-gutter: 15px; }
 
+/* ONE transition declaration, naming box-shadow only — the pairing preview's rail
+   fades in rather than snapping on, and nothing below may add a second
+   `transition` here or this one is replaced wholesale while that state is active.
+   Position is never transitioned on a row: the FLIP owns movement, and a
+   transition on `margin` would race it. */
 .task { display: flex; align-items: center; gap: 6px; padding: 5px 6px;
         padding-left: calc(6px + var(--caret-gutter));
-        border-radius: 5px; cursor: grab; }
+        border-radius: 5px; cursor: grab;
+        transition: box-shadow 160ms cubic-bezier(.4, 0, .2, 1); }
 .task:hover { background: rgba(127,127,127,.12); }
 /* flex: none for the same reason the checkbox comment above documents: an
    unconstrained flex child in a row this cramped gets squashed into an oval
@@ -260,6 +266,22 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    Only ever on a group down to its LAST member: with two left the group survives a
    member leaving, and fading it then would be a lie. */
 .group.emptying { opacity: .3; }
+
+/* The group that WOULD be created, drawn as itself. Both rows take the group's own
+   rail and the one caret-gutter of indent a member has, so the offer is the
+   outcome at partial strength rather than a symbol standing in for it — the same
+   `.group` rail and the same `.group > .task` indent, at a lower opacity.
+
+   It exists because a pair band alone could not be both easy to reach on purpose
+   and hard to hit by accident. Grouping is offered after the card rests on a row
+   (drag.js, PAIR_DWELL_MS) — so the offer has to be visible and revocable, which
+   is what a preview is. One pixel of movement takes it back.
+
+   The indent is a real layout change, so the FLIP animates it like any other; the
+   rail fades in on `.task`'s own transition below. */
+.task.pairing { box-shadow: inset 2px 0 0 rgba(48, 164, 108, .55);
+                margin-left: var(--caret-gutter); }
+.group > .task.pairing { margin-left: var(--caret-gutter); }
 /* One caret column of indent, so a member's checkbox sits exactly one notch
    right of its group header's — the same rhythm as the gutter above it, and
    the thing that says these rows belong to that header. */
