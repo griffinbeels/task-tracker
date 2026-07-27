@@ -1,5 +1,26 @@
 :root { color-scheme: dark; }
-body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12px; }
+/* The bottom padding is the floating selection bar's berth (see #selection-bar
+   below): the bar is position: fixed, so it lies over whatever is beneath it,
+   and without a gap the last row of a list long enough to scroll could never
+   be scrolled clear of it — at the bottom of the scroll it would sit under the
+   bar with nowhere left to go.
+
+   Measured against the bar's TALLEST state, not its usual one: 12px of offset
+   + 74px of bar with the session-name row showing at two or more selected,
+   which is exactly the state that has rows ticked and something to lose behind
+   it. Sized to the 40px one-row bar instead, the name row covers the last task
+   outright.
+
+   Permanent rather than applied while the bar is open, because a padding that
+   appears with the bar can bring a vertical scrollbar with it, and a scrollbar
+   narrows the content and reflows every row sideways — the same jump the bar
+   was moved to the bottom to avoid, on the other axis. Taking it back again
+   when the bar leaves is worse still: shrinking the scroll height while
+   scrolled to the bottom clamps the scroll, which slides the whole list. The
+   cost of a constant is a strip of empty space under the last row, which is
+   what the end of a list looks like anyway. */
+body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0;
+       padding: 12px; padding-bottom: 88px; }
 
 header { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
 #toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
@@ -374,22 +395,54 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
-/* Neutral fill, in the same idiom as every other surface that reads as a
-   plain container rather than a state (see .chip.on, #editor-title) — never
-   #group-limit-warning's orange, which means "warning" in this window and the bar is
-   not one. Without a fill the bar was three unframed buttons and a dim count
-   floating in the gap left by the row below it. */
-/* A column, because the bar carries two rows: the actions, and the session
+/* The bar floats over the bottom of the window; it is not a row in the flow.
+   In the flow it was a block that appeared and disappeared above the list, so
+   ticking one box pushed every task down by its height and unticking pulled
+   them all back up — the list jumped under the cursor at the exact moment the
+   cursor was aiming at it, which is the one moment it must not. Fixed and
+   bottom-anchored it costs the layout nothing, because nothing is laid out
+   against it any more.
+
+   left/right/bottom are body's own 12px padding, so the bar keeps the width
+   and the margins it had in the flow: it moved, it did not become a different
+   component.
+
+   No z-index, deliberately. It is position: fixed at z-index auto and sits
+   BEFORE the three overlays in index.html, so they paint over it in DOM order
+   — the same rule #editor's comment above documents. A rank here would float
+   the bar on top of an open editor.
+
+   A column, because the bar carries two rows: the actions, and the session
    name at two or more selected. The buttons keep .actions on an inner div, so
-   the row idiom and the 28px control height are unchanged. */
-#selection-bar { background: rgba(127, 127, 127, .10); padding: 5px 8px;
-                 border-radius: 5px; margin-bottom: 8px;
-                 display: flex; flex-direction: column; gap: 6px; }
-/* This rule sets display, which a bare `hidden` attribute loses to on equal
-   specificity — the same trap .overlay[hidden] and .chips[hidden] already
-   document above. The nested #handoff-name carries its own copy for the same
-   reason, so the two rows hide independently. */
-#selection-bar[hidden] { display: none; }
+   the row idiom and the 28px control height are unchanged.
+
+   The fill is opaque, where the version in the flow was a 10% wash of the
+   background it sat on. This one has task rows behind it, and text showing
+   through a bar reads as a render fault rather than as a surface. Fill, border
+   and shadow together are the whole of "this is above the page" — none of the
+   three is decoration. */
+#selection-bar { position: fixed; left: 12px; right: 12px; bottom: 12px;
+                 padding: 5px 8px; border-radius: 6px;
+                 display: flex; flex-direction: column; gap: 6px;
+                 background: #1e1e1e;
+                 border: 1px solid rgba(127, 127, 127, .22);
+                 box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+                 transition: transform 160ms ease, opacity 160ms ease,
+                             visibility 0s; }
+/* `hidden` on this element does NOT mean display: none, and here that is
+   deliberate rather than the trap .overlay[hidden] and .chips[hidden] document
+   above: a display: none element cannot animate, so hiding it that way makes
+   the bar vanish instead of leave. It stays laid out and slides out below the
+   window edge instead. `visibility` is what actually takes it out of the
+   accessibility tree and out of the way of clicks, and its transition is
+   delayed by the length of the slide so the slide finishes first. Going the
+   other way the base rule's `visibility 0s` applies, so it is interactive from
+   the first frame of arriving. JS still toggles `.hidden` and nothing else. */
+#selection-bar[hidden] { display: flex; visibility: hidden; opacity: 0;
+                         pointer-events: none;
+                         transform: translateY(calc(100% + 12px));
+                         transition: transform 160ms ease, opacity 160ms ease,
+                                     visibility 0s 160ms; }
 #selection-count { font-size: 11px; opacity: .6; }
 
 /* A screenshot at natural size is a wall in a 420px column — you lose the

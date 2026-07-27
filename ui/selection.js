@@ -21,7 +21,13 @@ function selectedInOneProject() {
 function renderSelectionBar() {
   const count = selectedIds().length;
   document.getElementById('selection-bar').hidden = count === 0;
-  document.getElementById('selection-count').textContent =
+  // The bar slides out rather than disappearing (see #selection-bar in
+  // style.css), so it is on screen for the length of that slide after the last
+  // box is unticked. Writing "0 selected" into it at that moment would be the
+  // only frame of the animation anyone actually reads. Leaving the last count
+  // alone means it leaves saying what it was — which is true, and which is
+  // also what it says while sliding out under a Clear.
+  if (count) document.getElementById('selection-count').textContent =
     count === 1 ? '1 selected' : `${count} selected`;
 }
 

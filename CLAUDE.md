@@ -700,7 +700,16 @@ show two unrelated tasks under one id at different points in time.
   without the explicit call this depends on) and that `Clear` empties the
   header box along with every row's — a header left ticked with no members
   ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
-  Spin up: the folded members must still go to the session. In `ui/groups.js`,
+  Spin up: the folded members must still go to the session. Four more for the
+  bar's own position, which is a floating overlay rather than a row: tick a box
+  and **nothing above it may move** — the list must stay exactly where it was
+  while the bar slides up from the bottom edge, and untick must slide it back
+  down rather than blink it away. Scroll a list long enough to scroll all the
+  way to the bottom with two tasks ticked (which shows the taller two-row bar):
+  the last task must still be readable above the bar. Tick a task, then open
+  Progress or the editor: the bar must be **behind** the overlay, not floating
+  on top of it. And clear the last tick: the count must not flash `0 selected`
+  on its way out. In `ui/groups.js`,
   four more: drop a grouped row on a bucket's heading, or on a project heading
   in IN PROGRESS, and it must leave its group — that heading is the only
   drag-out target, because the gaps a reorder crosses are not aimable and

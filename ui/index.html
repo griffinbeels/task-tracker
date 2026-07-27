@@ -24,7 +24,13 @@
          more — what to name the session it is about to become. The name is a
          property of the selection, so it lives inside the selection's own
          component rather than stacking a second bar beneath it. Each row hides
-         independently; the bar hides when nothing is ticked. -->
+         independently; the bar hides when nothing is ticked.
+
+         It is drawn floating over the BOTTOM of the window (style.css), not
+         where it sits here, and nothing is laid out against it. It stays at
+         this point in the markup for one reason: every overlay below is
+         position: fixed at z-index auto, so they paint over it in DOM order.
+         Moved after them, the bar would cover an open editor. -->
     <div id="selection-bar" hidden>
       <div class="actions">
         <span id="selection-count"></span>
