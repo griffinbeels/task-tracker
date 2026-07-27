@@ -1,3 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drag feel — task_tracker prototype</title>
+<!-- STANDALONE ON PURPOSE.
+
+     This file was born as a content FRAGMENT for the Superpowers brainstorming
+     companion, which wrapped it in a frame template that supplied the dark
+     theme, the body font, and the h2 / .subtitle / kbd rules. Opened straight
+     off disk after that server stopped, it rendered as a white page with
+     browser-default headings — the #proto block below was the only styled thing
+     on it, because that CSS is inline.
+
+     So the page chrome lives here now and the file needs nothing outside itself.
+     The companion still serves it unchanged if it is ever wanted there: that
+     server passes a full document through as-is and only injects its helper
+     script, so being a document costs nothing and being a fragment cost the
+     whole page. -->
+<style>
+  :root { color-scheme: dark; }
+  /* Darker than the mock window's #141414, so the 420px stage below reads as a
+     window sitting ON something rather than as a patch of the page. */
+  body { margin: 0; padding: 26px 22px 60px;
+         background: #0d0d0d; color: #dcdcdc;
+         font: 13px/1.6 "Segoe UI", system-ui, sans-serif; }
+  .page { max-width: 900px; margin: 0 auto; }
+  h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em;
+       margin: 0 0 10px; color: #f0f0f0; }
+  /* A measure, not the full width: these two paragraphs are instructions and a
+     100-character line is not read, it is skimmed. */
+  .subtitle { max-width: 74ch; margin: 0 0 12px; opacity: .68; line-height: 1.75; }
+  .subtitle:last-of-type { margin-bottom: 22px; }
+  .subtitle strong { color: #f0f0f0; opacity: 1; font-weight: 600; }
+  .subtitle em { color: #eaeaea; }
+  kbd { font: inherit; font-size: 11.5px; padding: 1px 5px; border-radius: 4px;
+        background: rgba(127, 127, 127, .18);
+        border: 1px solid rgba(127, 127, 127, .3); }
+</style>
+</head>
+<body>
+<div class="page">
 <h2>Drag feel — a real prototype, not a mockup</h2>
 <p class="subtitle">
   This is a working pointer-events drag over a mock of your task list, at the real
@@ -7,10 +49,18 @@
   header · dragging into IN PROGRESS · pressing <kbd>Esc</kbd> mid-drag.
 </p>
 <p class="subtitle">
-  Every switch on the left is a real decision I need from you. <strong>Snap (today)</strong>
-  reproduces exactly what the app does now — start there for one drag, then hit
-  <strong>My recommendation</strong> and feel the difference. Clicks are recorded, but
-  tell me in the terminal which combination won and what still feels wrong.
+  Every switch on the left is a real decision. <strong>Snap (today)</strong>
+  reproduces exactly what the app did before this work — start there for one drag,
+  then hit <strong>My recommendation</strong> and feel the difference. The
+  <strong>Current combination</strong> readout at the bottom of the panel is the
+  settings string for whatever you have dialled in.
+</p>
+<p class="subtitle">
+  The combination that was chosen, and that the app is being built to:
+  <strong>aim=centre gap=dashed neighbour=200 easing=atlassian scale=1.05 tilt=0
+  follow=y settle=160 flash=on groupTransit=full</strong> — a bigger lift than the
+  recommendation preset, rail-locked sideways, and a dragged group carries its
+  whole block.
 </p>
 
 <div id="proto">
@@ -700,3 +750,6 @@
   applyConfig();
 })();
 </script>
+</div>
+</body>
+</html>
