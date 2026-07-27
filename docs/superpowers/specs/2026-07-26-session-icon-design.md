@@ -76,13 +76,16 @@ tracker**. Measured — an icon handle goes invalid (`ERROR_INVALID_CURSOR_HANDL
 the moment the process that supplied it exits, and neither `LR_SHARED` nor a
 module-resource load changes that; `kernel32!SetConsoleIcon`, which existed for
 exactly this, is gone from this machine's kernel32. So a session that outlives
-the tracker — you close it, or press ↻ — is left holding a dead handle. What
-Explorer draws then is **not measured**, because it needs a real window on
-screen; the guess is that it keeps the bitmap it already rasterised and nothing
-visibly changes. If it blanks instead, the fix is to send `WM_SETICON(NULL)` to
-each session window on shutdown, which drops it back to conhost's class icon —
-exactly today's behaviour. That is a ten-line addition, and it waits on the
-by-hand check below rather than being built for a failure nobody has seen.
+the tracker — you close it, or press ↻ — is left holding a dead handle.
+
+**What Explorer draws then was measured after this shipped, and it is nothing:
+the taskbar rasterises the icon when it is set and keeps drawing it.** Two
+labelled consoles were put on the bar side by side — one iconed by a process
+that then exited, one whose icon conhost owned through a shortcut — and both
+drew the logo. So the dead handle costs a *re-query* (an Explorer restart, a DPI
+change) and not the icon. The `WM_SETICON(NULL)`-on-shutdown fix this section
+used to propose is therefore not needed, and the shortcut alternative below
+stays unbuilt for the same reason.
 
 ## Every failure is silent, and costs only the icon
 
@@ -119,9 +122,24 @@ And the check that can only be made by hand, on the running app:
 
 - spin up a session and look at the taskbar — the Anthropic logo, not a
   terminal;
-- with that session still open, press ↻ and look again. This is the open
-  question above: if the button blanks, the shutdown restore gets built.
+- with that session still open, press ↻ and look again. Both were done on
+  2026-07-26 and both pass.
+
+**Verify by size as well as by pixels.** `ExtractIconExW` returns the *system*
+large and small metrics, which are per-process DPI: the tracker is DPI-aware at
+150%, so its sessions wear 48×48 and 24×24 while a DPI-unaware probe extracts
+32×32 and 16×16. Comparing across that gap reports "neither claude's nor
+conhost's" for an icon that is exactly claude's, which reads as the feature
+being broken — it cost an hour on the day this shipped.
+
+## Where this ended up
+
+The launcher was extracted into the shared `claude_console` module the same day,
+by a session running in parallel with this one, and this code went with it. The
+rule now lives in `claude-console/CLAUDE.md` as its invariant 12; this file is
+the record of the decision, not of where the code is.
 
 ## Touch set
 
-`console_input.py`, `tests/test_console_input.py`, `CLAUDE.md`.
+`console_input.py`, `tests/test_console_input.py`, `CLAUDE.md` — all since moved
+to `claude-console`.
