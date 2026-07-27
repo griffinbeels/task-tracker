@@ -320,6 +320,38 @@ It must be *outside* `#task-list` rather than inside it, because the drop path
 reads `section.querySelectorAll('.task')` and `flip()` sweeps `.task, .group`; a
 clone inside the list would be counted by both.
 
+### The card needs a rung on the stacking ladder, and there is no room for it
+
+`ui/style.css` now carries an explicit ladder — task list at `auto`,
+`#selection-bar: 1`, `.overlay: 2`, `#editor: 3`, `#zoom-badge: 4` — and
+`tests/test_conventions.py::test_the_floating_surfaces_are_ranked_in_one_order`
+asserts those ranks are **strictly increasing**, with equal ranks rejected
+because "equal ranks fall back to DOM order".
+
+The card must beat the selection bar (you can drag over it) and lose to every
+overlay. There is no integer between 1 and 2, and a tie is exactly what that test
+forbids. So the ladder shifts up by one:
+
+| Surface | Was | Becomes |
+|---|---|---|
+| `#selection-bar` | 1 | 1 |
+| **`#drag-layer`** | — | **2** |
+| `.overlay` | 2 | 3 |
+| `#editor` | 3 | 4 |
+| `#zoom-badge` | 4 | 5 |
+
+`STACKING_ORDER` in the test gains `#drag-layer` between `#selection-bar` and
+`.overlay`. Do **not** give the card its rank by placing it late in the markup —
+that file's own comment says a new surface "needs a rank, not a place in the
+markup", and the test is there because the markup answer was tried and failed.
+
+`#zoom-badge`'s `pointer-events: none` is documented as load-bearing because "the
+drop handler asks `event.target` what it landed on". That stops being true: the
+only `event.target` read left is on `pointerdown`, and `pointermove` measures
+rather than hit-tests. Leave the declaration — it is still correct, and the badge
+must not eat a `pointerdown` — but the comment's reasoning needs updating so it
+does not outlive the thing it describes.
+
 A `position: fixed` child of a zoomed element does not resolve `left`/`top`
 against the viewport. **Do not reason about the factor — probe it**, once per
 lift, and assert the result:
@@ -396,10 +428,11 @@ removed with it.
 
 ## Files
 
-The earlier estimate of ~620 lines for one new file was low. `groups.js`'s drag
-section is lines 342–908 — **567 lines already**, before the frozen cache, the
-card, FLIP and autoscroll. One file lands near 800, which is worse than what it
-replaces.
+Measured against `main` at `c635b17` (2026-07-26, after the Claude-button work
+landed): `ui/groups.js` is **951 lines**, its drag section runs 371–941, and
+`focusGroupName` follows at 943. So **571 lines** move before a single line of the
+frozen cache, the card, FLIP or autoscroll is written. One new file lands near
+800, which is worse than what it replaces.
 
 So the recommendation is **two** new files, each with one reason to change. This
 is a refinement of the approved split, not a different decision — flagged here
@@ -410,13 +443,38 @@ review gate exists for.
 |---|---|
 | `ui/drag-geometry.js` | **new**, ~330 lines. Where a drop lands, and nothing about how it looks: `freeze`/`fbox`/`rect`, `sectionUnder`, `groupUnder`, `pairTarget`, `slotFor` and its two rules, `blocksIn`, `projectBlockUnder`, `ownRunningList`, `sectionPlacement`, `placement`, `draggedState`, `dropIntent`, `groupOf`, `taskOf` |
 | `ui/drag.js` | **new**, ~370 lines. The gesture and its motion: `pointerdown`/`move`/`up`/`cancel`, the held card and its probe, the gap, `clearDropAffordance`, `flip`, autoscroll, the three endings, `inProgressOrderFromDom`, `wireDrag` |
-| `ui/groups.js` | 922 → **~355 lines** (lines 1–341 plus `focusGroupName`). Keeps what a group *is*: `groupBlocks`, `groupMemberCount`, the seven folding functions, `groupBlock`, `renameInPlace`, `focusGroupName` — and loses `releaseDragWhileUsing` and `renameInPlace`'s `draggable` juggling |
-| `ui/index.html` | two `<script>` tags after `groups.js`; `<div id="drag-layer">` immediately after `<main id="task-list">` and before `#editor`, so the card paints over the selection bar but under every overlay |
+| `ui/groups.js` | 951 → **~380 lines** (1–370 plus `focusGroupName`). Keeps what a group *is*: `groupBlocks`, `groupMemberCount`, the seven folding functions, `groupBlock`, `renameInPlace`, `focusGroupName` — and loses `releaseDragWhileUsing` along with all **eight** of its call sites |
+| `ui/index.html` | two `<script>` tags after `groups.js`; `<div id="drag-layer">` after `<main id="task-list">` — its rank does the work, not its position |
 | `ui/zoom.js` | one line in `zoomAssignments()`: `['drag-layer', 'app']` |
-| `ui/style.css` | `.held`, the three gap styles, `#drag-layer`, `.nodrag`; remove `.group-header[draggable="false"]` |
-| `ui/tasks.js` | `taskRow` loses `row.draggable` for `.nodrag`; `renameTaskInPlace` loses its `draggable` juggling; `renderSearch`/`renderAllProjects` set the class |
+| `ui/style.css` | `.held`, the three gap styles, `#drag-layer`, `.nodrag`; the four-rung ladder shift; remove `.group-header[draggable="false"]`; update `#zoom-badge`'s comment |
+| `ui/tasks.js` | 616 lines. `taskRow` loses `row.draggable` for `.nodrag`; `renameTaskInPlace` loses its `draggable` juggling; `renderSearch`/`renderAllProjects` set the class |
 | `ui/state.js` | `render()` gains the FLIP wrapper |
-| `tests/test_conventions.py` | nothing to write — `test_every_ui_script_is_loaded_by_the_page` (line 329) already fails the build on a `.js` file with no `<script>` tag, which is exactly the mistake two new files invite |
+| `tests/test_conventions.py` | one line: `#drag-layer` into `STACKING_ORDER` |
+
+**Three existing convention tests are the only automated coverage this work
+gets**, and all three are worth knowing about because each catches a mistake the
+by-hand checks would miss:
+
+- `test_every_ui_script_is_loaded_by_the_page` (line 329) — a `.js` file with no
+  `<script>` tag. Exactly the mistake two new files invite.
+- `test_every_class_the_ui_toggles_is_styled` (line 269) — `.held`, `.nodrag` and
+  the three `gap-*` classes must actually be styled. Note its known blind spot,
+  recorded in invariant 28: it passes on a *stale* selector, because `.drop-into`
+  is a substring of `.group-header.drop-into`. Keep the new selector lists
+  minimal enough that a wrong one is obvious by reading.
+- `test_the_floating_surfaces_are_ranked_in_one_order` (line 416) — the ladder
+  above, strictly increasing.
+
+None of them can see whether the card follows the cursor, whether a threshold
+moves, or whether a neighbour is animating.
+
+**A new row control landed while this spec was being written.** Every `.task` now
+carries a `.claude` button beside `.copy` and `.done`, and the group header
+carries one too — which is why `releaseDragWhileUsing` has eight call sites rather
+than six. Nothing in this design changes for it: the guard is
+`closest('input, select, button')` on `pointerdown`, which covers every control
+present today and every one added later. That generality is the point — the
+per-control registration it replaces is what needed a line per button.
 
 Nothing in `store.py`, `groups.py`, `app.py` or any bridge method changes. **The
 drop path is untouched**: the preview is still a real DOM move, so
