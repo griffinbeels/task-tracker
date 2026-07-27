@@ -1,6 +1,9 @@
 .superpowers/
 .venv/
 __pycache__/
+# `uv pip install -e .` — the setup command since claude-console became a
+# declared dependency — leaves this behind. Machine-specific build output.
+*.egg-info/
 *.pyc
 .pytest_cache/
 
