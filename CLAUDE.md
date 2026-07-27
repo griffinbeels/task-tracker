@@ -80,15 +80,15 @@ bundler.
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, the spin-up rule, and `place` — the whole destination a drop resolves to. A group **is** its name — no ids, no registry |
-| `launcher.py` | Verbatim prompt assembly, clipboard, session naming and the `/rename`/`/color` command list — everything a hand-off is that is shaped by `store.Task`. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift. Opening the window and typing into it is `claude_console`'s |
+| `launcher.py` | Prompt assembly — the task's own file path, one per line (invariant 2) — clipboard, session naming, the `/color` command, and `Deliveries` — what a finished hand-off still has to tell the user, and everything else a hand-off is that is shaped by `store.Task`. The **name is no longer typed**: it goes to `open_session(name=…)` and rides on the launch as `claude -n`, so `setup_commands` is down to the colour. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of what gets typed — the task file's absolute path, one per line — and both hand-off and the per-row copy button go through it, so the two can never drift. It assembles no prose at all any more: the session reads the file (invariant 2). Opening the window and typing into it is `claude_console`'s |
 | `claude_console` (shared) | Not in this repo. Spawning the session into this machine's default terminal — Windows Terminal, running PowerShell — the pid to type into, typing into the console's input buffer, the rebuilt environment, and `safe_line`/`cap`. It no longer dresses the console: the forced font and the session icon both went with the `conhost.exe` pin on 2026-07-26, and that repo's CLAUDE.md says why each is impossible under Windows Terminal |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it. **Geometry and nothing else** — `on_top` used to ride along here and was never assigned by anything, so it round-tripped `True` forever; it is `Settings.always_on_top` now |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
-| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
+| `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), `asShown` (a body as the editor draws it — escapes resolved, the empty-paragraph `<br>` dropped, non-breaking spaces made ordinary — for the only two places that read a body as text: search, and the `## Outcome` split. The hand-off has no copy of this rule and needs none; it sends the file's path, so nothing converts a body at all), the Escape key that closes the topmost overlay, and `showToast` — the one overlaid notice, used so far only by the hand-off watch |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
-| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row, and `watchDelivery`. `handOff` is the **one** place a session is opened on tasks — the toolbar's Spin up, the selection bar's, every row's Claude button and every group header's go through it, so the batch name, the refresh, the delivery watch and the tick restoration cannot come out differently per control. The two toolbar buttons share `handOffSelection`, which is that one function reached from two places rather than a second copy of it |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row, and `watchDelivery` — the bounded poll that asks whether the tasks reached the session, because the bridge is call-and-return and a hand-off finishes minutes later. `handOff` is the **one** place a session is opened on tasks — the toolbar's Spin up, the selection bar's, every row's Claude button and every group header's go through it, so the batch name, the refresh, the delivery watch and the tick restoration cannot come out differently per control. The two toolbar buttons share `handOffSelection`, which is that one function reached from two places rather than a second copy of it |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
 | `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `aimedAt` — what a tick means to every button *outside* the bar, so a row's `done`, a group header's `done` and a row's Claude button all aim at the same tasks. `completeWithSelection` is one of its two callers |
@@ -166,12 +166,74 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
    writer that reaches for `write_text` directly is the way to reintroduce
    both problems at once.
 
-2. **Task bodies are verbatim.** They are user prose that gets typed into a
-   Claude session. Never strip, trim, normalise, re-wrap or append.
-   `build_prompt` emits `TYPE: body`, one task per line, and nothing else — no
-   instructions, no "mark this done when finished". The single exception is a
-   body's *trailing* whitespace, dropped so that the newline between tasks is
-   exactly one newline; a body is never touched at the front or in the middle.
+2. **A hand-off is a pointer, and a task body is verbatim on disk.** Two
+   halves of one rule. `build_prompt` emits the task file's **absolute path**,
+   one per line, and nothing else — no prose, no `TYPE:` prefix, no
+   instructions. And nothing ever rewrites a body: never strip, trim,
+   normalise, re-wrap or append, at either end.
+
+   **Why a path.** A session opened on a project can read the task, so the
+   prose does not need to travel — and the file carries what a prompt box
+   never could: the type, the group, the dates, any pasted screenshot's
+   absolute path, and the prose still formatted as the markdown it was written
+   as, lists and numbering included. *"We don't even need to give Claude any
+   prompt at all… claude can read markdown files perfectly"* (2026-07-27).
+
+   **What it ended.** A prompt box takes plain text, so everything the editor
+   stores as *notation* had to be undone on the way out, and each undoing was
+   its own shipped bug found by the user rather than by a test — the escapes,
+   the `<br>`, the non-breaking spaces below. All three are still in the file
+   and none of them are a problem there, because they are markdown and are
+   read as markdown. The lesson generalises past this app: **when a consumer
+   can read the source, converting the source for it is the bug.**
+
+   **Absolute, though the session's own directory is the project.** The same
+   string goes on the clipboard, where the destination is unknown, and a
+   relative path is not *wrong* somewhere else — it silently means a different
+   file. Invariant 14's reasoning, one directory up.
+
+   A task with no `path` raises, as in `store.save_task`. Nothing in the app
+   can reach it: every task the bridge selects was read off disk.
+
+   **What the editor stores that nobody typed.** Still true of every body, and
+   still what `asShown` in `ui/state.js` exists for — search matches on it and
+   the `## Outcome` split reads it, so both need the text as drawn. Measured
+   against the vendored build, not reasoned about:
+
+   - **Escapes.** Toast UI's serializer escapes an entire line whenever that
+     line *looks like* a block construct: `1. resize the text, then (this)` is
+     stored as `1\. resize the text\, then \(this\)`, because `Je.list`
+     matches the line and the escape set is then `[>(){}[\]+-.!#|]`, whose
+     unescaped `+-.` is a *range* covering the comma. `*`, `_`, `~` and
+     `` ` `` are escaped unconditionally, so a pasted `## heading` gains
+     backslashes too. Undoing one means `\` before ASCII punctuation
+     (CommonMark's escapable set); `\` before anything else is a backslash
+     somebody typed.
+   - **The empty-paragraph filler.** Markdown cannot say "blank line here", so
+     the second of two consecutive empty paragraphs — which is what two presses
+     of Enter make — serializes as a literal `<br>` on a line of its own.
+     `<ol>…</ol><p></p><p></p><p>a</p>` becomes `1. one\n\n\n<br>\na`; a
+     *single* empty paragraph needs no tag. A `<br>` the user typed is stored
+     **escaped** (`\<br>` — the serializer escapes HTML tags), which is the
+     whole difference between markup that is spacing and markup that is
+     content.
+   - **Non-breaking spaces.** A paste carrying `text/html` off a web page
+     leaves U+00A0 behind, indistinguishable from a space until something reads
+     the bytes. Tabs are *not* on this list: ProseMirror normalises a tab to a
+     space in the document itself, so one cannot reach the file — checked
+     rather than assumed, because the report named it.
+
+   **Never repair a body by rewriting the file.** That would have to decide
+   whether a `1. ` line is now a list and whether a literal `*` is now
+   emphasis — silently changing bodies nobody edited, which is the half of this
+   invariant that has not moved. The editor's round-trip (invariant 13) depends
+   on the escapes being there.
+
+   **`claude_console` is not the place for any of this, and that was asked.**
+   It takes an assembled prompt from any consumer — a git diff, a form
+   submission — and cannot tell a markdown escape from a backslash that is
+   content. It is also innocent: `deliver` hands `prompt` to `paste` unchanged,
+   and `safe_line` touches only the command lines.
 
 3. **Frontend bridge calls go through `callApi('name', ...)`** in `state.js`,
    never `window.pywebview.api.*` directly. `get_state` inside `refresh()` is the
@@ -908,7 +970,13 @@ show two unrelated tasks under one id at different points in time.
   frontmatter change and **no body diff**). In `ui/tasks.js`, check that
   hovering a row does not shift the title sideways (the hover-revealed controls
   must use `opacity`, never `display`) and that clicking the copy button does
-  not also open the editor. Five for inline rename, which splits one row
+  not also open the editor. One more, for the hand-off being a pointer
+  (invariant 2): paste a numbered list into Capture, save it, then press the
+  row's copy button — the clipboard must hold **the task file's absolute
+  path** and nothing else, and opening that path must show the task you just
+  wrote. Then search for a phrase from a numbered line containing a comma:
+  the row must come back. That one is `asShown`, not the hand-off — search is
+  now the only place the editor's escapes still have to be undone. Five for inline rename, which splits one row
   between two gestures: double-click a task's title — it becomes a box, Enter
   commits and Escape puts the old title back; single-click that same title must
   do **nothing**, while the dot, the type tag and the space after a short title
@@ -1169,11 +1237,17 @@ show two unrelated tasks under one id at different points in time.
 
   **Keyboard.** In Capture, type a body and press Shift+Tab: focus lands in the
   title box **and you can see that it did** — an invisible ring is the same
-  defect as no ring. Shift+Tab again to File, again to Later, again to Cancel,
-  again to wrap back into the body with the caret in it. Enter on each button
-  must fire it. In triage the ring must include Skip and Discard; on a done
-  task opened from Progress it must include Restore. And in the body, indenting
-  a list item with Tab must still work — only Shift+Tab was taken.
+  defect as no ring. Shift+Tab again to Submit, again to Later, again to
+  Cancel, again to wrap back into the body with the caret in it. Enter on each
+  button must fire it. In triage the ring must include Skip and Discard; on a
+  done task opened from Progress it must include Restore. And in the body,
+  indenting a list item with Tab must still work — only Shift+Tab was taken.
+  Then Enter **in the title box**, which is the fast path the ring exists to
+  reach: type a body, Shift+Tab to the title, type a name, press Enter — the
+  task is filed exactly as the button files it. With the title empty it must
+  raise the same "give it a title" alert rather than doing nothing, and in
+  triage it must file the note and move to the next one. Enter in the **body**
+  must still make a new line.
 
   **The editor toolbar.** Narrow the window, or zoom the editor, until the `…`
   overflow button appears: there must be **no stray light line just right of
@@ -1230,6 +1304,14 @@ Each is cheap to avoid and expensive to diagnose:
    There is no JS test runner here, so nothing failed — it would simply have
    thrown at runtime. After merging any UI branch, grep for the old name and
    run `node --check ui/*.js`.
+
+   **Two thirds of that is now the build's job.** A renamed *bridge* method is
+   caught by `test_every_bridge_call_names_a_method_that_exists`, and a missing
+   element id by `test_every_element_id_the_scripts_ask_for_exists` — both fail
+   on a merge that half-lands a rename. What no test can see is a **JS function**
+   renamed on one branch and still called from another: nothing here parses the
+   shared global scope, and `node --check` only reads syntax. That is the grep
+   that still has to happen by hand.
 
 ## Known gaps
 
@@ -1324,8 +1406,15 @@ Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
-code and these invariants are.** Seven things in them are known-wrong and were
-corrected during implementation. `2026-07-25-selection-bar-design.md:137` says
+code and these invariants are.** Eight things in them are known-wrong and were
+corrected during implementation. Two of them say a hand-off types `TYPE: body`
+— `2026-07-25-copy-as-prompt-design.md:84` ("`copy_prompt` copies exactly
+`TYPE: body`") and `2026-07-25-task-editor-design.md:207`. It does not, since
+2026-07-27: it types the task file's path and the session reads the file
+(invariant 2). The same two lines are still live on `feature/bar-spin-up` and
+`feature/row-claude-button`; neither branch touches `launcher.py`, so a merge
+cannot bring the old `build_prompt` back, but a careless CLAUDE.md conflict
+resolution can bring the old row-83 description back. `2026-07-25-selection-bar-design.md:137` says
 "The bar needs `#selection-bar[hidden] { display: none }`", and its plan
 (`2026-07-25-selection-bar.md:392`) lays the bar out in the flow with a
 `margin-bottom`. Both describe the bug: in the flow the bar shoved every task
