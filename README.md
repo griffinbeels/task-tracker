@@ -23,8 +23,13 @@ tracker says so and refuses to start rather than opening a second window.
 To run it directly instead:
 
     uv venv --python 3.12 .venv
-    uv pip install --python ".venv\Scripts\python.exe" pywebview pyperclip pyyaml
+    uv pip install --python ".venv\Scripts\python.exe" -e .
     & ".venv\Scripts\python.exe" app.py
+
+`-e .` rather than a list of package names: the dependencies live in
+`pyproject.toml`, and one of them — `claude-console`, the shared module that
+opens and drives the handed-off Claude session — is a local path rather than
+something on an index, so naming packages by hand cannot install it.
 
 ## Writing a task
 

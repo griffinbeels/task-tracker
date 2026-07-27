@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 368 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 323 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -18,16 +18,57 @@ run.bat                                          # launch (creates venv on first
 - **Python 3.12**, created by `uv venv --python 3.12 .venv`. System Python is
   3.14 and breaks these packages. The venv has **no pip** — install with
   `uv pip install --python ".venv\Scripts\python.exe" <pkg>`.
-- Dependencies are exactly `pywebview`, `pyperclip`, `pyyaml` (+ `pytest`).
-  Adding more needs a reason.
+- Dependencies are `pywebview`, `pyperclip`, `pyyaml` (+ `pytest`), and
+  **`claude-console`** — the shared module below. Adding more needs a reason.
+- **One command installs all of them**, because they are declared in
+  `pyproject.toml` and `claude-console` has a `[tool.uv.sources]` path entry:
+  `uv pip install --python ".venv\Scripts\python.exe" -e . pytest`.
 - **Never run `app.py` from a subagent doing verification.** It opens a window
   and writes to the user's real `~/.task-tracker/`. Tests cover everything that
   can be covered without a window.
 
+## The shared module: `claude_console`
+
+**Opening a Claude session and typing into it is not this app's code any more.**
+It lives at `C:\Users\griff\Desktop\code\claude-console`, one copy, shared with
+every project on this machine, and it owns everything that would be true of a
+session opened on a git diff or a form submission rather than on a task:
+spawning through `conhost.exe`, the focus watchdog, resolving the real `claude`
+pid inside the host, writing to the console's input buffer, the console font
+and icon, the rebuilt environment, and `safe_line`/`cap`.
+
+```python
+session = claude_console.open_session(project_path, launch)
+session.deliver(prompt=prompt, commands=commands)
+```
+
+Three things about it that matter here:
+
+- **It is installed editable, so there is no version and nothing to update.**
+  `site-packages` holds a `.pth` and a path finder pointing at that source
+  tree, not a copy — an edit there (including a brand-new file) is live in the
+  next process here. The other half of the same coin: **a breaking change there
+  breaks this immediately.** That direction is guarded from the other side —
+  this repo is listed in `claude-console/consumers.json`, and a PostToolUse
+  hook there runs *this* suite on every edit to the shared package, blocking
+  if it goes red. Nothing is needed here to participate; if this checkout ever
+  moves, update that file's `path`.
+- **`open_session` starts the focus watchdog itself.** `hand_off` used to, and
+  that is exactly why it moved: a second consumer could simply not call it, and
+  the failure is a window that steals focus two spawns in ten (invariant 10) —
+  which nobody reads as a missing call.
+- **The convention guard travelled with the code.** `claude-console` has its
+  own `tests/test_conventions.py`. This repo's copy now has an *empty*
+  allowlist, which is the assertion: nothing here opens a console at all.
+
+If you find yourself adding something to `launcher.py` that does not mention a
+task, a group or a bucket, it belongs over there instead.
+
 ## Architecture
 
-Twelve small Python modules and eight plain `<script>` files, plus one vendored
-library. No framework, no HTTP server, no bundler.
+Ten small Python modules and eight plain `<script>` files, plus one vendored
+library and one shared machine-level package. No framework, no HTTP server, no
+bundler.
 
 | File | Owns |
 |---|---|
@@ -36,9 +77,8 @@ library. No framework, no HTTP server, no bundler.
 | `inbox.py` | Raw untriaged notes in `~/.task-tracker/inbox/` |
 | `migrate.py` | Type rename/delete sweep across every project |
 | `groups.py` | Group membership: assign/create/rename/disband/move, reorder-within-a-group, the bucket renumber, the spin-up rule, and `place` — the whole destination a drop resolves to. A group **is** its name — no ids, no registry |
-| `launcher.py` | Verbatim prompt assembly, clipboard, Claude process spawn — inside a `conhost.exe` the tracker asks for by name, so the window is never the machine default terminal's to draw — session naming and the `/rename`/`/color` command list. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift |
-| `console_input.py` | The spawned session's console: typing that prompt into it, submitting the `/rename`/`/color` commands ahead of it, pacing every write against what the prompt box shows, and the font it renders in |
-| `user_environment.py` | The environment Windows gives a freshly launched process |
+| `launcher.py` | Verbatim prompt assembly, clipboard, session naming and the `/rename`/`/color` command list — everything a hand-off is that is shaped by `store.Task`. A session is named after, in order: the batch row's typed name, the group every selected task shares, then the first task's title with a count. `build_prompt` is the single source of the `TYPE: body` format — both hand-off and the per-row copy button go through it, so the two can never drift. Opening the window and typing into it is `claude_console`'s |
+| `claude_console` (shared) | Not in this repo. Spawning through `conhost.exe` so the window is never the machine default terminal's to draw, the focus watchdog, the pid inside the host, typing into the console's input buffer, the font and icon it renders in, the rebuilt environment, and `safe_line`/`cap` |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
@@ -94,6 +134,12 @@ module instead.
 ## Invariants
 
 Break one of these and the failure is silent. Each cost a bug.
+
+**8, 9, 10, 22, 24 and 25 are now enforced by code in `claude_console`, not
+here.** They still bind this app — a hand-off that takes the keyboard is this
+app's bug however it happened — but the file to open is over there, and that
+repo's own CLAUDE.md carries the full measurements plus five more it learned
+since. Numbering is kept as-is because things elsewhere cite these by number.
 
 1. **Every `write_text` passes `newline="\n"`.** Windows otherwise translates
    `\n` to `\r\n`; a body containing `\r\n` then gains a blank line on every
@@ -165,7 +211,7 @@ Break one of these and the failure is silent. Each cost a bug.
    monochrome, `GIT_EDITOR=true` and `GIT_TERMINAL_PROMPT=0` left its git
    unable to open an editor or ask for credentials, and
    `CLAUDE_CODE_CHILD_SESSION` turned transcript saving off.
-   `user_environment.login_environment()` calls Win32 `CreateEnvironmentBlock`
+   `claude_console.login_environment()` calls Win32 `CreateEnvironmentBlock`
    instead, which is how Windows builds the environment for a newly launched
    process. **Do not add a var to a strip-list** — the list belongs to
    upstream and grows; rebuilding makes tomorrow's addition absent by
@@ -174,7 +220,8 @@ Break one of these and the failure is silent. Each cost a bug.
    is redundant, and setting it would be one more difference from a
    hand-started session.
 
-9. **Typed text is bracketed, and waits for the prompt box.** `console_input`
+9. **Typed text is bracketed, and waits for the prompt box.**
+   `claude_console.console_input`
    writes into the spawned session's console input buffer, which accepts input
    long before Claude is ready to read it. Unbracketed, the newline between two
    tasks reads as Enter and sends the first one alone; unwaited, the text is
@@ -187,7 +234,7 @@ Break one of these and the failure is silent. Each cost a bug.
     and mid-sentence; a console that activates itself swallows the next
     keystrokes into a session you were not looking at. `spawn_claude` passes
     `unfocused_startup()` (`STARTF_USESHOWWINDOW` + `SW_SHOWNOACTIVATE`).
-    Nothing needs the focus it would take — `console_input` writes to the
+    Nothing needs the focus it would take — `claude_console.console_input` writes to the
     console's input buffer, which does not require an active window. Any
     future spawn gets the same treatment.
 
@@ -219,7 +266,7 @@ Break one of these and the failure is silent. Each cost a bug.
     broke the day the setting changed underneath it.
 
     The cost is one more hop: `Popen` now names the host, and `AttachConsole`
-    refuses a host's pid, so `launcher.session_pid` resolves conhost's child
+    refuses a host's pid, so `claude_console.session_pid` resolves conhost's child
     before anything is typed. Get that wrong and the rename, the colour, the
     prompt and the font all fail at once and all silently.
 
@@ -227,7 +274,7 @@ Break one of these and the failure is silent. Each cost a bug.
     conhost, two spawns in ten took the foreground anyway (measured
     2026-07-26 over ten), apparently depending on how promptly whatever was in
     front was answering messages — a flake, which is worse than a rule,
-    because it survives testing. `launcher.hold_focus` records the foreground
+    because it survives testing. `claude_console.hold_focus` records the foreground
     *before* the spawn and hands it back if this session's console turns out
     to be holding it. It hands back only to that window, only when the thief
     is this console, and only once inside 1.5 s: deliberately clicking the new
@@ -338,7 +385,8 @@ Break one of these and the failure is silent. Each cost a bug.
     restores `last_project` at launch; it just runs unconditionally rather than
     only when `currentProject` is unset.
 
-22. **Commands are submitted before the prompt is typed.** `console_input.deliver`
+22. **Commands are submitted before the prompt is typed.**
+    `claude_console.console_input.deliver`
     calls `submit()` — which presses Enter — for every `/rename`/`/color` line
     first, and only then `paste()`s the prompt, which never presses Enter. Get
     the order backwards and a command's Enter would land on top of the
@@ -388,7 +436,7 @@ Break one of these and the failure is silent. Each cost a bug.
     exactly what Claude Code's logo is drawn from, and Consolas (what
     `__DefaultTTFont__` resolves to) has none of them. So the session opened
     on a row of boxes with the code point printed inside.
-    `console_input.use_font` puts the console on **Cascadia Mono**, which
+    `claude_console.console_input.use_font` puts the console on **Cascadia Mono**, which
     ships with Windows 11 and has all eight, using the attach the module
     already performs — no registry, nothing machine-wide, and the size stays
     whatever the console had. It reads the face back and reverts if it did not
@@ -651,19 +699,24 @@ show two unrelated tasks under one id at different points in time.
 - **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`,
   `groups.py` and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
-  `tests/test_registry.py`. Mock at the boundary — `subprocess.Popen` and
-  `launcher.pyperclip.copy` — never spawn a real process. The one exception is
-  `tests/test_console_input.py`, which really does open a console: typing into
-  another process's console is OS behaviour, and a mock of it would only assert
-  that the mock was called. That console is **windowless**
-  (`_console_probe.CONSOLE_FLAGS` is `CREATE_NO_WINDOW`, pinned by a test) —
-  it used to be `CREATE_NEW_CONSOLE`, which meant every run of the suite
-  flashed a Windows Terminal window on whatever the user was doing. See
-  invariant 10. The suite runs while someone else is at the keyboard: **no
-  test may put anything on screen.**
-- **Deliberately untested:** `main()` and window geometry persistence. Driving a
-  native window under pytest is not worth the machinery; this is a decision, not
-  an oversight.
+  `tests/test_registry.py`. Mock at the boundary — `claude_console.open_session`
+  and `launcher.pyperclip.copy` — never spawn a real process. `open_session` is
+  the seam for anything touching a hand-off; `test_launcher.py` stubbed
+  `subprocess.Popen` before the extraction, which meant every task-shaped
+  assertion also carried Win32 scaffolding it had no opinion about.
+  **No test here opens a console at all any more**, and
+  `test_nothing_in_this_repo_may_open_a_console_window` has an empty allowlist
+  saying so. The one test that genuinely does — typing into another process's
+  console is OS behaviour, and a mock of it would only assert that the mock was
+  called — moved to `claude-console` along with its windowless probe and the
+  guard that keeps it windowless. The suite runs while someone else is at the
+  keyboard: **no test may put anything on screen.**
+- **Deliberately untested:** `main()`, window geometry persistence, and the
+  `import claude_console` guard at the top of `app.py`. Driving a native window
+  under pytest is not worth the machinery; this is a decision, not an oversight.
+  The import guard is the same call in a different disguise — exercising it
+  means letting a `MessageBoxW` reach the screen, which is the one thing the
+  suite may never do.
 - **No JS test runner, and the by-hand checks have no agent to run them.**
   Claude must never run `app.py` — it opens a window on the user's desktop and
   writes to their real `~/.task-tracker/` — so "checked by running the app"
@@ -819,8 +872,12 @@ back. Sequential solo work can commit straight to `main`.
   stale, and never from another feature branch unless the work genuinely
   depends on it.
 - **Each worktree needs its own `.venv`** (`uv venv --python 3.12 .venv`, then
-  `uv pip install --python ".venv\Scripts\python.exe" pywebview pyperclip
-  pyyaml pytest`). There is no shared one.
+  `uv pip install --python ".venv\Scripts\python.exe" -e . pytest`). There is
+  no shared one. That one command covers `claude-console` too: it is a declared
+  dependency with a `[tool.uv.sources]` path entry, so `-e .` resolves it —
+  **verified**, including from a worktree, which is why that path is absolute.
+  A relative one cannot serve both this checkout and a worktree four levels
+  under it, since the same `pyproject.toml` is checked out into both.
 - **Run the suite from the worktree root**, always with a relative path:
   `Set-Location <worktree>; & ".venv\Scripts\python.exe" -m pytest tests/ -q`.
   Pointing pytest at another checkout's `tests/` imports *this* tree's modules
@@ -944,10 +1001,16 @@ hands a restored task an order another task already holds. The code uses
 body (so triage silently discarded prose edits); image references were
 specified as bare `C:/...` paths and `as_posix()`, which are not URLs and never
 render; the tracker spec still describes the strip-list environment that
-`user_environment.py` replaced; and its console-probe snippet
+`claude_console.environment` replaced; and its console-probe snippet
 (`2026-07-25-task-tracker-design.md:224`) still reads
 `creationflags=subprocess.CREATE_NEW_CONSOLE`, which opens a Windows Terminal
 window on every test run — copying that line back in is the one way to
-reintroduce the flash, and `test_nothing_but_the_hand_off_may_open_a_console_window`
-now fails the build if anything does. Invariants 8, 13 and 14 are the record of
-what the code actually does.
+reintroduce the flash, and two tests now fail the build if anything does:
+`test_nothing_in_this_repo_may_open_a_console_window` here, and
+`test_nothing_but_the_session_itself_may_open_a_console_window` in
+`claude-console`, which is where the probe now lives. Invariants 8, 13 and 14
+are the record of what the code actually does.
+
+Those specs also predate the extraction: everything they say about spawning a
+console, typing into it, or rebuilding an environment now describes
+`claude_console`, not a file in this repo.
