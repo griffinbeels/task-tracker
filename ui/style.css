@@ -425,6 +425,34 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
                             border-radius: 6px; }
 .toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
+/* The stray line off the end of the toolbar is the icon sprite sheet bleeding,
+   and not an element at all — which is what made it so hard to find. Every
+   toolbar icon is one 466x146 sheet placed by background-position-x. `more` is
+   the 32px cell at -412px, and **the next icon begins at 444px with no gutter
+   between them**. Scaled to a fractional number of device pixels, the sampler
+   blends that neighbour's first texels into the button's own right-hand
+   columns: a thin bright line that reads exactly like a stranded group
+   divider, which is what it was mistaken for three times running.
+
+   Only `more` shows it. Every other icon bleeds identically, but each is
+   followed immediately by another button, so the sliver lands in a row of ink
+   rather than against empty toolbar.
+
+   Found by elimination in the end, not by theory: with all dividers forced
+   off the line stayed, and with `background-image: none` on the icons it went.
+   Before that, a dump of the real window's DOM (Ctrl+Shift+D, since Claude
+   cannot run this app and ~50 headless configurations never reproduced the
+   state) proved there was no element there at all — everything past the
+   button was w=0 h=0 display:none.
+
+   clip-path rather than background-clip, and 2px rather than 1px, because
+   both weaker forms were measured and both failed: the blend happens while
+   sampling the source image, so the polluted device pixels land INSIDE the
+   button's box and clipping the background's destination at 31px is too late.
+   At dpr 1.5 with the editor at 1.8 the bleed spreads about 1.5 CSS pixels.
+   The dots occupy 418-437 of a 412-444 cell, so 2px costs nothing. */
+.toastui-editor-toolbar-icons.more { clip-path: inset(0 2px 0 0); }
+
 /* The 6px belongs to the scroll container, never to the rows inside it. A row
    that hangs past its own overflow: auto parent is scrollable overflow, and
    `.entry { margin: 0 -6px }` is what gave this list a horizontal scrollbar

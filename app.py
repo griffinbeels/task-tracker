@@ -142,19 +142,6 @@ class Api:
     def set_last_project(self, name):
         registry.set_last_project(name)
 
-    # TEMPORARY — remove with ui/_diagnostic.js once the toolbar divider is
-    # understood. Claude cannot run this app (it opens a window on the user's
-    # desktop), and the editor toolbar reaches a state in the real window that
-    # a headless browser will not reproduce: ~50 configurations of width, zoom
-    # and display scaling never once re-collapsed the toolbar. Three fixes were
-    # guessed from screenshots and the third was provably incapable of matching
-    # the real DOM. This is how the DOM gets read instead of inferred.
-    def write_diagnostic(self, text):
-        """Dump a blob into ~/.task-tracker/ under a fixed name."""
-        path = registry.CONFIG_DIR / "toolbar-dump.txt"
-        store.write_text_atomic(path, _text(text, "text"))
-        return str(path)
-
     def restart(self):
         """Relaunch from source. The replacement closes this window itself.
 

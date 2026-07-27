@@ -885,6 +885,12 @@ show two unrelated tasks under one id at different points in time.
   task opened from Progress it must include Restore. And in the body, indenting
   a list item with Tab must still work — only Shift+Tab was taken.
 
+  **The editor toolbar.** Narrow the window, or zoom the editor, until the `…`
+  overflow button appears: there must be **no stray light line just right of
+  it**. It is not a divider and not an element at all — it is the icon sprite
+  sheet bleeding its next cell, and `ui/style.css` clips 2px off `more` for it.
+  Hover `…` as well: the highlight must not look cut off on that side.
+
   **Cancel.** Capture, type one character, Escape: it asks. Capture, type
   nothing, Escape: it closes. Open an existing task and Escape immediately: it
   closes with no question. Open one, change only its colour, Escape: it asks.
