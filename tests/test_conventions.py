@@ -298,6 +298,34 @@ def test_every_class_the_ui_toggles_is_styled():
                 )
 
 
+def test_the_overflow_button_still_clips_its_sprite():
+    """Without the clip, a sliver of the NEXT icon draws off the `…` button.
+
+    The toolbar icons are one 466x146 sprite sheet placed by
+    background-position-x. `more` is the 32px cell at -412px and another icon
+    begins at 444px with no gutter between them, so at a fractional device
+    scale the sampler blends that neighbour into the button's own right-hand
+    columns. Only `more` shows it: every icon bleeds identically, but the rest
+    are followed by another button rather than by empty toolbar.
+
+    Pinned because losing it is silent and expensive. It draws only at some
+    device scales, on one button, and only once the window is narrow enough to
+    collapse the toolbar — and it reads so exactly like a stranded group
+    divider that it was diagnosed as one three times before a dump of the real
+    window's DOM showed there was no element there at all (2026-07-26). The
+    rule is also one line in a file two branches were editing at once, and it
+    was already lost to a revert once.
+    """
+    css = (REPO / "ui" / "style.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.toastui-editor-toolbar-icons\.more\s*\{([^}]*)\}", css)
+
+    assert rule and "clip-path" in rule.group(1), (
+        "ui/style.css must clip the `more` toolbar button, or the sprite sheet "
+        "bleeds its next cell down the button's right edge and draws what "
+        "looks like a stray divider."
+    )
+
+
 def test_every_ui_script_is_loaded_by_the_page():
     """A new .js file with no <script> tag is dead code that looks alive.
 
