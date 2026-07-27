@@ -1,6 +1,10 @@
 // The selection bar: what is ticked, and the three things you can do to all
 // of it. This file owns counting the selection, showing/hiding the bar, and
 // the Done/Delete/Clear handlers below.
+//
+// It also owns what a tick MEANS to the buttons outside the bar: a `done` on a
+// row or a group header goes through completeWithSelection here, so "done"
+// says the same thing everywhere it is written.
 
 // The existing spin-up guard, extracted so both spin-up and the bar's own
 // actions can share it. selectedIds() returns [{project, id}, ...] — collapse
@@ -76,6 +80,39 @@ async function completeTasksWithConfirm(project, ids) {
   // list drawing rows for tasks that already left this bucket.
   await callApi('complete_tasks', project, ids);
   await refresh();
+}
+
+// Every `done` button in the app ends here, and this is the rule that makes
+// them one control rather than three. A button names some tasks — one row, or
+// the rows a group header drew — and normally completes exactly those. But
+// when every task it names is ticked, the click is aimed at a selection the
+// user has visibly made: the bar is on screen saying "4 selected", and
+// finishing 1 of those 4 reads as the ticks having been ignored rather than as
+// a narrower gesture. So it completes the selection instead, through the same
+// function the bar's own Done calls — same threshold, same question, same fold
+// repair, same refresh, because it is the same action reached from a different
+// button.
+//
+// An unticked row is untouched by this: `done` on a row nobody picked out
+// means that row, whatever else is selected elsewhere. That is the whole
+// distinction, and it is the one the checkbox already draws.
+async function completeWithSelection(project, ids) {
+  if (!ids.length) return;
+  const tickedHere = new Set(selectedIds()
+    .filter(picked => picked.project === project)
+    .map(picked => picked.id));
+  if (!ids.every(id => tickedHere.has(id))) {
+    await completeTasksWithConfirm(project, ids);
+    return;
+  }
+  // Refused here exactly as it is at the bar — selectedInOneProject alerts and
+  // returns null — rather than quietly completing this project's half of a
+  // selection the user can see spans two. IN PROGRESS is where that selection
+  // is possible (invariant 6), and it is where these buttons sit beside rows
+  // from several projects at once.
+  const selection = selectedInOneProject();
+  if (!selection) return;
+  await completeTasksWithConfirm(selection.project, selection.ids);
 }
 
 document.getElementById('selection-done').onclick = async () => {

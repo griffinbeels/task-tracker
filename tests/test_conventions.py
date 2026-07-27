@@ -349,3 +349,67 @@ def test_every_ui_script_is_loaded_by_the_page():
         "These files are in ui/ and never loaded by index.html, so nothing "
         "they define exists at runtime: " + ", ".join(unloaded)
     )
+
+
+def test_every_bridge_call_names_a_method_that_exists():
+    """A renamed or misspelled bridge method fails at click time, not at load.
+
+    `callApi(name, ...)` reaches `window.pywebview.api[name]` — a plain property
+    lookup, so a name nothing answers to is `undefined` until the handler that
+    calls it runs, and then it throws inside a click nobody is watching. There
+    is no JS test runner here and no module graph to check the name against,
+    which is why CLAUDE.md's worktree notes end with "grep for the old name"
+    after any rename: this is that grep, run by the build instead of by hand.
+
+    Read out of app.py's text rather than by importing it — the same reason
+    every other check in this file parses source: importing pulls in webview
+    and claude_console, and this question is answerable without either.
+    """
+    api = next(node for node in ast.parse(
+        (REPO / "app.py").read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef) and node.name == "Api")
+    methods = {node.name for node in api.body
+               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    offenders = []
+    for script in UI_SCRIPTS:
+        for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+            for called in re.findall(r"callApi\(\s*'([^']+)'", line):
+                if called not in methods:
+                    offenders.append(f"{script.name}:{number} calls {called}")
+
+    assert not offenders, (
+        "These bridge calls name no method on app.Api, so each one throws the "
+        "first time its handler runs: " + ", ".join(offenders)
+    )
+
+
+def test_only_the_selection_owns_completing_tasks():
+    """A `done` button that completes tasks itself ignores the selection.
+
+    Three buttons finish tasks — a task row's `done`, a group header's `done`,
+    and the bar's Done — and the rule that makes them one control is that they
+    all go through completeWithSelection in ui/selection.js: what a button
+    names is what it completes, unless every task it names is ticked, in which
+    case the tick wins. A fourth button written against complete_tasks or
+    completeTasksWithConfirm directly gets none of that, and the symptom is the
+    one that was reported: four tasks ticked, the bar saying "4 selected", and
+    a click finishing exactly one of them.
+
+    What this cannot see: a button that calls completeWithSelection with the
+    wrong ids, and a button that completes nothing at all. It pins where the
+    rule lives, not that a caller means it.
+    """
+    offenders = []
+    for script in UI_SCRIPTS:
+        if script.name == "selection.js":
+            continue
+        for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+            if "completeTasksWithConfirm" in line or "'complete_tasks'" in line:
+                offenders.append(f"{script.name}:{number}")
+
+    assert not offenders, (
+        "Completing tasks belongs to ui/selection.js, which is where the rule "
+        "about what a tick means lives — call completeWithSelection(project, "
+        "ids) instead at: " + ", ".join(offenders)
+    )

@@ -162,13 +162,13 @@ function taskRow(task, options = {}) {
   };
 
   row.querySelector('.done').onclick = async () => {
-    // The third way a group can be emptied — a one-member group finished from
-    // its own row — and the same reason the other two clear the fold entry
-    // first: nothing renders a group with no members, so the entry would sit
-    // there until the name is used again and then fold it.
-    await forgetFoldIfEmptied(task.project, task.group);
-    await callApi('complete_task', task.project, task.id);
-    await refresh();
+    // This row by default, and the whole selection when this row is part of
+    // one — completeWithSelection (ui/selection.js) is where that rule lives,
+    // because it is the same rule for the group header's `done`. Everything
+    // else about completing (the confirm above three, clearing the fold entry
+    // of a group this empties, refreshing even on failure) comes with it, so
+    // no part of it is written twice.
+    await completeWithSelection(task.project, [task.id]);
   };
 
   const age = daysSince(task.created);

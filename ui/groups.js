@@ -225,8 +225,12 @@ function groupBlock(block, options = {}) {
   // block.tasks, not the group's full membership — what this header actually
   // drew. In IN PROGRESS a header can read "2 of 5"; done completes those 2
   // and leaves the other 3 in their bucket, same as the ↩ beside it.
+  //
+  // Through completeWithSelection, so a header whose rows are all ticked
+  // finishes the rest of the selection with them rather than stopping at its
+  // own block — the same rule a task row's `done` follows, written once.
   done.onclick = () =>
-    completeTasksWithConfirm(project, block.tasks.map(task => task.id));
+    completeWithSelection(project, block.tasks.map(task => task.id));
   header.append(done);
   releaseDragWhileUsing(done, header);
 

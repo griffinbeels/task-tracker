@@ -365,11 +365,12 @@ def restore_task(task: Task) -> Task:
     task.status = "open"
     task.done = None
     # The highest order plus one, not the sibling count: a count is only "the
-    # end" of a contiguous run, and the bucket a restore lands in is the one
-    # the completion hollowed out. Api.complete_task (the row's own `done`
-    # button) does not renumber, so A(0) B(1) C(2) minus B leaves A(0) C(2) —
-    # and len() would hand B back the order C already holds, putting it in the
-    # middle of the list it was promised the end of.
+    # end" of a contiguous run, and nothing here guarantees one. complete_task
+    # above does not renumber — A(0) B(1) C(2) minus B leaves A(0) C(2) — and
+    # len() would hand B back the order C already holds, putting it in the
+    # middle of the list it was promised the end of. Api.complete_tasks pairs
+    # every completion the app makes with a groups.renumber that closes that
+    # hole, but a hand-edited file owes this function nothing at all.
     task.order = max((sibling.order for sibling in siblings), default=-1) + 1
     destination = tasks_dir(project_path) / "open" / task.path.name
     task.path.unlink(missing_ok=True)
