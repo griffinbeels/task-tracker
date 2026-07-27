@@ -4,6 +4,29 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+# claude_console is the one dependency that lives OUTSIDE this repo, and a
+# missing one fails harder than the others: it raises at import time, before
+# main() and therefore before _report_fatal exists on any reachable path, and
+# run.bat launches through pythonw.exe — so the whole app becomes a launcher
+# that does nothing at all. No window, no console, no error, nothing to read.
+#
+# run.bat installs it (`uv pip install -e .`, which resolves the path source in
+# pyproject.toml), so the realistic way to reach this is a worktree whose venv
+# was built by hand without `-e .`.
+try:
+    import claude_console  # noqa: F401
+except ImportError as missing:
+    import ctypes
+
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        f"{missing}\n\n"
+        f"The shared claude_console module is not installed in this "
+        f"environment. From the checkout you launched:\n\n"
+        f'    uv pip install --python ".venv\\Scripts\\python.exe" -e .',
+        "Task Tracker", 0x10)
+    raise
+
 import webview
 
 import groups

@@ -39,8 +39,15 @@ if not exist ".venv\Scripts\pythonw.exe" (
 )
 
 REM --- keep dependencies in step with pyproject.toml ---
-echo Syncing dependencies...
-uv pip install --quiet --python ".venv\Scripts\python.exe" pywebview pyperclip pyyaml
+REM  Reads pyproject.toml rather than naming packages, which is what makes the
+REM  line above true. It used to list `pywebview pyperclip pyyaml` by hand, and
+REM  the moment `claude-console` joined the dependencies that hand-written list
+REM  went stale silently: the venv came up without it and the app died on
+REM  `import claude_console` before drawing anything.
+REM
+REM  `-e .` is also what resolves claude-console at all -- it is a path source
+REM  in [tool.uv.sources], not something on an index.
+uv pip install --quiet --python ".venv\Scripts\python.exe" -e .
 if errorlevel 1 (
   echo.
   echo ERROR: could not install dependencies.

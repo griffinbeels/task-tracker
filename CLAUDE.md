@@ -131,6 +131,12 @@ module instead.
 
 Break one of these and the failure is silent. Each cost a bug.
 
+**8, 9, 10, 22, 24 and 25 are now enforced by code in `claude_console`, not
+here.** They still bind this app — a hand-off that takes the keyboard is this
+app's bug however it happened — but the file to open is over there, and that
+repo's own CLAUDE.md carries the full measurements plus five more it learned
+since. Numbering is kept as-is because things elsewhere cite these by number.
+
 1. **Every `write_text` passes `newline="\n"`.** Windows otherwise translates
    `\n` to `\r\n`; a body containing `\r\n` then gains a blank line on every
    save. Reads deliberately use universal newlines so hand-edited CRLF files
@@ -701,9 +707,12 @@ show two unrelated tasks under one id at different points in time.
   called — moved to `claude-console` along with its windowless probe and the
   guard that keeps it windowless. The suite runs while someone else is at the
   keyboard: **no test may put anything on screen.**
-- **Deliberately untested:** `main()` and window geometry persistence. Driving a
-  native window under pytest is not worth the machinery; this is a decision, not
-  an oversight.
+- **Deliberately untested:** `main()`, window geometry persistence, and the
+  `import claude_console` guard at the top of `app.py`. Driving a native window
+  under pytest is not worth the machinery; this is a decision, not an oversight.
+  The import guard is the same call in a different disguise — exercising it
+  means letting a `MessageBoxW` reach the screen, which is the one thing the
+  suite may never do.
 - **No JS test runner, and the by-hand checks have no agent to run them.**
   Claude must never run `app.py` — it opens a window on the user's desktop and
   writes to their real `~/.task-tracker/` — so "checked by running the app"
