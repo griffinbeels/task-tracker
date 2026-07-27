@@ -472,24 +472,61 @@ function wireDrag() {
   // Driven by the POINTER, not by the probe: this is about reaching the edge of
   // the window with your hand, which is a different question from where the drop
   // lands. `fbox` corrects the frozen boxes for whatever this scrolls past.
-  const EDGE = 46, SPEED = 12;
+  // A short dwell before it engages, and that is not politeness — without it,
+  // waving a card up and down scrolls the list away.
+  //
+  // Measured: 300 alternating moves between 12px from the top and 12px from the
+  // bottom left `scrollY` at **237** having started at 0, which is what *"all
+  // cards eventually disappear off the screen"* was (2026-07-27). Each pass
+  // re-armed the interval, and the two directions do not cancel: at the top
+  // `scrollY` is already 0 and clamps, while at the bottom there is always
+  // somewhere to go, so a symmetric wave integrates into monotonic downward
+  // scroll. A dwell fixes it at the source — passing THROUGH a band never
+  // accumulates 140ms in it, and holding at one reaches it immediately.
+  const EDGE = 46, SPEED = 12, SCROLL_DWELL_MS = 140;
   let scrollTimer = null;
-  function autoscroll(pointerY) {
+  let scrollSide = 0;
+  let scrollArmedAt = 0;
+
+  const edgeSide = pointerY => {
     const height = document.documentElement.clientHeight;
-    const above = pointerY, below = height - pointerY;
-    const delta = above < EDGE ? -SPEED * (1 - Math.max(above, 0) / EDGE)
-                : below < EDGE ? SPEED * (1 - Math.max(below, 0) / EDGE) : 0;
+    if (pointerY < EDGE) return -1;
+    if (height - pointerY < EDGE) return 1;
+    return 0;
+  };
+  const edgeSpeed = pointerY => {
+    const height = document.documentElement.clientHeight;
+    const gap = scrollSide < 0 ? pointerY : height - pointerY;
+    return SPEED * (1 - Math.max(gap, 0) / EDGE);
+  };
+  function stopScrolling() {
     clearInterval(scrollTimer);
     scrollTimer = null;
-    if (!delta) return;
+  }
+
+  function autoscroll(pointerY) {
+    const side = edgeSide(pointerY);
+    if (side !== scrollSide) {
+      scrollSide = side;
+      scrollArmedAt = side ? performance.now() : 0;
+      stopScrolling();
+    }
+    if (!side || scrollTimer) return;
+    if (performance.now() - scrollArmedAt < SCROLL_DWELL_MS) return;
     scrollTimer = setInterval(() => {
-      window.scrollBy(0, delta);
+      if (!card) { stopScrolling(); return; }
+      const at = card.lastPointer.clientY;
+      // Read from the live pointer rather than from a delta captured when armed,
+      // so the ramp follows the hand and leaving the band stops it on the next
+      // tick even if no pointer event arrives.
+      if (edgeSide(at) !== scrollSide) { stopScrolling(); return; }
+      window.scrollBy(0, scrollSide * edgeSpeed(at));
       // Re-aim from the SAME pointer position. Holding still at the edge fires no
       // pointermove, so without this the list slides past underneath while the
       // preview stays where the last real event left it — the row lands wherever
       // it was aimed several hundred pixels ago. The card itself does not move,
       // and must not: the hand has not moved.
-      if (card) move(card.lastPointer);
+      move(card.lastPointer);
     }, 16);
   }
 
@@ -573,8 +610,23 @@ function wireDrag() {
     // Unconditionally, and before anything that can throw or await: a scroll timer
     // left running keeps scrolling the page after the drag is over, which reads as
     // the window having taken over.
-    clearInterval(scrollTimer);
-    scrollTimer = null;
+    stopScrolling();
+    scrollSide = 0;
+    // Land every in-flight FLIP before anything else measures or redraws.
+    //
+    // A transform is decoration that always returns to zero — and `flipBlocks`
+    // reads `before` WITH in-flight transforms, deliberately, so a direction change
+    // reverses from where a block actually is. Both are true only while every
+    // animation completes. A drop lands mid-flight: `commit` calls `refresh`, whose
+    // own keyed FLIP then reads those partial offsets as real positions and adds
+    // its own delta on top. Measured at **338px** of stranded transform after a
+    // fast wave — rows flung clean off the list.
+    //
+    // FINISHED, not cancelled: finishing runs each animation to its end, which is
+    // the resting position the layout already has. Cancelling would do the same
+    // here, but finishing says what is wanted rather than what is being abandoned.
+    list.querySelectorAll(FLIPPABLE).forEach(
+      block => block.getAnimations().forEach(each => each.finish()));
     clearTimeout(dwellTimer);
     dwellTimer = null;
     dwellOver = null;

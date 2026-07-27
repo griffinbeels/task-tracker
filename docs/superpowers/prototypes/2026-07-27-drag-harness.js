@@ -6,7 +6,7 @@
 // each of which loads the REAL ui/*.js against a stubbed `window.pywebview.api`
 // and drives synthetic pointer events:
 //
-//   app-harness.html   81 assertions: the card, Reardon's aiming rule, the
+//   app-harness.html   84 assertions: the card, Reardon's aiming rule, the
 //                      motion sampled mid-transition, the settle's ordering,
 //                      leaving a group, enter and exit
 //   app-scroll.html    autoscroll, in a window short enough to scroll
@@ -39,6 +39,9 @@
 // The UI constant below points at a worktree that no longer exists. Repoint it
 // at this checkout's `ui/` before running.
 
+// Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
+// Not the test suite that was declined — a one-off, in the scratchpad, so a UI
+// change is not handed over on the strength of its diff.
 // Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
 // Not the test suite that was declined — a one-off, in the scratchpad, so a UI
 // change is not handed over on the strength of its diff.
@@ -724,6 +727,7 @@ const TEST = `
     pt('pointerdown', dwBox.left + 90, dwBox.top + dwBox.height / 2, mover);
     pt('pointermove', dwBox.left + 96, dwBox.top + dwBox.height / 2);
     pt('pointermove', dwBox.left + 90, restY);
+    const offerFrom = onto.getBoundingClientRect();
     log('B1  resting outside the aimed band does not pair immediately',
         !onto.classList.contains('pairing'),
         onto.className);
@@ -736,9 +740,15 @@ const TEST = `
     log('B4  and draws both rows in the rail it would create',
         mover.classList.contains('pairing'),
         mover.className.replace('task ', ''));
-    log('B5  the offer indents them, so it previews the real layout',
-        parseFloat(getComputedStyle(onto).marginLeft) > 0,
-        'margin-left ' + getComputedStyle(onto).marginLeft);
+    // Reversed 2026-07-27. The offer INDENTED both rows, which narrows the title
+    // and can wrap it to a second line — so the row grew, everything below moved,
+    // and an offer flickering on and off at a threshold moved the whole list with
+    // it. A preview offered and revoked continuously must be paint only.
+    log('B5  the offer changes NO layout',
+        Math.abs(onto.getBoundingClientRect().top - offerFrom.top) < 0.5
+        && Math.abs(onto.getBoundingClientRect().height - offerFrom.height) < 0.5,
+        'top moved ' + (onto.getBoundingClientRect().top - offerFrom.top).toFixed(1)
+        + 'px, height by ' + (onto.getBoundingClientRect().height - offerFrom.height).toFixed(1));
     // One pixel of movement off the row takes the offer back.
     pt('pointermove', dwBox.left + 90, dwOnto.top - 6);
     log('B6  moving off the row revokes it',
@@ -753,6 +763,53 @@ const TEST = `
     const made = window.__CALLS.slice(callsBeforePair).map(c => c.name);
     log('B8  releasing on the offer creates the group', made.includes('create_group'),
         made.join(', ') || 'nothing');
+
+    // ================= a resting row never moves the wrong way =================
+    // "If I'm moving a task from below, this task should never move up beyond its
+    // current position, only down." Stepped 2px at a time so a flicker between two
+    // competing layouts shows up as a reversal.
+    //
+    // The pair is chosen from the section's CHILDREN and the ordering asserted
+    // first: earlier tests reshuffle these sections, and picking mono[0]/mono[-1]
+    // once handed me a "resting" row that was BELOW the lifted one and so had no
+    // reason to move — M1 passed while testing nothing.
+    // Whichever bucket actually has two loose rows by now — earlier tests move rows
+    // between sections, so naming one is a coin toss.
+    const monoRows = [...document.querySelectorAll('#task-list section[data-bucket]')]
+      .map(section => [...section.children].filter(child => child.matches('.task')))
+      .sort((a, b) => b.length - a.length)[0] || [];
+    out.push('DIAG monotonicity uses a section with ' + monoRows.length + ' loose rows');
+    if (monoRows.length > 1) {
+      const resting = monoRows[0], lifted = monoRows[monoRows.length - 1];
+      log('M0  the lifted row really is below the resting one',
+          idx(lifted) > idx(resting), 'lifted ' + idx(lifted) + ', resting ' + idx(resting));
+      const lbox = lifted.getBoundingClientRect();
+      const rbox = resting.getBoundingClientRect();
+      const restStart = rbox.top;
+      const grabAt = lbox.top + lbox.height / 2;
+      // Far enough that the card's centre clears the resting row's TOP edge, which
+      // is the threshold that puts the lifted row above it.
+      const travel = Math.ceil(grabAt - rbox.top) + 6;
+      pt('pointerdown', lbox.left + 90, grabAt, lifted);
+      pt('pointermove', lbox.left + 96, grabAt);
+      const seen = [];
+      for (let step = 0; step <= travel; step += 2) {
+        pt('pointermove', lbox.left + 90, grabAt - step);
+        document.getAnimations().forEach(each => each.finish());
+        seen.push(Number((resting.getBoundingClientRect().top - restStart).toFixed(1)));
+      }
+      const wentUp = seen.filter((v, i) => i && v < seen[i - 1] - 0.5);
+      log('M1  approaching from BELOW, the resting row only ever moves DOWN',
+          wentUp.length === 0,
+          wentUp.length ? wentUp.length + ' reversals; path ' + seen.join(' ')
+            : 'monotonic over ' + seen.length + ' steps, 0 -> '
+              + seen[seen.length - 1] + 'px');
+      log('M2  and it did move, so the check is not vacuous',
+          seen[seen.length - 1] > 0.5,
+          'ended ' + seen[seen.length - 1] + 'px lower after ' + travel + 'px of travel');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(400);
+    }
   } catch (error) {
     out.push('THREW  ' + error.message + '\\n' + error.stack);
   }

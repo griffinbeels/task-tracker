@@ -277,11 +277,17 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    (drag.js, PAIR_DWELL_MS) — so the offer has to be visible and revocable, which
    is what a preview is. One pixel of movement takes it back.
 
-   The indent is a real layout change, so the FLIP animates it like any other; the
-   rail fades in on `.task`'s own transition below. */
-.task.pairing { box-shadow: inset 2px 0 0 rgba(48, 164, 108, .55);
-                margin-left: var(--caret-gutter); }
-.group > .task.pairing { margin-left: var(--caret-gutter); }
+   **It changes no layout, and that is a hard requirement rather than a
+   preference.** It briefly indented both rows by a caret gutter, which narrows the
+   title and can wrap it to a second line — so the row grew, everything below it
+   moved, and the offer flickering on and off at a threshold moved the whole list
+   up and down with it. Reported as *"the group effect is triggering briefly, but
+   also it's deciding that it wants to move up or down, so then it doesn't know
+   which effect to be moving towards"* (2026-07-27), which is exactly what two
+   competing layouts at one cursor position look like.
+   A preview that is offered and revoked continuously must be paint only: the rail
+   and the outline say "group" without asking the layout for anything. */
+.task.pairing { box-shadow: inset 2px 0 0 rgba(48, 164, 108, .55); }
 /* One caret column of indent, so a member's checkbox sits exactly one notch
    right of its group header's — the same rhythm as the gutter above it, and
    the thing that says these rows belong to that header. */
