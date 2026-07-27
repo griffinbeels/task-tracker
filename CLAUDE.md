@@ -48,7 +48,11 @@ Three things about it that matter here:
   `site-packages` holds a `.pth` and a path finder pointing at that source
   tree, not a copy — an edit there (including a brand-new file) is live in the
   next process here. The other half of the same coin: **a breaking change there
-  breaks this immediately**, so run both suites when you touch it.
+  breaks this immediately.** That direction is guarded from the other side —
+  this repo is listed in `claude-console/consumers.json`, and a PostToolUse
+  hook there runs *this* suite on every edit to the shared package, blocking
+  if it goes red. Nothing is needed here to participate; if this checkout ever
+  moves, update that file's `path`.
 - **`open_session` starts the focus watchdog itself.** `hand_off` used to, and
   that is exactly why it moved: a second consumer could simply not call it, and
   the failure is a window that steals focus two spawns in ten (invariant 10) —
