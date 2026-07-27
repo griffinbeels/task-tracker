@@ -351,6 +351,124 @@ def test_every_ui_script_is_loaded_by_the_page():
     )
 
 
+# The two buttons that open a Claude session on the ticked tasks: the toolbar's
+# and the selection bar's. Named here rather than discovered, because the whole
+# assertion is that a THIRD spelling of the same action does not appear.
+SPIN_UP_BUTTON_IDS = ("spin-up", "selection-spin-up")
+
+
+def _onclick_handler(text: str, element_id: str):
+    """The bare function name assigned to `#element_id`'s onclick, or None.
+
+    Deliberately refuses an inline arrow: `= async () => {` does not match, so
+    a handler written out a second time reads as unwired rather than as a
+    second opinion about what the button does.
+    """
+    match = re.search(
+        rf"getElementById\('{re.escape(element_id)}'\)\.onclick\s*=\s*"
+        r"([A-Za-z_$][\w$]*)\s*;",
+        text)
+    return match.group(1) if match else None
+
+
+def test_both_spin_up_buttons_run_the_same_handler():
+    """One action, two places to press it — or they drift, silently.
+
+    The toolbar's button and the bar's take the same selection, read the same
+    name box and call the same bridge method; the only difference is where the
+    cursor has to travel. Copying the handler body under the second id is the
+    obvious way to add the second button and is how the two come to mean
+    different things — a fix or a guard added to one would simply not be in the
+    other, and with no JS test runner here nothing would report it. The bug it
+    would look like is the older one this app already shipped: `wireDrag` as one
+    controller per section, where every drop across a boundary quietly did
+    nothing (invariant 27).
+    """
+    text = (REPO / "ui" / "tasks.js").read_text(encoding="utf-8")
+    handlers = {button: _onclick_handler(text, button)
+                for button in SPIN_UP_BUTTON_IDS}
+
+    unwired = sorted(button for button, handler in handlers.items() if handler is None)
+    assert not unwired, (
+        "These buttons have no named onclick handler in ui/tasks.js — either "
+        "nothing wires them, which makes them dead controls the app still "
+        "draws, or one was written as an inline function, which is a second "
+        "copy of the hand-off: " + ", ".join(unwired)
+    )
+
+    assert len(set(handlers.values())) == 1, (
+        "The toolbar's Spin up Claude and the selection bar's must call the "
+        "same function. They are one action with two positions, and two "
+        f"handlers is two behaviours nobody is comparing: {handlers}"
+    )
+
+
+# What floats over what, bottom rung first. Every one of these is a full-window
+# or edge-anchored surface, and the order between them is the whole design:
+# the bar covers the list, an overlay covers the bar, the editor covers the
+# other overlays, and the zoom readout covers everything because it reports on
+# the editor's own size.
+STACKING_ORDER = ("#selection-bar", ".overlay", "#editor", "#zoom-badge")
+
+_Z_INDEX = re.compile(r"z-index:\s*(\d+)\s*;")
+
+
+def test_the_floating_surfaces_are_ranked_in_one_order():
+    """Painting order is not DOM order once anything makes a stacking context.
+
+    The selection bar carried no z-index at all, on the reasoning that it sits
+    before the overlays in index.html and therefore loses to them in DOM order.
+    That was true and it was not the whole rule: among elements that all resolve
+    to `z-index: auto`, tree order decides — and #task-list comes AFTER the bar
+    in the markup, so anything in the list that makes a stacking context of its
+    own paints on top of it. `opacity` below 1 makes one, and 28 rules in
+    ui/style.css set one; h2 (the bucket headings) and .bucket are two of them.
+    The reported symptom was a `now` dropdown and a NOW heading showing through
+    an opaque bar, which reads as the bar being transparent and is not
+    (2026-07-26, measured: the fill is rgb(30, 30, 30) at opacity 1).
+
+    Hit-testing follows painting, so the same defect ate clicks aimed at Done.
+
+    What this cannot catch: a NEW full-window overlay added with no rank at all.
+    It would inherit `.overlay`'s 2 if it carries that class, which is right,
+    and would sit under the bar if it does not — invisible, exactly like the
+    editor-under-Progress bug that put #editor's rank here in the first place.
+    Nor can it see an element that is ranked correctly and positioned wrongly.
+    """
+    # Comments go first, and that is not tidiness: every rank in this file is
+    # discussed in prose above its own rule, so the first textual mention of
+    # `#selection-bar` is inside the comment at the top of the stylesheet. A
+    # search over the raw text finds that one, reads the NEXT rule's block, and
+    # reports the bar as unranked while it is ranked one line below.
+    css = re.sub(r"/\*.*?\*/", "", (REPO / "ui" / "style.css").read_text(encoding="utf-8"),
+                 flags=re.DOTALL)
+
+    ranks = {}
+    for selector in STACKING_ORDER:
+        # Every block for this selector, not the first: a selector may be
+        # written twice, and reading only the first one answers with whichever
+        # rule happens to come earlier rather than with the one that wins the
+        # cascade. Last declaration wins, exactly as the browser resolves it.
+        declared = [_Z_INDEX.search(block) for block in re.findall(
+            rf"(?<![\w.#-]){re.escape(selector)}\s*(?:,[^{{]*)?\{{([^}}]*)\}}", css)]
+        found = [match for match in declared if match]
+        ranks[selector] = int(found[-1].group(1)) if found else None
+
+    unranked = [selector for selector, rank in ranks.items() if rank is None]
+    assert not unranked, (
+        "These floating surfaces carry no z-index, so they fall back to `auto` "
+        "and are ordered by where they happen to sit in index.html — which is "
+        "how an opaque bar ends up under the list it floats over: " + ", ".join(unranked)
+    )
+
+    order = [ranks[selector] for selector in STACKING_ORDER]
+    assert order == sorted(set(order)), (
+        "These ranks must be strictly increasing in this order — "
+        f"{' < '.join(STACKING_ORDER)} — and they are {ranks}. Equal ranks fall "
+        "back to DOM order, which is the tie #editor's own rule exists to break."
+    )
+
+
 def test_every_bridge_call_names_a_method_that_exists():
     """A renamed or misspelled bridge method fails at click time, not at load.
 

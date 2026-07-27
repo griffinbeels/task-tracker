@@ -88,10 +88,10 @@ bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
-| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row. `handOffSelection` is the hand-off, and **both** Spin up Claude buttons — the toolbar's and the selection bar's — are assigned that one function |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
-| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `completeWithSelection` — what a tick means to the `done` buttons *outside* the bar, so a row, a group header and the bar are one control rather than three |
+| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `completeWithSelection` — what a tick means to the `done` buttons *outside* the bar, so a row, a group header and the bar are one control rather than three |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
@@ -786,6 +786,38 @@ show two unrelated tasks under one id at different points in time.
   half-forgotten in each.
 - **Never add a CDN reference.** The editor is vendored so the app works
   offline; a convention test enforces it.
+- **A new floating surface needs a rank in the ladder, not a place in the
+  markup.** `ui/style.css` ranks exactly four things and the order is the whole
+  design: `#selection-bar` 1, `.overlay` 2, `#editor` 3, `#zoom-badge` 4. The
+  bar covers the task list, any overlay covers the bar, the editor covers the
+  other overlays (it opens on top of Progress), and the zoom readout covers
+  everything because it reports on the editor's own size.
+
+  **The trap is that DOM order stops deciding the moment anything makes a
+  stacking context.** The bar carried no rank for months on the reasoning that
+  it sits *before* the overlays in `index.html` and so loses to them in DOM
+  order — true, and not the whole rule. Among elements that all resolve to
+  `z-index: auto`, tree order breaks the tie, and `#task-list` comes **after**
+  the bar. So anything in the list that makes a stacking context of its own
+  paints on top of an opaque bar: `opacity` below 1 makes one, and 28 rules in
+  that file set one — `h2` (the NOW/NEXT/SOMEDAY headings) at `.5`, `.bucket`
+  at `.5` — as does `position: relative`, which `.group-header` and
+  `.project-heading` both carry. Measured 2026-07-26 in a headless copy of the
+  real page: a heading, a bucket select and a group header each owned their
+  pixel over the bar, while a plain `.task` — which makes no stacking context —
+  did not. **`zoom` is not part of it**: identical results at no zoom, 100% and
+  120%, so `zoomAssignments()` is not implicated however much it looks like it.
+
+  It reads as the bar being see-through and it is not — the fill is
+  `rgb(30, 30, 30)` at `opacity: 1`, measured. Reaching for a stronger
+  background is the fix that cannot work, because the text is painted *after*
+  the fill. And because hit-testing follows painting, the same defect ate
+  clicks: a `.bucket` select drifting under the bar answered a press aimed at
+  Done. `test_the_floating_surfaces_are_ranked_in_one_order` fails the build on
+  a missing rank or an out-of-order one. What it cannot catch: a new
+  full-window overlay that carries neither the `.overlay` class nor a rank of
+  its own — invisible under the bar, exactly like the editor-under-Progress bug
+  that put `#editor`'s rank there in the first place.
 - **Extend a CSS comment BEFORE its closing `*/`, never after.** Prose written
   after the marker is not a comment: CSS reads from there to the next `{` as
   one selector, fails to parse it, and **silently discards the entire rule that
@@ -875,7 +907,35 @@ show two unrelated tasks under one id at different points in time.
   four complete, with the same confirm the bar asks. Tick those four and press
   `done` on a *fifth*, unticked row — only that row completes and the four
   stay ticked. Tick a whole group with its header box plus one loose task, and
-  press the header's own `done` — all of them go, not just the group. Four more for the
+  press the header's own `done` — all of them go, not just the group.
+
+  Four for **the bar's own Spin up Claude**, which is the toolbar's button in
+  reach of the cursor that just ticked the boxes — the same
+  `handOffSelection`, so what is being checked is the wiring and the fit, not
+  the hand-off. Tick two tasks and press it: one session opens with both, and
+  the bar slides away as it goes — that departure is the only confirmation
+  there is, and a bar left sitting there with its ticks intact means the
+  refresh did not happen. Type a name into the bar's Name row and press the
+  bar's button rather than the toolbar's: the session must come up under that
+  name, since both read the same box. Tick tasks from two different projects in
+  IN PROGRESS and press it: the same `Select tasks from one project at a time.`
+  alert the toolbar gives, and **no window opens**. And narrow the window until
+  the header starts to crowd: the bar must still be one row with the full label
+  intact — measured (headless, real stylesheet) to fit down to 343px against
+  the header's own 352px floor, so the header is what gives first.
+
+  Three more for **nothing showing through the bar**, which is the stacking
+  ladder in "Adding a feature" seen from the front. Scroll a list long enough
+  that a `NOW`/`NEXT`/`SOMEDAY` heading, a group header and a bucket dropdown
+  each pass *behind* the ticked bar: none of them may be visible through it,
+  and the dropdown in particular must not draw over Done or Delete. Then press
+  **Done** at the moment a dropdown is behind that exact spot: the press must
+  reach Done, never the dropdown — hit-testing follows painting, so this is the
+  same bug wearing different clothes. And the half that must not regress: tick
+  a task and open Progress or the editor, which must still cover the bar
+  completely.
+
+  Four more for the
   bar's own position, which is a floating overlay rather than a row: tick a box
   and **nothing above it may move** — the list must stay exactly where it was
   while the bar slides up from the bottom edge, and untick must slide it back
@@ -1179,15 +1239,13 @@ A bracketed `/rename` and `/color` are read as commands, not as chat text; the
 `\r` written after them is read as Enter; and the prompt is left editable
 afterwards. What that verification *found* is invariant 24: the failure was
 never in how the line is written, it was in writing the next thing before the
-session had read the last one. It ships with one gap of its own:
+session had read the last one. The one gap it shipped with is closed:
 
-- **`#handoff-name` is a placeholder for a component that does not exist yet.**
-  When the selection-bar design
-  (`docs/superpowers/specs/2026-07-25-selection-bar-design.md`) lands, this row
-  moves into `#selection-bar` as a second line and `#handoff-name` disappears,
-  and `Api._selected_tasks` collapses into that design's planned `Api._tasks`
-  — the two do the same id-to-task lookup under names chosen only to keep them
-  from colliding before that merge happens.
+- **The batch-name row landed where that design said it would.** It is the
+  second row of `#selection-bar` now, and `Api._selected_tasks` collapsed into
+  `Api._tasks`. The id stayed `#handoff-name` rather than disappearing, because
+  the row still belongs to the hand-off rather than to the bar: both Spin up
+  Claude buttons read it through `handOffSelection` in `ui/tasks.js`.
 
 Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
 `docs/superpowers/specs/2026-07-25-task-editor-design.md`,

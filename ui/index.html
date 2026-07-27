@@ -38,6 +38,15 @@
       <div class="actions">
         <span id="selection-count"></span>
         <span class="spacer"></span>
+        <!-- The same action as #spin-up above, wired to the same function in
+             tasks.js — the only difference is that this one is in reach of the
+             cursor that just ticked the boxes, and sits directly above the Name
+             row that names the session it opens. It is .primary because in this
+             bar it is the point; in the toolbar it is one of six equal
+             controls. Measured at 343px minimum window width against the
+             header's own 352px, so the full label costs nothing. -->
+        <button id="selection-spin-up" class="primary"
+                title="Opens one Claude session in this project with every ticked task typed into it.">Spin up Claude</button>
         <button id="selection-done">Done</button>
         <button id="selection-delete" class="danger">Delete</button>
         <button id="selection-clear" class="quiet">Clear</button>
