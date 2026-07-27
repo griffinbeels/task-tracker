@@ -29,6 +29,16 @@
   .sub { color: #8b95a3; margin: 0 0 22px; max-width: 70ch; }
   .sub code { color: #b9c3d1; }
 
+  .set-title {
+    margin: 34px 0 2px;
+    font-size: 16px;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #2a2f36;
+  }
+  #sets > section:first-child .set-title { margin-top: 8px; }
+  .set-note { margin: 0 0 18px; color: #8b95a3; max-width: 70ch; }
+
   /* ---- the decisive view: every candidate at the smallest size, together ---- */
   .smallest {
     background: #1b1b1b;
@@ -141,22 +151,15 @@
   .dpr { color: #8b6f3a; }
 </style>
 
-<h1>Task Tracker — ten icon candidates</h1>
+<h1>Task Tracker — icon candidates</h1>
 <p class="sub">
   Click any card to mark it a favourite — pick as many as you like, then tell me
-  the numbers. Seven are takes on the robotic notepad; <code>#8–#10</code> are the
-  wildcards. Everything is drawn on a 32-unit grid, so the small sizes land on
+  the labels. Everything is drawn on a 32-unit grid, so the small sizes land on
   whole pixels.
   <span id="dpr" class="dpr"></span>
 </p>
 
-<section class="smallest">
-  <h2>All ten at the size the title bar actually draws</h2>
-  <p>16px on the left of each pair, 24px on the right. If a candidate dies here, it dies.</p>
-  <div class="row" id="smallest-row"></div>
-</section>
-
-<div class="grid" id="grid"></div>
+<div id="sets"></div>
 
 <div class="picks">
   <span class="hint">Favourites:</span>
@@ -305,32 +308,211 @@
       <rect x="15.5" y="25.25" width="7" height="2" rx="1" fill="#64748b"/>
     </symbol>
 
+    <!-- ===== Round 2: Checkbox Bot's other eye =====
+         Everything but the right eye is Checkbox Bot (#5) unchanged, and each
+         variant repeats that base rather than <use>-ing a shared one. The
+         winner gets copied straight out to ui/icon.svg and rasterised as
+         standalone markup, and a <use> pointing at a definition left behind in
+         this file renders as nothing at all — silently, since a missing
+         reference is not an error. Duplication here buys "what you judged is
+         what gets built". -->
+
+    <!-- e1. Empty Box — one done, one to go. The asymmetry IS the statement. -->
+    <symbol id="icon-e1" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="none" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e2. Both Ticked — symmetry, and a bot that has finished everything -->
+    <symbol id="icon-e2" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M18.65 13.6 L20.05 15 L21.65 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e3. Indeterminate — the dash state, a real checkbox this app could show -->
+    <symbol id="icon-e3" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <rect x="18.5" y="12.8" width="3.25" height="1.65" rx="0.82" fill="#ffffff"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e4. Wink — the box gives way to a closed eye. The only one with a mood. -->
+    <symbol id="icon-e4" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M17 15 Q20.1 10.9 23.25 15" fill="none" stroke="#14181c" stroke-width="2.3"
+            stroke-linecap="round"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e5. Spinner — a task in progress, which this app has a whole section for -->
+    <symbol id="icon-e5" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20.1 10.5 A3.1 3.1 0 1 1 17 13.6" fill="none" stroke="#14181c" stroke-width="1.9"
+            stroke-linecap="round"/>
+      <circle cx="20.1" cy="10.5" r="1.15" fill="#4cc38a"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e6. Caret — a terminal cursor, the thing a hand-off types into -->
+    <symbol id="icon-e6" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#14181c"/>
+      <rect x="19.35" y="12" width="1.7" height="3.3" rx="0.85" fill="#4cc38a"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e7. Sparkle — four points rather than five; a 5-point star is mush at 16px -->
+    <symbol id="icon-e7" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20.1 10 L21.35 12.35 L23.7 13.6 L21.35 14.85 L20.1 17.2 L18.85 14.85
+               L16.5 13.6 L18.85 12.35 Z" fill="#4cc38a"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e8. Scanline — a sensor sweeping. The most machine-like of the ten. -->
+    <symbol id="icon-e8" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#14181c"/>
+      <rect x="17" y="12.75" width="6.25" height="1.75" fill="#4cc38a"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e9. Plus — the next one, waiting -->
+    <symbol id="icon-e9" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- Green, and shorter than it looks like it should be: drawn dark and
+           full-width the plus touches the box on all four sides, and the eye
+           reads a four-pane window rather than a plus. -->
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#14181c"/>
+      <path d="M20.1 12.2 V15 M18.7 13.6 H21.5" fill="none" stroke="#4cc38a" stroke-width="1.6"
+            stroke-linecap="round"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- e10. Pixel Eye — a 2x2 sensor array, one cell lit -->
+    <symbol id="icon-e10" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <g fill="#14181c">
+        <rect x="17" y="10.5" width="2.7" height="2.7" rx="0.8"/>
+        <rect x="17" y="14.05" width="2.7" height="2.7" rx="0.8"/>
+        <rect x="20.55" y="14.05" width="2.7" height="2.7" rx="0.8"/>
+      </g>
+      <rect x="20.55" y="10.5" width="2.7" height="2.7" rx="0.8" fill="#4cc38a"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
   </defs>
 </svg>
 
 <script>
-  const CANDIDATES = [
-    [1, 'Visor Pad'],
-    [2, 'Spiral Servo'],
-    [3, 'Chassis Pad'],
-    [4, 'Terminal Pad'],
-    [5, 'Checkbox Bot'],
-    [6, 'Folded Circuit'],
-    [7, 'Clipboard Droid'],
-    [8, 'Robot Head'],
-    [9, 'Servo Check'],
-    [10, 'Stacked Tasks'],
+  // Two rounds, one renderer. A set is a label prefix and a list of names; the
+  // symbol it draws is `#icon-<prefix><number>`. Anything that behaves
+  // differently between the two rounds is a bug rather than a feature — the
+  // second round exists to be compared against the first, which it cannot be
+  // if it is drawn by different code.
+  const SETS = [
+    {
+      prefix: 'e',
+      title: "Round 2 — Checkbox Bot's other eye",
+      note: 'Everything but the right eye is Checkbox Bot unchanged. The left '
+          + 'eye stays a ticked box in all ten.',
+      candidates: [
+        [1, 'Empty Box'],
+        [2, 'Both Ticked'],
+        [3, 'Indeterminate'],
+        [4, 'Wink'],
+        [5, 'Spinner'],
+        [6, 'Caret'],
+        [7, 'Sparkle'],
+        [8, 'Scanline'],
+        [9, 'Plus'],
+        [10, 'Pixel Eye'],
+      ],
+    },
+    {
+      prefix: '',
+      title: 'Round 1 — the ten concepts',
+      note: 'Kept rather than deleted: reopening one to see whether it could '
+          + 'work should cost nothing.',
+      candidates: [
+        [1, 'Visor Pad'],
+        [2, 'Spiral Servo'],
+        [3, 'Chassis Pad'],
+        [4, 'Terminal Pad'],
+        [5, 'Checkbox Bot'],
+        [6, 'Folded Circuit'],
+        [7, 'Clipboard Droid'],
+        [8, 'Robot Head'],
+        [9, 'Servo Check'],
+        [10, 'Stacked Tasks'],
+      ],
+    },
   ];
   const SIZE_STRIP = [16, 20, 24, 32, 40, 48];
-  const picked = new Set();
+  const picked = new Map();
 
-  function iconAt(number, size) {
+  function iconAt(label, size) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', size);
     svg.setAttribute('height', size);
     svg.setAttribute('viewBox', '0 0 32 32');
     const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', `#icon-${number}`);
+    use.setAttribute('href', `#icon-${label}`);
     svg.append(use);
     return svg;
   }
@@ -343,23 +525,14 @@
     return figure;
   }
 
-  // The decisive row: every candidate at 16 and 24, on the taskbar's own black.
-  const smallestRow = document.getElementById('smallest-row');
-  for (const [number, name] of CANDIDATES) {
-    const pair = document.createElement('div');
-    pair.className = 'pair';
-    pair.append(iconAt(number, 16), iconAt(number, 24));
-    smallestRow.append(labelled(pair, `${number}. ${name}`));
-  }
-
-  function buildCard([number, name]) {
+  function buildCard(label, display, name) {
     const card = document.createElement('div');
     card.className = 'card';
 
     const head = document.createElement('header');
     const num = document.createElement('span');
     num.className = 'num';
-    num.textContent = number;
+    num.textContent = display;
     const title = document.createElement('span');
     title.className = 'name';
     title.textContent = name;
@@ -372,16 +545,16 @@
     hero.className = 'hero';
     const onDark = document.createElement('div');
     onDark.className = 'on-dark';
-    onDark.append(iconAt(number, 96));
+    onDark.append(iconAt(label, 96));
     const onLight = document.createElement('div');
     onLight.className = 'on-light';
-    onLight.append(iconAt(number, 96));
+    onLight.append(iconAt(label, 96));
     hero.append(onDark, onLight);
 
     const sizes = document.createElement('div');
     sizes.className = 'sizes';
     for (const size of SIZE_STRIP) {
-      sizes.append(labelled(iconAt(number, size), `${size}`));
+      sizes.append(labelled(iconAt(label, size), `${size}`));
     }
 
     // The two contexts that actually matter, at real scale.
@@ -393,7 +566,7 @@
     for (const state of ['', '', 'active']) {
       const button = document.createElement('div');
       button.className = `tb-button ${state}`.trim();
-      button.append(iconAt(number, 24));
+      button.append(iconAt(label, 24));
       taskbar.append(button);
     }
 
@@ -404,34 +577,75 @@
     const fill = document.createElement('span');
     fill.className = 'fill';
     fill.textContent = '— ▢ ✕';
-    titlebar.append(iconAt(number, 16), caption, fill);
+    titlebar.append(iconAt(label, 16), caption, fill);
 
     context.append(taskbar, titlebar);
     card.append(head, hero, sizes, context);
 
     card.addEventListener('click', () => {
-      if (picked.has(number)) {
-        picked.delete(number);
+      if (picked.has(label)) {
+        picked.delete(label);
       } else {
-        picked.add(number);
+        picked.set(label, `${display} ${name}`);
       }
-      card.classList.toggle('picked', picked.has(number));
+      card.classList.toggle('picked', picked.has(label));
       renderPicks();
     });
     return card;
   }
 
-  const grid = document.getElementById('grid');
-  for (const candidate of CANDIDATES) {
-    grid.append(buildCard(candidate));
+  function buildSet(set) {
+    const section = document.createElement('section');
+
+    const title = document.createElement('h2');
+    title.className = 'set-title';
+    title.textContent = set.title;
+    const note = document.createElement('p');
+    note.className = 'set-note';
+    note.textContent = set.note;
+    section.append(title, note);
+
+    // The decisive view: every candidate at 16 and 24 together, on the
+    // taskbar's own black. A per-card layout cannot give this comparison, and
+    // it is the size that kills a candidate.
+    const smallest = document.createElement('div');
+    smallest.className = 'smallest';
+    const heading = document.createElement('h2');
+    heading.textContent = 'All ten at the size the title bar actually draws';
+    const caption = document.createElement('p');
+    caption.textContent =
+      '16px on the left of each pair, 24px on the right. If one dies here, it dies.';
+    const row = document.createElement('div');
+    row.className = 'row';
+    smallest.append(heading, caption, row);
+
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+
+    for (const [number, name] of set.candidates) {
+      const label = `${set.prefix}${number}`;
+      const display = `${set.prefix.toUpperCase()}${number}`;
+
+      const pair = document.createElement('div');
+      pair.className = 'pair';
+      pair.append(iconAt(label, 16), iconAt(label, 24));
+      row.append(labelled(pair, `${display} ${name}`));
+
+      grid.append(buildCard(label, display, name));
+    }
+
+    section.append(smallest, grid);
+    return section;
+  }
+
+  const sets = document.getElementById('sets');
+  for (const set of SETS) {
+    sets.append(buildSet(set));
   }
 
   function renderPicks() {
-    const chosen = CANDIDATES
-      .filter(([number]) => picked.has(number))
-      .map(([number, name]) => `#${number} ${name}`);
     document.getElementById('picked').textContent =
-      chosen.length ? chosen.join(', ') : 'none yet';
+      picked.size ? [...picked.values()].join(', ') : 'none yet';
   }
 
   // Honesty about the preview: on a scaled display the "16px" icon is drawn
