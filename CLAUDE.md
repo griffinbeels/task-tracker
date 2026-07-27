@@ -709,10 +709,39 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
       have meant reading the POINTER's x for this one decision — a decision made
       by something the card does not show, which is the disconnect this replaced.
       The band is vertical now, and that is the whole of "aimed".
-    - **A group keeps `GROUP_STICKY` pixels of grip on its own member.**
-      Without it, sorting inside a group and overshooting the last row by one
-      pixel throws the row out of the group. Leaving still costs one deliberate
-      drag clear of the box; only the twitch is absorbed.
+    - **`GROUP_STICKY` is gone, and leaving a group is the gesture it was
+      hurting.** It held 8px of grip on a group's own member so that sorting
+      inside one and overshooting the last row by a pixel did not throw the row
+      out. The freeze made it redundant *and* revealed it as harmful, reported as
+      *"it feels very difficult to drag an element OUT OF A GROUP… more likely to
+      fall back into its original group or auto-combine with another task"*
+      (2026-07-27).
+
+      Redundant, because it existed to absorb a box edge that moved live; frozen,
+      the card's centre must travel from the last member's top edge to the block's
+      real bottom before it is outside at all, which is the same margin by
+      construction. Harmful, because those 8px sat exactly where the next row's
+      reorder zone begins — so of the 10px between leaving a group and entering a
+      pair band, it spent 8. **The window in which leaving a group meant plain
+      reordering was FOUR PIXELS.** With the sticky gone and `PAIR_BAND` at a
+      quarter it is 13.3px, and a row is 75/25 reorder-to-pair.
+
+      **One tempting fix was tried and rejected by arithmetic**, which is worth
+      keeping because it will look right again. Measure the group as it will be
+      once the member has left — its own height off the bottom, since removing a
+      row shrinks the block from below — and a middle member's escape drops from
+      53px to 15px. But for the **last** member of any group,
+      `bottom − ownHeight` lands above that member's own centre, so the card
+      begins outside its own group and the row leaves on the first pixel of
+      movement. The full box already provides the dead zone the trim was reaching
+      for.
+
+      What that leaves: the travel out of a group is the distance to the block's
+      bottom edge, so it grows with how far up the group you grabbed — 15px from
+      the last member, ~135px from the first of five. That is deliberate. The row
+      is visibly sorting down through the rail the whole way, which is honest
+      about what is happening; the complaint was about the *outcome* at the end of
+      that travel, not its length.
     - **Every measurement excludes the dragged element.** It stays in the flow —
       that is what reserves the gap — so the live preview displaces every block
       below it; feed that back in and the preview chooses its own next position,

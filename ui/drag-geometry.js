@@ -143,14 +143,31 @@ function placement(destination, dragged, isGroup) {
 // against a full-width row passes always. Keeping it would have meant reading the
 // POINTER's x for this one decision — a decision made by something the card does
 // not show, which is exactly the disconnect this design removes. So the band is
-// vertical, and one third of a row is the whole of "aimed".
-const PAIR_BAND = 1 / 3;
+// vertical.
+//
+// A QUARTER of a row, not a third, since 2026-07-27. Reported as "it feels like
+// it is more likely to auto-combine with another task than to simply reorganise",
+// and the arithmetic agreed: a third of a 30px row is a 10px band with 10px of
+// reorder above it, and `GROUP_STICKY` below was eating 8 of those 10 — so the
+// window in which leaving a group meant plain reordering was FOUR PIXELS wide.
+// A quarter leaves 11px of reorder either side of a 7.5px band: three to one in
+// favour of the common gesture, which is the stated rule (invariant 28).
+const PAIR_BAND = 1 / 4;
 
-// A group keeps a few pixels of grip on the row already inside it, so that
-// sorting within a group and overshooting the last member by a pixel does not
-// throw the row out of the group. Leaving is still one deliberate drag clear
-// of the box; only the twitch is absorbed.
-const GROUP_STICKY = 8;
+// `GROUP_STICKY` stood here — 8px of grip a group kept on its own member, so that
+// sorting inside it and overshooting the last row by a pixel did not throw the row
+// out. **The freeze made it redundant, and it was actively harmful.**
+//
+// Redundant: it existed because the boxes were re-measured live, so claiming the
+// last slot moved the group's own bottom edge under the cursor. Frozen, that edge
+// cannot move — and the card's centre has to travel a further half-row past the
+// last member's top edge before it is outside the group at all, which is the same
+// margin the sticky was buying, for free and by construction.
+//
+// Harmful: it sat exactly where the next row's reorder zone begins, so it spent
+// its 8px making "leave the group and reorder" nearly unreachable. Third constant
+// this rewrite has deleted rather than retuned, after `PAIR_INSET` and `slotFor`'s
+// `displaced` — all three were compensating for a live measurement.
 
 // --- The frozen layout ---------------------------------------------------
 //
@@ -296,21 +313,38 @@ function slotFor(blocks, centreY, dragged, container) {
   return passed;
 }
 
-function withinBox(element, probe, grow = 0) {
+function withinBox(element, probe) {
   const box = fbox(element);
-  return probe.x >= box.left - grow && probe.x <= box.right + grow
-    && probe.y >= box.top - grow && probe.y <= box.bottom + grow;
+  return probe.x >= box.left && probe.x <= box.right
+    && probe.y >= box.top && probe.y <= box.bottom;
 }
 
-// The group box the probe is inside. The dragged row's OWN group is not
-// excluded — that is how sorting within a group works — it just gets the extra
-// grip.
+// The group box the probe is inside — exactly as drawn, no grip and no trim. The
+// dragged row's OWN group is not excluded; that is how sorting within a group
+// works, and carrying the card clear of the block is how leaving one works.
+//
+// TWO adjustments were tried here for "very difficult to drag an element OUT OF A
+// GROUP" (2026-07-27) and only one of them survived arithmetic.
+//
+// Deleting `GROUP_STICKY` did: its 8px sat exactly where the next row's reorder
+// zone begins, so of the 10px between leaving a group and entering a pair band it
+// spent 8. That is the four-pixel window the report was about.
+//
+// Shrinking this box by the dragged member's own height did NOT, and the reason is
+// worth keeping. It sounds right — the box a group is about to have, since removing
+// a row shrinks the block from the bottom — and for a middle member it cut the
+// travel from 53px to 15px. But for the LAST member of any group,
+// `bottom - ownHeight` lands ABOVE that member's own centre, so the card starts
+// outside its own group and the row leaves on the first pixel of movement. Worse
+// than the complaint. The full box already provides the dead zone the trim was
+// reaching for: the centre must travel from wherever it sits to the block's real
+// bottom edge, which for the last member is half a row and for a first member is
+// the whole group — visibly sorting down through the rail on the way, which is
+// honest about what is happening.
 function groupUnder(section, probe, dragged) {
   const mine = groupOf(dragged);
-  return [...section.querySelectorAll('.group')].find(container =>
-    container !== dragged
-    && withinBox(container, probe,
-                 container.dataset.group === mine ? GROUP_STICKY : 0)) || null;
+  return [...section.querySelectorAll('.group')].find(
+    container => container !== dragged && withinBox(container, probe)) || null;
 }
 
 // A loose top-level row the card is very clearly on top of — the one gesture
