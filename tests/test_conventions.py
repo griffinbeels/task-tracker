@@ -403,6 +403,72 @@ def test_both_spin_up_buttons_run_the_same_handler():
     )
 
 
+# What floats over what, bottom rung first. Every one of these is a full-window
+# or edge-anchored surface, and the order between them is the whole design:
+# the bar covers the list, an overlay covers the bar, the editor covers the
+# other overlays, and the zoom readout covers everything because it reports on
+# the editor's own size.
+STACKING_ORDER = ("#selection-bar", ".overlay", "#editor", "#zoom-badge")
+
+_Z_INDEX = re.compile(r"z-index:\s*(\d+)\s*;")
+
+
+def test_the_floating_surfaces_are_ranked_in_one_order():
+    """Painting order is not DOM order once anything makes a stacking context.
+
+    The selection bar carried no z-index at all, on the reasoning that it sits
+    before the overlays in index.html and therefore loses to them in DOM order.
+    That was true and it was not the whole rule: among elements that all resolve
+    to `z-index: auto`, tree order decides — and #task-list comes AFTER the bar
+    in the markup, so anything in the list that makes a stacking context of its
+    own paints on top of it. `opacity` below 1 makes one, and 28 rules in
+    ui/style.css set one; h2 (the bucket headings) and .bucket are two of them.
+    The reported symptom was a `now` dropdown and a NOW heading showing through
+    an opaque bar, which reads as the bar being transparent and is not
+    (2026-07-26, measured: the fill is rgb(30, 30, 30) at opacity 1).
+
+    Hit-testing follows painting, so the same defect ate clicks aimed at Done.
+
+    What this cannot catch: a NEW full-window overlay added with no rank at all.
+    It would inherit `.overlay`'s 2 if it carries that class, which is right,
+    and would sit under the bar if it does not — invisible, exactly like the
+    editor-under-Progress bug that put #editor's rank here in the first place.
+    Nor can it see an element that is ranked correctly and positioned wrongly.
+    """
+    # Comments go first, and that is not tidiness: every rank in this file is
+    # discussed in prose above its own rule, so the first textual mention of
+    # `#selection-bar` is inside the comment at the top of the stylesheet. A
+    # search over the raw text finds that one, reads the NEXT rule's block, and
+    # reports the bar as unranked while it is ranked one line below.
+    css = re.sub(r"/\*.*?\*/", "", (REPO / "ui" / "style.css").read_text(encoding="utf-8"),
+                 flags=re.DOTALL)
+
+    ranks = {}
+    for selector in STACKING_ORDER:
+        # Every block for this selector, not the first: a selector may be
+        # written twice, and reading only the first one answers with whichever
+        # rule happens to come earlier rather than with the one that wins the
+        # cascade. Last declaration wins, exactly as the browser resolves it.
+        declared = [_Z_INDEX.search(block) for block in re.findall(
+            rf"(?<![\w.#-]){re.escape(selector)}\s*(?:,[^{{]*)?\{{([^}}]*)\}}", css)]
+        found = [match for match in declared if match]
+        ranks[selector] = int(found[-1].group(1)) if found else None
+
+    unranked = [selector for selector, rank in ranks.items() if rank is None]
+    assert not unranked, (
+        "These floating surfaces carry no z-index, so they fall back to `auto` "
+        "and are ordered by where they happen to sit in index.html — which is "
+        "how an opaque bar ends up under the list it floats over: " + ", ".join(unranked)
+    )
+
+    order = [ranks[selector] for selector in STACKING_ORDER]
+    assert order == sorted(set(order)), (
+        "These ranks must be strictly increasing in this order — "
+        f"{' < '.join(STACKING_ORDER)} — and they are {ranks}. Equal ranks fall "
+        "back to DOM order, which is the tie #editor's own rule exists to break."
+    )
+
+
 def test_every_bridge_call_names_a_method_that_exists():
     """A renamed or misspelled bridge method fails at click time, not at load.
 

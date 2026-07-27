@@ -767,6 +767,38 @@ show two unrelated tasks under one id at different points in time.
   half-forgotten in each.
 - **Never add a CDN reference.** The editor is vendored so the app works
   offline; a convention test enforces it.
+- **A new floating surface needs a rank in the ladder, not a place in the
+  markup.** `ui/style.css` ranks exactly four things and the order is the whole
+  design: `#selection-bar` 1, `.overlay` 2, `#editor` 3, `#zoom-badge` 4. The
+  bar covers the task list, any overlay covers the bar, the editor covers the
+  other overlays (it opens on top of Progress), and the zoom readout covers
+  everything because it reports on the editor's own size.
+
+  **The trap is that DOM order stops deciding the moment anything makes a
+  stacking context.** The bar carried no rank for months on the reasoning that
+  it sits *before* the overlays in `index.html` and so loses to them in DOM
+  order — true, and not the whole rule. Among elements that all resolve to
+  `z-index: auto`, tree order breaks the tie, and `#task-list` comes **after**
+  the bar. So anything in the list that makes a stacking context of its own
+  paints on top of an opaque bar: `opacity` below 1 makes one, and 28 rules in
+  that file set one — `h2` (the NOW/NEXT/SOMEDAY headings) at `.5`, `.bucket`
+  at `.5` — as does `position: relative`, which `.group-header` and
+  `.project-heading` both carry. Measured 2026-07-26 in a headless copy of the
+  real page: a heading, a bucket select and a group header each owned their
+  pixel over the bar, while a plain `.task` — which makes no stacking context —
+  did not. **`zoom` is not part of it**: identical results at no zoom, 100% and
+  120%, so `zoomAssignments()` is not implicated however much it looks like it.
+
+  It reads as the bar being see-through and it is not — the fill is
+  `rgb(30, 30, 30)` at `opacity: 1`, measured. Reaching for a stronger
+  background is the fix that cannot work, because the text is painted *after*
+  the fill. And because hit-testing follows painting, the same defect ate
+  clicks: a `.bucket` select drifting under the bar answered a press aimed at
+  Done. `test_the_floating_surfaces_are_ranked_in_one_order` fails the build on
+  a missing rank or an out-of-order one. What it cannot catch: a new
+  full-window overlay that carries neither the `.overlay` class nor a rank of
+  its own — invisible under the bar, exactly like the editor-under-Progress bug
+  that put `#editor`'s rank there in the first place.
 - **Extend a CSS comment BEFORE its closing `*/`, never after.** Prose written
   after the marker is not a comment: CSS reads from there to the next `{` as
   one selector, fails to parse it, and **silently discards the entire rule that
@@ -854,6 +886,17 @@ show two unrelated tasks under one id at different points in time.
   the header starts to crowd: the bar must still be one row with the full label
   intact — measured (headless, real stylesheet) to fit down to 343px against
   the header's own 352px floor, so the header is what gives first.
+
+  Three more for **nothing showing through the bar**, which is the stacking
+  ladder in "Adding a feature" seen from the front. Scroll a list long enough
+  that a `NOW`/`NEXT`/`SOMEDAY` heading, a group header and a bucket dropdown
+  each pass *behind* the ticked bar: none of them may be visible through it,
+  and the dropdown in particular must not draw over Done or Delete. Then press
+  **Done** at the moment a dropdown is behind that exact spot: the press must
+  reach Done, never the dropdown — hit-testing follows painting, so this is the
+  same bug wearing different clothes. And the half that must not regress: tick
+  a task and open Progress or the editor, which must still cover the bar
+  completely.
 
   Four more for the
   bar's own position, which is a floating overlay rather than a row: tick a box

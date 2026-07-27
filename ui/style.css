@@ -297,17 +297,23 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    thing itself rather than a symbol for it. */
 
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
+           z-index: 2;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }
-/* The editor is the one overlay that opens on top of another: a completed
-   entry in the Progress list opens it with #progress still up. Every overlay
-   is position: fixed at z-index: auto, so they paint in DOM order and the
-   later div wins however late the earlier one was opened — #progress sits
-   below #editor in index.html, so without a rank here the editor opens
-   invisible underneath an opaque panel, holding focus, with Cancel
-   unreachable. Any overlay added later needs a rank of its own, not a place
-   in the markup. */
-#editor { z-index: 1; }
+/* Rungs 2 and 3 of the ladder #selection-bar's comment lays out. An overlay
+   covers the whole window, so it must cover the selection bar too — the bar
+   now carries a rank of its own (1), and without one here it would float on
+   top of an open editor, which is exactly what the bar's rank had to avoid.
+
+   The editor is the one overlay that opens on top of another: a completed
+   entry in the Progress list opens it with #progress still up. Overlays that
+   share a rank paint in DOM order and the later div wins however late the
+   earlier one was opened — #progress sits below #editor in index.html, so
+   without a rank of its own the editor opens invisible underneath an opaque
+   panel, holding focus, with Cancel unreachable. Any overlay added later needs
+   a rank, not a place in the markup: .overlay's 2 to sit with Progress and
+   Settings, or its own number to sit above them. */
+#editor { z-index: 3; }
 /* min-height: 0 overrides the flex item's content-based auto height — without
    it a tall rendered document pushes #editor-body past the overlay's fixed
    bounds instead of scrolling inside itself, and the page scrolls (the exact
@@ -419,25 +425,45 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    bottom-anchored it costs the layout nothing, because nothing is laid out
    against it any more.
 
+   z-index 1, and it is the bottom rung of the ladder in this file: the bar
+   beats the task list, every overlay beats the bar, the editor beats the other
+   overlays, and #zoom-badge beats all of it. This used to read "no z-index,
+   deliberately", on the grounds that the bar sits BEFORE the overlays in
+   index.html and so loses to them in DOM order — true, and it was the whole
+   answer only for as long as nothing in the LIST could win either.
+
+   Things in the list win constantly, and that is what this rank fixes. Painting
+   order puts the bar in the positioned-elements step at z-index auto, where the
+   tie is broken by tree order — and #task-list comes after it in the markup. So
+   anything below that makes a stacking context of its own paints ON TOP of an
+   opaque bar: `opacity` below 1 does it, and 28 rules in this file set one —
+   h2 (the NOW/NEXT/SOMEDAY headings) at .5, .bucket at .5 — as does
+   position: relative, which .group-header and .project-heading both carry.
+   Measured: a heading, a bucket select and a group header each owned their
+   pixel over the bar; a plain .task, which makes no stacking context, did not.
+   A rank of 1 puts the bar above every one of them, because any positive
+   z-index beats auto no matter where it sits in the tree.
+
+   The fix is a rank, NOT a stronger fill. The fill is already flat opaque and
+   was measured so — rgb(30, 30, 30) at opacity 1 — which is why this reads as
+   transparency and is not: the text on top of it was painted after it.
+
+   Hit-testing follows painting, so this is the same fix for input as for
+   render. Before it, a bucket select drifting under the bar answered a click
+   aimed at Done.
+
    left/right/bottom are body's own 12px padding, so the bar keeps the width
    and the margins it had in the flow: it moved, it did not become a different
    component.
-
-   No z-index, deliberately. It is position: fixed at z-index auto and sits
-   BEFORE the three overlays in index.html, so they paint over it in DOM order
-   — the same rule #editor's comment above documents. A rank here would float
-   the bar on top of an open editor.
 
    A column, because the bar carries two rows: the actions, and the session
    name at two or more selected. The buttons keep .actions on an inner div, so
    the row idiom and the 28px control height are unchanged.
 
-   The fill is opaque, where the version in the flow was a 10% wash of the
-   background it sat on. This one has task rows behind it, and text showing
-   through a bar reads as a render fault rather than as a surface. Fill, border
-   and shadow together are the whole of "this is above the page" — none of the
-   three is decoration. */
+   Fill, border and shadow together are the whole of "this is above the page" —
+   none of the three is decoration. */
 #selection-bar { position: fixed; left: 12px; right: 12px; bottom: 12px;
+                 z-index: 1;
                  padding: 5px 8px; border-radius: 6px;
                  display: flex; flex-direction: column; gap: 6px;
                  background: #1e1e1e;
@@ -540,13 +566,15 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 /* What the last Ctrl+/- produced, for the second it takes to read it. It earns
    its place at the ends of the ladder: at 100% the key changes nothing, and a
    key that silently does nothing reads as broken rather than as a floor.
-   z-index above #editor's 1, because the editor is one of the two regions it
-   reports on and would otherwise paint over it.
+   Top rung of the ladder, above #editor, because the editor is one of the two
+   regions it reports on and would otherwise paint over it. It moved 2 -> 4
+   when the selection bar took a rank and pushed the overlays up; the number
+   means nothing on its own, only "higher than every overlay".
    pointer-events: none is load-bearing, not tidiness — this floats over the
    task list, and the drop handler asks event.target what it landed on
    (invariant 28's one hit-test). A badge that could be the answer would eat a
    drop in the bottom-right corner of the window. */
-#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 2;
+#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 4;
               font-size: 11px; padding: 3px 9px; border-radius: 11px;
               color: #ddd; background: rgba(18, 18, 18, .93);
               border: 1px solid rgba(127, 127, 127, .3);
