@@ -425,6 +425,25 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
                             border-radius: 6px; }
 .toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
+/* Nothing past the overflow button needs separating from anything.
+   Toast UI ends every toolbar group with a divider and hides whichever one is
+   trailing — but it decides that while rendering, at the width it is rendering
+   at, and hands each group the answer as a `hiddenDivider` prop. When the
+   window narrows, or the editor is zoomed, items move into the "…" button
+   afterwards and a divider that is now last keeps the answer it was given: a
+   stray light line hanging off the right end of the toolbar.
+   Reported at 2026-07-26 as `66 ⋯ |`, with the same toolbar at 100% zoom —
+   full width, no "…", two dividers, no stray line — as the control. That pair
+   is what identifies it: the line appears exactly when the "…" does.
+   Two selectors because the library can put the button either beside the
+   stranded divider or in the group before it, and I could not reproduce the
+   state headlessly to learn which. Both are safe by construction: neither can
+   match when there is no "…" at all, and neither can reach a divider that
+   still has a button after it. */
+.toastui-editor-toolbar-icons.more ~ .toastui-editor-toolbar-divider,
+.toastui-editor-toolbar-group:has(.toastui-editor-toolbar-icons.more)
+  ~ .toastui-editor-toolbar-group .toastui-editor-toolbar-divider { display: none; }
+
 /* The 6px belongs to the scroll container, never to the rows inside it. A row
    that hangs past its own overflow: auto parent is scrollable overflow, and
    `.entry { margin: 0 -6px }` is what gave this list a horizontal scrollbar

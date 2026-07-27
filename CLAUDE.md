@@ -885,6 +885,13 @@ show two unrelated tasks under one id at different points in time.
   task opened from Progress it must include Restore. And in the body, indenting
   a list item with Tab must still work — only Shift+Tab was taken.
 
+  **The editor toolbar.** Zoom the editor until the `…` overflow button
+  appears: there must be **no stray light line to the right of it**. Toast UI
+  decides which group's trailing divider to hide while rendering, at the width
+  it renders at, so a collapse that happens afterwards leaves one drawn — and
+  `ui/style.css` hides anything past the `…` for that reason. Ctrl+`0` back to
+  100%: the full toolbar returns with its two dividers and no `…`.
+
   **Cancel.** Capture, type one character, Escape: it asks. Capture, type
   nothing, Escape: it closes. Open an existing task and Escape immediately: it
   closes with no question. Open one, change only its colour, Escape: it asks.
