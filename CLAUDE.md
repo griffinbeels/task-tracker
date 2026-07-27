@@ -89,7 +89,9 @@ bundler.
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), `asShown` (a body as the editor draws it — escapes resolved, the empty-paragraph `<br>` dropped, non-breaking spaces made ordinary — for the only two places that read a body as text: search, and the `## Outcome` split. The hand-off has no copy of this rule and needs none; it sends the file's path, so nothing converts a body at all), the Escape key that closes the topmost overlay, and `showToast` — the one overlaid notice, used so far only by the hand-off watch |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row, and `watchDelivery` — the bounded poll that asks whether the tasks reached the session, because the bridge is call-and-return and a hand-off finishes minutes later. `handOff` is the **one** place a session is opened on tasks — the toolbar's Spin up, the selection bar's, every row's Claude button and every group header's go through it, so the batch name, the refresh, the delivery watch and the tick restoration cannot come out differently per control. The two toolbar buttons share `handOffSelection`, which is that one function reached from two places rather than a second copy of it |
-| `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
+| `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and folding. What a group **is** — the drag that forms and dissolves them was 571 of this file's 951 lines and is now the two files below |
+| `ui/drag-geometry.js` | Where a drop lands, and nothing about how it looks. Takes a POINT — the card's centre — against boxes frozen at lift, and answers with one destination. Reads no event at all, and a convention test says so |
+| `ui/drag.js` | The gesture and its motion: the pointer handling, the card you hold, the gap it leaves, the preview, the three ways a drag can end — and `flipBlocks`, the one FLIP every rearrangement in the app goes through, drag or render |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
 | `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `aimedAt` — what a tick means to every button *outside* the bar, so a row's `done`, a group header's `done` and a row's Claude button all aim at the same tasks. `completeWithSelection` is one of its two callers |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
@@ -1060,6 +1062,49 @@ show two unrelated tasks under one id at different points in time.
   section ever drew its drop box. It happened twice the same day.
   `test_the_stylesheet_has_no_stray_comment_markers` now fails the build on an
   unbalanced marker in either direction.
+- **Anything animated has to be measured MID-flight, and its curve judged at
+  16ms.** Four separate lessons from the drag animation, each of which had
+  correct code looking broken or broken code looking correct.
+
+  **A rect read while a transform is running is a position nothing is at.**
+  FLIP computes deltas from rects, so an in-flight neighbour makes the next
+  delta phantom. `flipBlocks` cancels every in-flight animation *before* its
+  second measurement for exactly this reason. The drag geometry is immune by a
+  different route — it reads boxes frozen at lift (invariant 28) — and that is
+  not a coincidence, it is the same problem solved once per concern.
+
+  **An end-state read at t=0 sees the OLD state, and reads as the rule not
+  applying.** `getComputedStyle(element).opacity` right after adding a class
+  that fades it returns the value it is fading *from*, because a `transition`
+  means the value travels. Cost a round accusing a working `.emptying` rule.
+  Drive the animation (`animation.currentTime = …`, or `.finish()`) instead of
+  sleeping and looking.
+
+  **Judge a displacement curve at 16ms, not by watching it.** A curve chosen by
+  eye is chosen from its middle, because the first painted frame is over before
+  the eye reports anything. `cubic-bezier(.2,.9,.2,1)` felt firm in a prototype
+  and was **35% travelled by the first frame** — a 10px hop on a 30px row, which
+  is what got reported as "it glitches upwards, it should just start moving".
+  `y1 = 0` is zero initial velocity; that is what "starts moving" means as a
+  number.
+
+  **A `fill: 'forwards'` WAAPI animation outranks the inline style for the
+  property it animates, for as long as it exists.** So a later measurement that
+  clears `transform` still reads the animation's value back. The drag card's lift
+  is a CSS *transition* rather than `element.animate(…, {fill: 'forwards'})` so
+  that there is one source of truth for `transform` — and the settle's own probe
+  can therefore trust what it reads.
+- **A decoration layer holding clones of rows breaks every document-wide query,
+  and none of their authors did anything wrong.** `#drag-layer` holds a clone of
+  the row being dragged — checkboxes, `data-project`, `data-id`, and for a group
+  its whole container. Six queries for `.task` / `.group` / `.select` /
+  `.select-group` then found one more of each than the list holds, with six
+  separately silent consequences (a second ticked task in `selectedIds()`, a box
+  `restoreTicks` ticks that nothing can clear, a `Clear` that reports success,
+  a rename box opened inside a clone about to be deleted). Five of the six
+  predate the layer: **"the rows on screen" was an exact synonym for "the rows in
+  the list" until it was not.** They are all scoped to `#task-list` now, and
+  `test_the_selection_is_read_from_the_list_only` fails the build on a seventh.
 - **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`,
   `groups.py` and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
@@ -1394,6 +1439,64 @@ show two unrelated tasks under one id at different points in time.
   Open one, change nothing, press Save: it must still save with **no body
   diff** in a tracked project — the invariant 13 check, repeated because this
   feature reads the same baseline.
+
+  And eighteen for the drag being a pointer gesture with motion, which is the
+  whole of `ui/drag.js` and `ui/drag-geometry.js` and none of which a diff can
+  show. **Drag has no automated behavioural coverage, by decision (2026-07-27)**
+  — a headless harness driving the real scripts was offered and declined, and
+  the prototype at `docs/superpowers/prototypes/2026-07-26-drag-feel.html` is
+  the reversal path if that is ever revisited. Three convention tests guard
+  part of it and are named where they apply below.
+
+  **The card.** Grab any row and move: **exactly one** of it on screen, fully
+  opaque, under the cursor, with a dashed outline where it came from, and no
+  sideways drift. Zoom the list to 200% and drag: the card must be the same size
+  as its gap — it is a clone in a zoom region, and a mismatch there is the whole
+  reason `#drag-layer` is one.
+
+  **The aiming rule (invariant 28).** Grab a row **2px above its own bottom
+  edge** and twitch 6px sideways: nothing reorders. Move down slowly: it yields
+  as the *card* reaches the next row's edge, not before. Hold still on a
+  threshold: it settles on one slot and stays. Drag out of NOW into SOMEDAY:
+  **NEXT and SOMEDAY must not move under the cursor.** Drag a row over another's
+  edge → reorders; over its middle quarter → pairs, name box focused.
+
+  **Leaving a group**, which took two rounds to get right. Drag a member of a
+  two-member group clear of the block: it comes out loose and **stays** loose —
+  not snapping back, not pairing with the row below. Then drag the remaining
+  member out: the group must **fade** as soon as the card is clear of it, and
+  come back if you move back in. With two members left it must NOT fade, because
+  the group survives.
+
+  **The motion.** Drag a row quickly past two or three others: the displaced
+  rows must **begin to move**, not hop and then slide. Reverse direction
+  mid-drag: they reverse from where they are. Drop: the card flies to its slot,
+  *then* the gap closes, *then* the row flashes — in that order, not together.
+  Drop and immediately start a second drag inside the settle: the second card is
+  the row you grabbed, not the previous one.
+
+  **Every other rearrangement, which now shares that motion.** Change a bucket
+  with the `<select>`; fold and unfold a group; press `done` (the row dissolves
+  in place while the rows below slide up, as one motion); complete a whole group
+  from its header (the block goes as one thing, not row by row); Restore from
+  Progress. Then the guard: **type in the search box — nothing may animate, on
+  any keystroke**, and nothing may animate coming back out of it either.
+
+  **Autoscroll and the endings.** Make a list long enough to scroll and drag to
+  the window's bottom edge: it scrolls, and the row lands where it is drawn.
+  Release on the header, past the window edge, and with Escape: the card flies
+  home each time, the row does **not** flash, and nothing is written.
+
+  **The gestures the pointer rewrite could silently break**, all of which the
+  `draggable` attribute used to carry: single-click a row (editor opens);
+  double-click a title, and a group name (each renames); select text in a rename
+  box with the mouse (selects, does not drag); open a row's bucket `<select>`;
+  click the checkbox, the Claude button, copy and `done` (each does its own job,
+  none starts a drag); drag in the **search** view (must not drag, and must show
+  no grab cursor). And one that has nothing to do with dragging: after
+  cancelling a drag with Escape, **press Enter on a focused button** — it must
+  fire. The click-suppressor is armed at that moment and only a `pointerdown`
+  disarms it, so a keyboard activation is the thing it can wrongly eat.
 
 ## Parallel features (worktrees)
 
