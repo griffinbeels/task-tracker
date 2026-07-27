@@ -408,7 +408,7 @@ def test_both_spin_up_buttons_run_the_same_handler():
 # the bar covers the list, an overlay covers the bar, the editor covers the
 # other overlays, and the zoom readout covers everything because it reports on
 # the editor's own size.
-STACKING_ORDER = ("#selection-bar", ".overlay", "#editor", "#zoom-badge")
+STACKING_ORDER = ("#selection-bar", "#drag-layer", ".overlay", "#editor", "#zoom-badge")
 
 _Z_INDEX = re.compile(r"z-index:\s*(\d+)\s*;")
 

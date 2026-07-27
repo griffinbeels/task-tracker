@@ -316,13 +316,19 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    thing itself rather than a symbol for it. */
 
 .overlay { position: fixed; inset: 0; background: #111; padding: 12px;
-           z-index: 2;
+           z-index: 3;
            display: flex; flex-direction: column; gap: 8px; }
 .overlay[hidden] { display: none; }
-/* Rungs 2 and 3 of the ladder #selection-bar's comment lays out. An overlay
+/* Rungs 3 and 4 of the ladder #selection-bar's comment lays out. An overlay
    covers the whole window, so it must cover the selection bar too — the bar
    now carries a rank of its own (1), and without one here it would float on
    top of an open editor, which is exactly what the bar's rank had to avoid.
+
+   These were 2 and 3 until #drag-layer needed a rung between the bar and the
+   overlays: what you hold mid-drag must paint over the bar, because you can
+   drag across it, and under every overlay. There is no integer between 1 and 2,
+   and equal ranks fall back to DOM order — the very tie the paragraph below
+   exists to break — so both of these moved up rather than the card squeezing in.
 
    The editor is the one overlay that opens on top of another: a completed
    entry in the Progress list opens it with #progress still up. Overlays that
@@ -332,7 +338,24 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    panel, holding focus, with Cancel unreachable. Any overlay added later needs
    a rank, not a place in the markup: .overlay's 2 to sit with Progress and
    Settings, or its own number to sit above them. */
-#editor { z-index: 3; }
+#editor { z-index: 4; }
+
+/* Rung 2: what you are holding mid-drag. A clone of the row, position: fixed,
+   which must paint over the list and over the selection bar — you can drag
+   across it — and under every overlay.
+
+   The LAYER is what carries the rank, not the card, so there is one number to
+   reason about however many cards exist. inset: 0 so a fixed child can be placed
+   anywhere in the window, and pointer-events: none so the layer can never eat a
+   pointerdown aimed at a row beneath it — the same reasoning as #zoom-badge's,
+   and load-bearing for the same reason.
+
+   It is a zoom region (ui/zoom.js) so the card scales with the list it came
+   from: a card at the list's old size against a gap at the new one reads as a
+   rendering fault. That is also why it sits OUTSIDE #task-list rather than in
+   it — the drop path reads section.querySelectorAll('.task') and the FLIP sweeps
+   .task, .group, and a clone inside the list would be counted by both. */
+#drag-layer { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
 /* min-height: 0 overrides the flex item's content-based auto height — without
    it a tall rendered document pushes #editor-body past the overlay's fixed
    bounds instead of scrolling inside itself, and the page scrolls (the exact
@@ -445,8 +468,9 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    against it any more.
 
    z-index 1, and it is the bottom rung of the ladder in this file: the bar
-   beats the task list, every overlay beats the bar, the editor beats the other
-   overlays, and #zoom-badge beats all of it. This used to read "no z-index,
+   beats the task list, the card you are dragging beats the bar, every overlay
+   beats the card, the editor beats the other overlays, and #zoom-badge beats
+   all of it. This used to read "no z-index,
    deliberately", on the grounds that the bar sits BEFORE the overlays in
    index.html and so loses to them in DOM order — true, and it was the whole
    answer only for as long as nothing in the LIST could win either.
@@ -615,13 +639,16 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    key that silently does nothing reads as broken rather than as a floor.
    Top rung of the ladder, above #editor, because the editor is one of the two
    regions it reports on and would otherwise paint over it. It moved 2 -> 4
-   when the selection bar took a rank and pushed the overlays up; the number
-   means nothing on its own, only "higher than every overlay".
+   when the selection bar took a rank and pushed the overlays up, and 4 -> 5
+   when #drag-layer took a rung of its own; the number means nothing on its own,
+   only "higher than every overlay".
    pointer-events: none is load-bearing, not tidiness — this floats over the
-   task list, and the drop handler asks event.target what it landed on
-   (invariant 28's one hit-test). A badge that could be the answer would eat a
-   drop in the bottom-right corner of the window. */
-#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 4;
+   task list. It used to be that the drop handler asked event.target what it
+   landed on, so a badge that could be the answer would eat a drop in the
+   bottom-right corner of the window; the drag is measured rather than
+   hit-tested now (invariant 28) and the only event.target left is pointerdown's,
+   which this must still stay out of the way of. */
+#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 5;
               font-size: 11px; padding: 3px 9px; border-radius: 11px;
               color: #ddd; background: rgba(18, 18, 18, .93);
               border: 1px solid rgba(127, 127, 127, .3);

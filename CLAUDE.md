@@ -888,11 +888,20 @@ show two unrelated tasks under one id at different points in time.
 - **Never add a CDN reference.** The editor is vendored so the app works
   offline; a convention test enforces it.
 - **A new floating surface needs a rank in the ladder, not a place in the
-  markup.** `ui/style.css` ranks exactly four things and the order is the whole
-  design: `#selection-bar` 1, `.overlay` 2, `#editor` 3, `#zoom-badge` 4. The
-  bar covers the task list, any overlay covers the bar, the editor covers the
-  other overlays (it opens on top of Progress), and the zoom readout covers
-  everything because it reports on the editor's own size.
+  markup.** `ui/style.css` ranks exactly five things and the order is the whole
+  design: `#selection-bar` 1, `#drag-layer` 2, `.overlay` 3, `#editor` 4,
+  `#zoom-badge` 5. The bar covers the task list, the card you are dragging
+  covers the bar (you can drag across it), any overlay covers the card, the
+  editor covers the other overlays (it opens on top of Progress), and the zoom
+  readout covers everything because it reports on the editor's own size.
+
+  **A new rung in the middle moves everything above it, and that is the correct
+  outcome rather than a nuisance.** `#drag-layer` needed to sit between the bar
+  and the overlays; there is no integer between 1 and 2, and
+  `test_the_floating_surfaces_are_ranked_in_one_order` rejects equal ranks
+  because a tie falls back to the DOM order this whole ladder exists to stop
+  deciding. So the three above it each moved up by one. Renumbering is cheap and
+  the test proves it landed; squeezing a surface in on a tie is what is not.
 
   **The trap is that DOM order stops deciding the moment anything makes a
   stacking context.** The bar carried no rank for months on the reasoning that

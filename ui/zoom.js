@@ -69,6 +69,10 @@ function zoomAssignments() {
   return [
     ['editor', 'editor'],
     ['task-list', 'app'],
+    // The same region as the list, always, and never a region of its own: the
+    // card you drag is a clone of a row, so it has to be the size that row is
+    // now. Scaled differently it sits against a gap it does not fit.
+    ['drag-layer', 'app'],
     ['selection-bar', 'app'],
     ['group-limit-warning', 'app'],
     ['unreadable-warning', 'app'],
