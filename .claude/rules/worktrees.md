@@ -12,13 +12,22 @@ back. Sequential solo work can commit straight to `main`.
 - **Branch from local `main` HEAD, never from `origin`** — origin is usually
   stale, and never from another feature branch unless the work genuinely
   depends on it.
-- **Each worktree needs its own `.venv`** (`uv venv --python 3.12 .venv`, then
-  `uv pip install --python ".venv\Scripts\python.exe" -e . pytest`). There is
-  no shared one. That one command covers `claude-console` too: it is a declared
-  dependency with a `[tool.uv.sources]` path entry, so `-e .` resolves it —
-  **verified**, including from a worktree, which is why that path is absolute.
-  A relative one cannot serve both this checkout and a worktree four levels
-  under it, since the same `pyproject.toml` is checked out into both.
+- **Each worktree needs its own `.venv`**, and the install must name the
+  `claude-console` checkout — `pyproject.toml` deliberately does not, so `-e .`
+  alone resolves nothing and uv reports the whole requirement set unsatisfiable:
+
+  ```powershell
+  uv venv --python 3.12 .venv
+  uv pip install --python ".venv\Scripts\python.exe" -e <claude-console> -e . pytest
+  ```
+
+  There is no shared venv. This is exactly what a `[tool.uv.sources]` entry used
+  to do for free, and why it cannot come back: one absolute path publishes a home
+  directory in a public repo, and a relative one cannot serve both this checkout
+  and a worktree four levels under it, since the same `pyproject.toml` is checked
+  out into both. `run.bat` finds the checkout on its own — beside the repo, or
+  four levels up from a worktree — so a worktree that only ever runs `run.bat`
+  needs nothing typed here.
 - **Run the suite from the worktree root**, always with a relative path:
   `Set-Location <worktree>; & ".venv\Scripts\python.exe" -m pytest tests/ -q`.
   Pointing pytest at another checkout's `tests/` imports *this* tree's modules
