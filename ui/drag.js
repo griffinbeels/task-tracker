@@ -34,10 +34,19 @@ function clearDropAffordance(root) {
 // are moving, grouping when you stop, so making one easier cannot make the other
 // harder.
 //
-// A full second, asked for in those words: *"I should have to hover a task over
-// another task for a second at least in order to actually trigger the make group
-// action. Same with entering a group"* (2026-07-27). It was 420ms, which is long
-// enough not to fire while moving but short enough to fire while thinking.
+// STATIONARY, not merely hovering — the clock is anchored to a POINTER POSITION,
+// not to a target. *"It should only trigger the grouping if our cursor has been
+// stationary (past a small margin of jitter in case i have shaky hands, VERY VERY
+// SMALL like a couple pixels), for at least a second… maybe it's 0.5 seconds"*
+// (2026-07-27). Moving beyond the margin resets the clock and revokes any offer, so
+// the gesture is "stop on it", which is a thing a hand does deliberately.
+//
+// Anchoring to a target was the earlier version and was too generous: sliding
+// steadily along the length of one long row kept the same candidate the whole way,
+// so the clock ran while the hand was still moving.
+//
+// 3px of slack, because a hand resting on a mouse is never perfectly still, and one
+// pixel of tremor must not restart a wait the user has already served.
 //
 // It gates ENTERING a group as well, and that is not only about difficulty. Merely
 // carrying a card past a group used to make it join — so a plain reorder handed the
@@ -51,7 +60,8 @@ function clearDropAffordance(root) {
 //
 // The dragged row's own group is never gated. Sorting inside it and leaving it are
 // continuations of where the row already is, not commitments.
-const DWELL_MS = 1000;
+const DWELL_MS = 500;
+const DWELL_JITTER = 3;
 
 // The offer, drawn as the thing itself: both rows take the group's own rail, so it
 // reads as the group that would exist rather than as a symbol for one.
@@ -198,7 +208,7 @@ function visualShift(element, list) {
 // A block whose ancestor is also animating is skipped, or the two transforms
 // compound and the inner one lands where neither intended. Document order
 // guarantees the ancestor is seen first.
-function flipBlocks(mutate, identify) {
+function flipBlocks(mutate, identify, exclude) {
   const list = document.getElementById('task-list');
   const blocks = [...list.querySelectorAll(FLIPPABLE)];
   // Read the offsets first, then cancel, then measure at rest. All three in that
@@ -221,24 +231,26 @@ function flipBlocks(mutate, identify) {
   for (const element of settled) {
     element.getAnimations().forEach(animation => animation.cancel());
   }
-  // EVERY block that moved animates, including the dragged one — the gap.
+  // THE GAP DOES NOT ANIMATE. It is the slot the card has claimed, so it belongs
+  // at its new index the instant the decision is made; the rows moving around it
+  // are the news.
   //
-  // The gap used to be excluded, on the reasoning that it is the slot the card
-  // has claimed and so belongs at its new index the instant the decision is made.
-  // That confused the decision with the drawing, and it was the jump: a slot
-  // change swaps TWO things, and the neighbour glided while the gap — a visible
-  // dashed box exactly the size of a row — teleported. One object moving smoothly
-  // beside another moving instantly reads as the second one glitching, in both
-  // directions, on every trigger. Reported twice (2026-07-27).
+  // It was animated for a while, on my reasoning that a dashed box teleporting
+  // beside a gliding neighbour was the reported jump. That was wrong — the jump
+  // survived the change — and it introduced a worse thing: the gap and the
+  // displaced row animate in OPPOSITE directions at the same time, so for the first
+  // frames they are drawn on top of each other and crossing, which reads as the
+  // bumped row briefly moving the wrong way. *"It doesn't happen in your demo"*
+  // (2026-07-27, three times) — and this is the one behavioural difference that was
+  // left between them. The prototype excluded it and was right.
   //
-  // Animating it costs nothing in correctness: it is already at the new index in
-  // the DOM, which is what the drop writes and what `inProgressOrderFromDom`
-  // reads. Only its paint is deferred. And it cannot feed back into the geometry,
-  // because the geometry reads boxes frozen at lift and never a live rect — which
-  // is exactly what the freeze bought.
+  // The lesson worth keeping: the prototype IS the reference. When it feels right
+  // and this does not, diff them and restore, rather than theorising about which of
+  // my own changes to defend.
   const animated = [];
   const arrived = [];
   for (const element of settled) {
+    if (element === exclude || (exclude && exclude.contains(element))) continue;
     if (animated.some(done => done.contains(element))) continue;
     const was = before.get(identify(element));
     if (!was) { arrived.push(element); continue; }
@@ -379,7 +391,8 @@ function wireDrag() {
   // The row the card is resting over, the clock counting how long it has, and the
   // row the clock has armed. Reset on every change of row, so passing over three
   // rows on the way somewhere arms none of them.
-  let dwellOver = null;
+  // Where the pointer was when the clock started, the clock, and what it armed.
+  let dwellAnchor = null;
   let dwellTimer = null;
   let armedPair = null;
 
@@ -398,7 +411,8 @@ function wireDrag() {
     startedAt = null;
     if (!element.isConnected || !parent.isConnected) return;
     flipBlocks(() => parent.insertBefore(
-      element, before && before.parentElement === parent ? before : null), each => each);
+      element, before && before.parentElement === parent ? before : null),
+               each => each, element);
   }
 
   // A drag ends in a `click`, and the native API used to swallow it for us.
@@ -498,7 +512,7 @@ function wireDrag() {
     draggedFrom = isGroup ? from : (container || from);
     intent = null;
 
-    dwellOver = null;
+    dwellAnchor = null;
     armedPair = null;
     clearTimeout(dwellTimer);
     dwellTimer = null;
@@ -771,6 +785,15 @@ function wireDrag() {
     finish(true);
   });
 
+  // The aim point for a pointer position: the centre of the card, rail-locked in x.
+  // One definition, because the dwell timer has to ask the same question `move` does
+  // and two copies of it would be two chances to drift apart.
+  function probeFor(pointer) {
+    const { grabX, grabY, startX, size } = card;
+    return { x: (startX - grabX) + size.w / 2,
+             y: (pointer.clientY - grabY) + size.h / 2 };
+  }
+
   function move(event) {
     const { held, mapping, grabX, grabY, startX, size } = card;
     // Kept so the autoscroll tick can re-aim without a pointer event of its own.
@@ -785,16 +808,15 @@ function wireDrag() {
     const cardY = event.clientY - grabY;
     placeInLayer(held, mapping, cardX, cardY);
 
-    // The card's CENTRE is what decides where this lands — Reardon's rule, and the
-    // only place in the app that turns a pointer position into an aim point. It is
-    // built here and nowhere else, which is what lets drag-geometry.js contain no
-    // reference to an event at all.
+    // The card's CENTRE is what decides where this lands — Reardon's rule. Built by
+    // `probeFor` above and nowhere else, which is what lets drag-geometry.js contain
+    // no reference to an event at all.
     //
     // `size` is the card's own box, so a group dragged as a whole block aims from
     // the middle of the block. If a future variant carries only a header, the aim
     // point follows the visible card rather than the gap, which is the half the
     // user can see.
-    const probe = { x: cardX + size.w / 2, y: cardY + size.h / 2 };
+    const probe = probeFor(event);
 
     autoscroll(event.clientY);
 
@@ -802,19 +824,28 @@ function wireDrag() {
     // only decides whether the card has stayed there. The timer re-runs `move`
     // itself, because no pointer event arrives while the hand is still — the same
     // reason the autoscroll tick re-aims.
-    const over = sectionUnder(probe);
-    const resting = draggedIsGroup || !over
-      ? null : dwellCandidate(over, probe, dragged, dragged.dataset.project,
-                              draggedGroup);
-    if (resting !== dwellOver) {
-      dwellOver = resting;
+    // The clock measures a STATIONARY HAND. It restarts whenever the pointer has
+    // travelled further than the tremor margin from where it was anchored, which
+    // also revokes any offer already made — so moving off a grouping ungroups,
+    // whether or not the target under the card changed.
+    const stillThere = dwellAnchor
+      && Math.hypot(event.clientX - dwellAnchor.x, event.clientY - dwellAnchor.y)
+         <= DWELL_JITTER;
+    if (!stillThere) {
+      dwellAnchor = { x: event.clientX, y: event.clientY };
       armedPair = null;
       clearTimeout(dwellTimer);
-      dwellTimer = resting ? setTimeout(() => {
-        if (!card || dwellOver !== resting) return;
-        armedPair = resting;
-        move(card.lastPointer);
-      }, DWELL_MS) : null;
+      // Read the candidate when the clock FIRES, not now: a second of stillness
+      // over a row is the gesture, and what is under the card then is the answer.
+      dwellTimer = draggedIsGroup ? null : setTimeout(() => {
+        if (!card) return;
+        const at = card.lastPointer;
+        const where = probeFor(at);
+        const section = sectionUnder(where);
+        armedPair = section && dwellCandidate(
+          section, where, dragged, dragged.dataset.project, draggedGroup);
+        if (armedPair) move(at);
+      }, DWELL_MS);
     }
 
     clearDropAffordance(list);
@@ -830,7 +861,8 @@ function wireDrag() {
       // insertBefore that changes nothing still invalidates layout for every
       // rect read on the next one.
       if (dragged.parentElement !== container || dragged.nextSibling !== before) {
-        flipBlocks(() => container.insertBefore(dragged, before), element => element);
+        flipBlocks(() => container.insertBefore(dragged, before),
+                   element => element, dragged);
       }
     }
     // ONE rule: draw the container this drop would move the task INTO, and

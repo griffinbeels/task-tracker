@@ -6,7 +6,7 @@
 // each of which loads the REAL ui/*.js against a stubbed `window.pywebview.api`
 // and drives synthetic pointer events:
 //
-//   app-harness.html   92 assertions: the card, Reardon's aiming rule, the
+//   app-harness.html   95 assertions: the card, Reardon's aiming rule, the
 //                      motion sampled mid-transition, the settle's ordering,
 //                      leaving a group, enter and exit
 //   app-scroll.html    autoscroll, in a window short enough to scroll
@@ -30,6 +30,12 @@
 // errors, which nothing else here had ever done. Both came back clean, which is
 // what redirected the search to the container flip-flop that was the real cause.
 //
+// A second workflow note: every block shares one DOM shaped by every block before
+// it, so a block that names a section rather than finding one measures whatever
+// the previous ninety assertions left. Two blocks have been rewritten for that,
+// and one of them aborted every assertion after it by calling pause() on an
+// animation that was not there. Find the rows you need; assert the shape first.
+//
 // One workflow note: every assertion shares ONE function scope, so a `const`
 // name reused across blocks is a SyntaxError that leaves #results reading EMPTY
 // with no other clue. Extract the <script> out of the generated page and
@@ -45,6 +51,9 @@
 // The UI constant below points at a worktree that no longer exists. Repoint it
 // at this checkout's `ui/` before running.
 
+// Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
+// Not the test suite that was declined — a one-off, in the scratchpad, so a UI
+// change is not handed over on the strength of its diff.
 // Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
 // Not the test suite that was declined — a one-off, in the scratchpad, so a UI
 // change is not handed over on the strength of its diff.
@@ -342,7 +351,16 @@ const TEST = `
       const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
       return matrix.m42;
     };
-    const [fP, fQ] = nextRows();
+    // Whichever section still has two adjacent loose rows. Ninety assertions run
+    // before this one and they move rows between sections; naming NEXT made this
+    // block's outcome depend on all of them, and one pause() on an undefined
+    // animation then aborted every assertion after it.
+    const fPair = [...document.querySelectorAll('#task-list section[data-bucket]')]
+      .map(section => [...section.children].filter(child => child.matches('.task')))
+      .filter(rows => rows.length > 1)
+      .sort((a, b) => b.length - a.length)[0];
+    if (!fPair) throw new Error('no section has two loose rows for the motion block');
+    const [fP, fQ] = fPair;
     const fBox = fP.getBoundingClientRect();
     const fx = fBox.left + 90, fy = fBox.top + fBox.height / 2;
     const qBefore = fQ.getBoundingClientRect().top;
@@ -373,6 +391,8 @@ const TEST = `
     // animation being broken and is really the harness having no frames. Setting
     // currentTime samples the real interpolation deterministically, which is a
     // better test than waiting for a clock in any case.
+    if (!running.length) throw new Error('the displaced row is not animating; '
+      + 'F0 said moved=' + (idx(fP) !== wasAt));
     const animation = running[0];
     const wallClockAdvances = document.timeline.currentTime;
     animation.pause();
@@ -392,8 +412,12 @@ const TEST = `
     // and a dashed box the size of a row teleporting beside a neighbour that
     // glides is what "it jumps" was. Asserting it stayed still was asserting the
     // bug.
-    log('F5  the gap animates too, so both halves of the swap move',
-        fP.getAnimations().length === 1,
+    // Reversed AGAIN, 2026-07-27, and this time back to what the prototype does.
+    // Animating the gap makes it and the displaced row cross through each other in
+    // opposite directions, which reads as the bumped row briefly going the wrong
+    // way. The gap is the slot: it belongs at its new index immediately.
+    log('F5  the gap does NOT animate — it is the slot',
+        fP.getAnimations().length === 0,
         fP.getAnimations().length + ' animations on the gap');
 
     // Reversing direction must produce a fresh animation back the other way.
@@ -740,13 +764,20 @@ const TEST = `
     pt('pointermove', dwBox.left + 96, dwBox.top + dwBox.height / 2);
     pt('pointermove', dwBox.left + 90, restY);
     const offerFrom = onto.getBoundingClientRect();
+    // Dead centre of the target, where the deleted middle-quarter band used to fire
+    // instantly. Nothing may pair on arrival any more, anywhere on the row.
+    pt('pointermove', dwBox.left + 90, dwOnto.top + dwOnto.height / 2);
+    log('B0  arriving dead centre on a row does not pair instantly',
+        !onto.classList.contains('pairing'),
+        onto.className.replace('task ', '') || 'clean');
+    pt('pointermove', dwBox.left + 90, restY);
     log('B1  resting outside the aimed band does not pair immediately',
         !onto.classList.contains('pairing'),
         onto.className);
     await sleep(200);
     log('B2  and not yet at 200ms', !onto.classList.contains('pairing'));
-    await sleep(950);
-    log('B3  after the full second it OFFERS the group',
+    await sleep(650);
+    log('B3  after half a second stationary it OFFERS the group',
         onto.classList.contains('pairing') && onto.classList.contains('drop-into'),
         onto.className.replace('task ', ''));
     log('B4  and draws both rows in the rail it would create',
@@ -767,8 +798,17 @@ const TEST = `
         !onto.classList.contains('pairing') && !mover.classList.contains('pairing'));
     // And it re-arms on returning, rather than being spent.
     pt('pointermove', dwBox.left + 90, restY);
-    await sleep(1150);
+    await sleep(650);
     log('B7  and it re-arms on coming back', onto.classList.contains('pairing'));
+    // A tremor must not revoke it, and must not restart the wait.
+    pt('pointermove', dwBox.left + 91, restY + 2);
+    log('B7b a 2px tremor does not revoke the offer',
+        onto.classList.contains('pairing'), onto.className.replace('task ', ''));
+    // A real move does.
+    pt('pointermove', dwBox.left + 90, restY + 12);
+    log('B7c a 12px move revokes it', !onto.classList.contains('pairing'));
+    pt('pointermove', dwBox.left + 90, restY);
+    await sleep(650);
     const callsBeforePair = window.__CALLS.length;
     pt('pointerup', dwBox.left + 90, restY);
     await sleep(700);
@@ -848,8 +888,8 @@ const TEST = `
         log('P1b and it does NOT enter merely by arriving there',
             above.closest('.group') === null,
             above.closest('.group') ? 'joined instantly' : 'waiting for the dwell');
-        await sleep(1150);
-        log('P2  at the title midpoint, after the dwell, it enters the group',
+        await sleep(650);
+        log('P2  at the title midpoint, after half a second still, it enters the group',
             above.closest('.group') === enterGroup,
             above.closest('.group') ? 'inside' : 'still outside, header is '
               + (firstMemberTop - gb.top).toFixed(0) + 'px tall');

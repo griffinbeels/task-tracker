@@ -133,26 +133,18 @@ function placement(destination, dragged, isGroup) {
   return settled ? null : { kind: 'place', ...destination };
 }
 
-// Grouping must be aimed; reordering must not. The band is a third of a row's
-// height, centred — "very clearly on top of that task" rather than merely
-// nearest to it. Everything outside it reorders.
+// `PAIR_BAND` stood here — the middle quarter of a row, which paired INSTANTLY.
 //
-// It used to be inset from both ends as well (`PAIR_INSET`, 12px). That constant
-// is gone, and not because it was wrong: the card is rail-locked now, so its
-// centre's x never changes for the whole gesture, and every horizontal test
-// against a full-width row passes always. Keeping it would have meant reading the
-// POINTER's x for this one decision — a decision made by something the card does
-// not show, which is exactly the disconnect this design removes. So the band is
-// vertical.
+// It is gone, and the reason is the rule that replaced it: *"we should really only
+// do it when the user has clearly stopped moving their cursor on top of some other
+// task"* (2026-07-27). An instant band contradicts that outright — sweeping a card
+// down through a row crosses its middle and pairs on the way past, which is both a
+// grouping nobody asked for and one more intent flip-flop in a plain reorder.
 //
-// A QUARTER of a row, not a third, since 2026-07-27. Reported as "it feels like
-// it is more likely to auto-combine with another task than to simply reorganise",
-// and the arithmetic agreed: a third of a 30px row is a 10px band with 10px of
-// reorder above it, and `GROUP_STICKY` below was eating 8 of those 10 — so the
-// window in which leaving a group meant plain reordering was FOUR PIXELS wide.
-// A quarter leaves 11px of reorder either side of a 7.5px band: three to one in
-// favour of the common gesture, which is the stated rule (invariant 28).
-const PAIR_BAND = 1 / 4;
+// Grouping is now exactly one thing: a stationary hand (drag.js, DWELL_MS). One
+// gesture, one trigger, and passing over anything costs nothing. Fourth constant
+// this rewrite has deleted rather than tuned, after PAIR_INSET, slotFor's
+// `displaced` and GROUP_STICKY.
 
 // `GROUP_STICKY` stood here — 8px of grip a group kept on its own member, so that
 // sorting inside it and overshooting the last row by a pixel did not throw the row
@@ -436,23 +428,6 @@ function dwellCandidate(section, probe, dragged, project, homeGroup) {
   }) || null;
 }
 
-// A loose top-level row the card is very clearly on top of — the one gesture
-// here that makes a new group, so the one that has to be aimed. Vertical only
-// now: see PAIR_BAND for why the horizontal inset went.
-function pairTarget(section, probe, dragged, project) {
-  return [...section.querySelectorAll('.task')].find(row => {
-    if (row === dragged || row.dataset.project !== project) return false;
-    if (row.parentElement.classList.contains('group')) return false;
-    const box = cbox(row);
-    const margin = box.height * (1 - PAIR_BAND) / 2;
-    return probe.y >= box.top + margin && probe.y <= box.bottom - margin;
-  }) || null;
-}
-
-// A drop resolves to a DESTINATION — {bucket, group, status} — applied by a
-// single place_task/place_group call. Two gestures keep their own names because
-// they are not placements: `pair` names a NEW group, and `sort` permutes one
-// group's own slots. A refusal is null.
 // `probe` is a point — {x, y} in viewport pixels — and is the CARD's centre, not
 // the pointer. Taking a point rather than an event is what makes that provable:
 // nothing in this file can reach for `event.clientY` and quietly aim one decision
@@ -495,9 +470,6 @@ function dropIntent(probe, dragged, draggedIsGroup, armedPair, homeGroup) {
       return { kind: 'pair', over: armedPair, element: armedPair,
                status: lands.status, section, dwelled: true };
     }
-    const target = pairTarget(section, probe, dragged, project);
-    if (target) return { kind: 'pair', over: target, element: target,
-                         status: lands.status, section };
   }
 
   // 2. Inside a group's box. A group is one level deep, so a dragged group
