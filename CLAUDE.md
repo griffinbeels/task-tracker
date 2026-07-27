@@ -88,10 +88,10 @@ bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
-| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row. `handOffSelection` is the hand-off, and **both** Spin up Claude buttons — the toolbar's and the selection bar's — are assigned that one function |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
-| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives |
+| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
@@ -832,7 +832,24 @@ show two unrelated tasks under one id at different points in time.
   without the explicit call this depends on) and that `Clear` empties the
   header box along with every row's — a header left ticked with no members
   ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
-  Spin up: the folded members must still go to the session. Four more for the
+  Spin up: the folded members must still go to the session.
+
+  Four for **the bar's own Spin up Claude**, which is the toolbar's button in
+  reach of the cursor that just ticked the boxes — the same
+  `handOffSelection`, so what is being checked is the wiring and the fit, not
+  the hand-off. Tick two tasks and press it: one session opens with both, and
+  the bar slides away as it goes — that departure is the only confirmation
+  there is, and a bar left sitting there with its ticks intact means the
+  refresh did not happen. Type a name into the bar's Name row and press the
+  bar's button rather than the toolbar's: the session must come up under that
+  name, since both read the same box. Tick tasks from two different projects in
+  IN PROGRESS and press it: the same `Select tasks from one project at a time.`
+  alert the toolbar gives, and **no window opens**. And narrow the window until
+  the header starts to crowd: the bar must still be one row with the full label
+  intact — measured (headless, real stylesheet) to fit down to 343px against
+  the header's own 352px floor, so the header is what gives first.
+
+  Four more for the
   bar's own position, which is a floating overlay rather than a row: tick a box
   and **nothing above it may move** — the list must stay exactly where it was
   while the bar slides up from the bottom edge, and untick must slide it back
@@ -1133,15 +1150,13 @@ A bracketed `/rename` and `/color` are read as commands, not as chat text; the
 `\r` written after them is read as Enter; and the prompt is left editable
 afterwards. What that verification *found* is invariant 24: the failure was
 never in how the line is written, it was in writing the next thing before the
-session had read the last one. It ships with one gap of its own:
+session had read the last one. The one gap it shipped with is closed:
 
-- **`#handoff-name` is a placeholder for a component that does not exist yet.**
-  When the selection-bar design
-  (`docs/superpowers/specs/2026-07-25-selection-bar-design.md`) lands, this row
-  moves into `#selection-bar` as a second line and `#handoff-name` disappears,
-  and `Api._selected_tasks` collapses into that design's planned `Api._tasks`
-  — the two do the same id-to-task lookup under names chosen only to keep them
-  from colliding before that merge happens.
+- **The batch-name row landed where that design said it would.** It is the
+  second row of `#selection-bar` now, and `Api._selected_tasks` collapsed into
+  `Api._tasks`. The id stayed `#handoff-name` rather than disappearing, because
+  the row still belongs to the hand-off rather than to the bar: both Spin up
+  Claude buttons read it through `handOffSelection` in `ui/tasks.js`.
 
 Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
 `docs/superpowers/specs/2026-07-25-task-editor-design.md`,

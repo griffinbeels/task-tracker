@@ -342,7 +342,14 @@ document.getElementById('task-list').addEventListener('change', event => {
   if (event.target.classList.contains('select')) renderHandoffName();
 });
 
-document.getElementById('spin-up').onclick = async () => {
+// Spinning up a session is one action with two buttons, and this is the action.
+// Neither button is a variant of the other: they take the same selection, read
+// the same name box and call the same bridge method, and the only difference is
+// where the cursor has to travel to press one. A second copy of this body — even
+// a faithful one — is how the toolbar and the bar would silently come to mean
+// different things, which is exactly what happened to the drag controller
+// before invariant 27.
+async function handOffSelection() {
   // selectedInOneProject (selection.js) owns the per-project rule for every
   // caller: it falls back to currentProject when nothing is ticked, and
   // alerts and returns null on a mixed-project selection (invariant 6).
@@ -357,8 +364,19 @@ document.getElementById('spin-up').onclick = async () => {
   if (await callApi('hand_off', picked.project, picked.ids, name) === API_FAILED) return;
   // Otherwise the next batch inherits this one's name.
   nameInput.value = '';
+  // hand_off turns every task it took in-progress, so this redraw comes back
+  // with no box ticked and the bar slides itself away. That departure is the
+  // feedback for the bar's own button — nothing else says "the session has
+  // them" — so it must stay a refresh() and never a narrower repaint.
   await refresh();
-};
+}
+
+// The toolbar's, which is also the only way to open a session with NOTHING
+// ticked: the bar does not exist then.
+document.getElementById('spin-up').onclick = handOffSelection;
+// The selection bar's, one line away so the two cannot drift. It sits directly
+// under the Name row it reads.
+document.getElementById('selection-spin-up').onclick = handOffSelection;
 
 function matches(task, query) {
   const needle = query.toLowerCase();

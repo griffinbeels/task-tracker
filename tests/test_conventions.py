@@ -349,3 +349,55 @@ def test_every_ui_script_is_loaded_by_the_page():
         "These files are in ui/ and never loaded by index.html, so nothing "
         "they define exists at runtime: " + ", ".join(unloaded)
     )
+
+
+# The two buttons that open a Claude session on the ticked tasks: the toolbar's
+# and the selection bar's. Named here rather than discovered, because the whole
+# assertion is that a THIRD spelling of the same action does not appear.
+SPIN_UP_BUTTON_IDS = ("spin-up", "selection-spin-up")
+
+
+def _onclick_handler(text: str, element_id: str):
+    """The bare function name assigned to `#element_id`'s onclick, or None.
+
+    Deliberately refuses an inline arrow: `= async () => {` does not match, so
+    a handler written out a second time reads as unwired rather than as a
+    second opinion about what the button does.
+    """
+    match = re.search(
+        rf"getElementById\('{re.escape(element_id)}'\)\.onclick\s*=\s*"
+        r"([A-Za-z_$][\w$]*)\s*;",
+        text)
+    return match.group(1) if match else None
+
+
+def test_both_spin_up_buttons_run_the_same_handler():
+    """One action, two places to press it — or they drift, silently.
+
+    The toolbar's button and the bar's take the same selection, read the same
+    name box and call the same bridge method; the only difference is where the
+    cursor has to travel. Copying the handler body under the second id is the
+    obvious way to add the second button and is how the two come to mean
+    different things — a fix or a guard added to one would simply not be in the
+    other, and with no JS test runner here nothing would report it. The bug it
+    would look like is the older one this app already shipped: `wireDrag` as one
+    controller per section, where every drop across a boundary quietly did
+    nothing (invariant 27).
+    """
+    text = (REPO / "ui" / "tasks.js").read_text(encoding="utf-8")
+    handlers = {button: _onclick_handler(text, button)
+                for button in SPIN_UP_BUTTON_IDS}
+
+    unwired = sorted(button for button, handler in handlers.items() if handler is None)
+    assert not unwired, (
+        "These buttons have no named onclick handler in ui/tasks.js — either "
+        "nothing wires them, which makes them dead controls the app still "
+        "draws, or one was written as an inline function, which is a second "
+        "copy of the hand-off: " + ", ".join(unwired)
+    )
+
+    assert len(set(handlers.values())) == 1, (
+        "The toolbar's Spin up Claude and the selection bar's must call the "
+        "same function. They are one action with two positions, and two "
+        f"handlers is two behaviours nobody is comparing: {handlers}"
+    )

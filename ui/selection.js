@@ -1,6 +1,9 @@
-// The selection bar: what is ticked, and the three things you can do to all
+// The selection bar: what is ticked, and the four things you can do to all
 // of it. This file owns counting the selection, showing/hiding the bar, and
-// the Done/Delete/Clear handlers below.
+// the Done/Delete/Clear handlers below. The fourth is Spin up Claude, and it
+// is deliberately NOT here: it is tasks.js's `handOffSelection`, the same
+// function the toolbar's button calls, because a hand-off is shaped by the
+// tasks and by the name row above it rather than by this bar.
 
 // The existing spin-up guard, extracted so both spin-up and the bar's own
 // actions can share it. selectedIds() returns [{project, id}, ...] — collapse
