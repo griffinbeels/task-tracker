@@ -210,6 +210,7 @@ let frozen = null;
 // moves rows into and out of groups, so asking "which member is first" later
 // answers about a membership that the gesture itself changed.
 let frozenContent = null;
+let frozenEnter = null;
 // Where the page was scrolled to when it froze. A frozen box is in VIEWPORT
 // coordinates, and the probe is built from `event.clientY` which is too — so the
 // moment the page scrolls under the gesture, every cached box is stale by exactly
@@ -225,6 +226,7 @@ let frozenAtScrollY = 0;
 function freeze() {
   frozen = new Map();
   frozenContent = new Map();
+  frozenEnter = new Map();
   frozenAtScrollY = window.scrollY;
   for (const element of document.querySelectorAll(
       '#task-list section, #task-list .project-block, #task-list .group, #task-list .task')) {
@@ -234,15 +236,32 @@ function freeze() {
     const box = frozen.get(group);
     const first = group.querySelector('.task');
     if (!box || !first || !frozen.has(first)) continue;
-    const top = frozen.get(first).top;
+    const rows = frozen.get(first).top;
+    // LEAVING: the box a member must escape ends at the first row's top, so the
+    // header is not something to climb over on the way out.
     frozenContent.set(group,
-      new DOMRect(box.x, top, box.width, Math.max(box.bottom - top, 0)));
+      new DOMRect(box.x, rows, box.width, Math.max(box.bottom - rows, 0)));
+    // ENTERING: half way into the title row, which is where a group visibly starts
+    // to be the thing you are over. *"When we drag a task from above into a group,
+    // it should preview as if it was entering the group when it reaches the
+    // midpoint of the group title"* (2026-07-27) — from below it already worked,
+    // because the bottom edge is a row's edge and has no header in the way.
+    //
+    // The two boxes differ on purpose and only at the top: entering is generous
+    // because the header is the group's own label and reads as part of it, while
+    // leaving must not charge you for the header's height on the way out. One box
+    // could not be both, and using the entering box for both would put a member's
+    // escape threshold half a header ABOVE where it starts.
+    const enter = Math.min(rows, box.top + (rows - box.top) / 2);
+    frozenEnter.set(group,
+      new DOMRect(box.x, enter, box.width, Math.max(box.bottom - enter, 0)));
   }
 }
 
 function clearFrozen() {
   frozen = null;
   frozenContent = null;
+  frozenEnter = null;
 }
 
 // The box to decide against: frozen if this gesture froze one, live otherwise.
@@ -260,8 +279,9 @@ function fbox(element) {
 // The box every decision is made against: `fbox`, except a group answers with the
 // span of its rows. Used by everything — containment, thresholds, the pair band —
 // so "the header is not part of the group's target area" is stated once.
-function cbox(element) {
-  const cached = frozenContent && frozenContent.get(element);
+function cbox(element, entering) {
+  const source = entering ? frozenEnter : frozenContent;
+  const cached = source && source.get(element);
   if (!cached) return fbox(element);
   const drift = window.scrollY - frozenAtScrollY;
   if (!drift) return cached;
@@ -343,7 +363,7 @@ function slotFor(blocks, centreY, dragged, container) {
   const mine = home ? cbox(dragged).top : null;
   let passed = 0;
   for (const block of blocks) {
-    const box = cbox(block);
+    const box = cbox(block, true);
     const threshold = home ? (box.top >= mine ? box.top : box.bottom)
                            : box.top + box.height / 2;
     if (centreY >= threshold) passed++;
@@ -351,8 +371,8 @@ function slotFor(blocks, centreY, dragged, container) {
   return passed;
 }
 
-function withinBox(element, probe) {
-  const box = cbox(element);
+function withinBox(element, probe, entering) {
+  const box = cbox(element, entering);
   return probe.x >= box.left && probe.x <= box.right
     && probe.y >= box.top && probe.y <= box.bottom;
 }
@@ -382,7 +402,8 @@ function withinBox(element, probe) {
 function groupUnder(section, probe, dragged) {
   const mine = groupOf(dragged);
   return [...section.querySelectorAll('.group')].find(
-    container => container !== dragged && withinBox(container, probe)) || null;
+    container => container !== dragged
+      && withinBox(container, probe, container.dataset.group !== mine)) || null;
 }
 
 // A loose top-level row the card is resting over, whether or not it is aimed at

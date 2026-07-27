@@ -138,29 +138,68 @@ const FLIPPABLE = '.project-block, .group, .task';
 // easing, the nesting rule, the cancel-before-measuring rule — is shared, because
 // two copies of it would be two things to keep in step.
 //
-// Three details, each measured in the prototype rather than reasoned about:
+// WHERE A BLOCK VISUALLY IS, computed as its own resting rectangle PLUS the
+// offsets its own animation and its animating ancestors are applying — never as a
+// composed `getBoundingClientRect()` taken while transforms are live.
 //
-// `before` is read WITH any in-flight transform included, which is what makes a
-// direction change reverse the motion from where the block actually is rather than
-// finishing the old one and then coming back.
+// That distinction is the whole of a bug that took four rounds. Reading the
+// composed rect looks equivalent and is not: an element's rect includes its
+// ANCESTORS' transforms, so a row inside an animating `.group` inside an animating
+// `.project-block` measured a "before" that carried both. Cancel those, animate
+// only the outermost (the nesting rule below), and next pass the row's before
+// carries an offset nothing is applying any more — so its delta is wrong by that
+// much, every pass, without bound. Rows walked hundreds of pixels off their slots
+// and the sideways component put a horizontal scrollbar under the whole app.
 //
-// Every in-flight animation is cancelled BEFORE the second measurement. A rect
-// read while a transform is running is a position nothing is at, so the deltas
-// would be computed against phantom layout. (The drop geometry is immune to this
-// by a different route — it reads boxes frozen at lift — but this has to know
-// where things really are.)
+// It is also why the PROTOTYPE was right and this was wrong, which is the clue
+// that found it: the prototype's flippable set was `.task, .group`, so a row had
+// at most one flippable ancestor and usually none. This app has
+// `.project-block > .group > .task` — two.
+//
+// Composing per element makes every delta independent of every other, so the same
+// nesting that broke it cannot reach it.
+function visualShift(element, list) {
+  let x = 0, y = 0, node = element;
+  while (node && node !== list) {
+    const transform = getComputedStyle(node).transform;
+    if (transform !== 'none') {
+      const matrix = new DOMMatrixReadOnly(transform);
+      x += matrix.m41;
+      y += matrix.m42;
+    }
+    node = node.parentElement;
+  }
+  return { x, y };
+}
+
+// Two details beyond that, each measured rather than reasoned about:
+//
+// Animations are cancelled BEFORE `before` is measured, so those rectangles are
+// RESTING positions. The visual offset is added back from `visualShift` above,
+// which is what keeps a direction change reversing from where a block actually is
+// rather than finishing the old motion and then coming back.
 //
 // A block whose ancestor is also animating is skipped, or the two transforms
 // compound and the inner one lands where neither intended. Document order
 // guarantees the ancestor is seen first.
 function flipBlocks(mutate, identify) {
   const list = document.getElementById('task-list');
+  const blocks = [...list.querySelectorAll(FLIPPABLE)];
+  // Read the offsets first, then cancel, then measure at rest. All three in that
+  // order, or the offsets are gone before they are read.
+  const shifts = new Map(blocks.map(element => [element, visualShift(element, list)]));
+  for (const element of blocks) {
+    element.getAnimations().forEach(animation => animation.cancel());
+  }
   // The ELEMENT is kept beside its rectangle, not just the rectangle. A block a
   // render removes is detached rather than destroyed, so this map is the only
   // remaining reference to it — which is what lets it be given an exit instead of
   // being cloned for one.
-  const before = new Map([...list.querySelectorAll(FLIPPABLE)].map(
-    element => [identify(element), { element, rect: element.getBoundingClientRect() }]));
+  const before = new Map(blocks.map(element => [identify(element), {
+    element,
+    rect: element.getBoundingClientRect(),
+    shift: shifts.get(element) || { x: 0, y: 0 },
+  }]));
   mutate();
   const settled = [...list.querySelectorAll(FLIPPABLE)];
   for (const element of settled) {
@@ -188,7 +227,8 @@ function flipBlocks(mutate, identify) {
     const was = before.get(identify(element));
     if (!was) { arrived.push(element); continue; }
     const now = element.getBoundingClientRect();
-    const dx = was.rect.left - now.left, dy = was.rect.top - now.top;
+    const dx = (was.rect.left + was.shift.x) - now.left;
+    const dy = (was.rect.top + was.shift.y) - now.top;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
     element.animate(
       [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
@@ -672,10 +712,34 @@ function wireDrag() {
   }
 
   window.addEventListener('pointermove', event => {
+    // The button is not down any more, so this drag ended somewhere we never heard
+    // about — released outside the window, or over another application. Reported
+    // as *"sometimes I come back and I'm already grabbing what I just dropped"*
+    // (2026-07-27): a pointerup delivered to a different window never reaches this
+    // one, so the card stayed in hand across the round trip and resumed following
+    // the cursor. `event.buttons` is the authoritative answer to "is it still
+    // held", and it arrives on the very first move back over the window.
+    //
+    // Abandoned rather than dropped, deliberately. Where the release happened is
+    // unknowable by then, and writing a placement to a position nobody chose is
+    // worse than writing nothing — the row snaps back and the list is honest.
+    if (event.buttons === 0) {
+      press = null;
+      if (card) finish(true);
+      return;
+    }
     if (card) { move(event); return; }
     if (!press) return;
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < THRESHOLD) return;
     begin(event);
+  });
+
+  // The window losing focus mid-drag is the other way a release goes unheard: an
+  // alt-tab, another app taking over, the window manager. Same treatment — nothing
+  // may still be held once the hand is somewhere this window cannot see.
+  window.addEventListener('blur', () => {
+    press = null;
+    if (card) finish(true);
   });
   // On `window`, not on #task-list, and deliberately not via setPointerCapture: a
   // drag that leaves the list must keep tracking and a release out there must

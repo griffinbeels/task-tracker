@@ -16,6 +16,10 @@
 // waiting is autoscroll working as intended, and it masks whether the wave itself
 // scrolls.
 
+// It waves twice: once with a loose row, once with a GROUP MEMBER. The second
+// pass is the one that matters — section > .project-block > .group > .task is
+// nesting the prototype never had, and nesting is what broke the FLIP.
+
 // Wave a card up and down as fast as possible and measure what runs away.
 // Records every animate() call so the flung element names itself.
 const fs = require('fs');
@@ -109,6 +113,19 @@ const SPAM = `
     // cannot be the cause of any scroll that happens.
     const high = 12, low = document.documentElement.clientHeight - 12;
     for (let n = 0; n < 300; n++) pt('pointermove', x, n % 2 ? low : high);
+    // A second wave with a GROUP member, so the drag crosses nested blocks —
+    // section > .project-block > .group > .task is what the app has and what the
+    // prototype never did.
+    pt('pointerup', x, low);
+    await sleep(600);
+    const member = document.querySelector('#task-list .group .task');
+    if (member) {
+      const mb = member.getBoundingClientRect();
+      pt('pointerdown', mb.left + 90, mb.top + mb.height / 2, member);
+      pt('pointermove', mb.left + 96, mb.top + mb.height / 2);
+      for (let n = 0; n < 300; n++) pt('pointermove', mb.left + 90, n % 2 ? low : high);
+      out.push('NESTED  ' + JSON.stringify(snapshot()));
+    }
     out.push('DURING  ' + JSON.stringify(snapshot()));
     // End in the MIDDLE. Parking the pointer in an edge band and then waiting is
     // autoscroll working as intended — holding at the edge is meant to scroll —

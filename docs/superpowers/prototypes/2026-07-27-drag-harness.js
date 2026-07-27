@@ -6,7 +6,7 @@
 // each of which loads the REAL ui/*.js against a stubbed `window.pywebview.api`
 // and drives synthetic pointer events:
 //
-//   app-harness.html   84 assertions: the card, Reardon's aiming rule, the
+//   app-harness.html   90 assertions: the card, Reardon's aiming rule, the
 //                      motion sampled mid-transition, the settle's ordering,
 //                      leaving a group, enter and exit
 //   app-scroll.html    autoscroll, in a window short enough to scroll
@@ -39,6 +39,9 @@
 // The UI constant below points at a worktree that no longer exists. Repoint it
 // at this checkout's `ui/` before running.
 
+// Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
+// Not the test suite that was declined — a one-off, in the scratchpad, so a UI
+// change is not handed over on the strength of its diff.
 // Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
 // Not the test suite that was declined — a one-off, in the scratchpad, so a UI
 // change is not handed over on the strength of its diff.
@@ -809,6 +812,52 @@ const TEST = `
           'ended ' + seen[seen.length - 1] + 'px lower after ' + travel + 'px of travel');
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await sleep(400);
+    }
+
+    // ============ entering a group from above, and losing the button ============
+    const enterGroup = document.querySelector('#task-list section[data-bucket="now"] .group');
+    const enterRows = [...document.querySelectorAll(
+      '#task-list section[data-bucket="now"] > .task')];
+    if (enterGroup && enterRows.length) {
+      const above = enterRows.find(
+        row => row.getBoundingClientRect().top < enterGroup.getBoundingClientRect().top);
+      if (above) {
+        const gb = enterGroup.getBoundingClientRect();
+        const firstMemberTop = enterGroup.querySelector('.task').getBoundingClientRect().top;
+        const titleMid = gb.top + (firstMemberTop - gb.top) / 2;
+        const ab = above.getBoundingClientRect();
+        const grab = ab.top + ab.height / 2;
+        pt('pointerdown', ab.left + 90, grab, above);
+        pt('pointermove', ab.left + 96, grab);
+        // Card centre just ABOVE the title's midpoint: not in yet.
+        pt('pointermove', ab.left + 90, titleMid - 4);
+        log('P1  just above the title midpoint it has NOT entered the group',
+            above.closest('.group') === null,
+            above.closest('.group') ? 'already inside' : 'outside');
+        // And just below it: in.
+        pt('pointermove', ab.left + 90, titleMid + 4);
+        log('P2  at the title midpoint it enters the group',
+            above.closest('.group') === enterGroup,
+            above.closest('.group') ? 'inside' : 'still outside, header is '
+              + (firstMemberTop - gb.top).toFixed(0) + 'px tall');
+        // Losing the button somewhere we never heard about must end it, write
+        // nothing, and leave nothing held.
+        const callsNow = window.__CALLS.length;
+        window.dispatchEvent(new PointerEvent('pointermove', {
+          clientX: ab.left + 90, clientY: titleMid + 4, bubbles: true,
+          buttons: 0, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
+        await sleep(500);
+        log('P3  a move with no button held ends the drag',
+            document.querySelector('#drag-layer .held') === null,
+            document.querySelector('#drag-layer .held') ? 'STILL HOLDING' : 'released');
+        log('P4  and it wrote nothing', window.__CALLS.length === callsNow,
+            (window.__CALLS.length - callsNow) + ' calls');
+        log('P5  and the row went back where it was', above.closest('.group') === null);
+        // A second move must not resume the drag.
+        pt('pointermove', ab.left + 90, titleMid + 40);
+        log('P6  and moving again does not resume it',
+            document.querySelector('#drag-layer .held') === null);
+      }
     }
   } catch (error) {
     out.push('THREW  ' + error.message + '\\n' + error.stack);
