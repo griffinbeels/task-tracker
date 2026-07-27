@@ -1088,6 +1088,14 @@ show two unrelated tasks under one id at different points in time.
   `y1 = 0` is zero initial velocity; that is what "starts moving" means as a
   number.
 
+  **A newly created WAAPI animation DOES apply its from-keyframe while pending,
+  so it never paints one frame at its end position.** Measured on a standalone
+  control and on the real FLIP: `pending === true`, `startTime === null`, and the
+  computed transform is already the from-value. Recorded because it is a clean and
+  wrong explanation for "it flashes the wrong way and then animates", and it cost
+  a round (2026-07-27). `fill: 'backwards'` is not the fix for that symptom
+  because there is nothing to fix.
+
   **A `fill: 'forwards'` WAAPI animation outranks the inline style for the
   property it animates, for as long as it exists.** So a later measurement that
   clears `transform` still reads the animation's value back. The drag card's lift
@@ -1449,6 +1457,15 @@ show two unrelated tasks under one id at different points in time.
   runs) are the reversal path if that is ever revisited — the harness is what
   found six of this feature's bugs, and its header says how to run it. Three
   convention tests guard part of it and are named where they apply below.
+
+  **One known bug is open and is not worth re-deriving.** A row displaced by a
+  drag twitches the wrong way for 1–2 frames before animating correctly. It is
+  filed as a UX task; the reproduction asset is
+  `docs/superpowers/prototypes/2026-07-26-drag-feel.html`, whose drag does not have
+  it — compare against that rather than reasoning from the code. Five attempts
+  failed and none of their theories are recorded here on purpose. The harness
+  never reproduced it, so it is a safety net rather than a detector; what this
+  needs is a per-frame dump inside the running app.
 
   **The card.** Grab any row and move: **exactly one** of it on screen, fully
   opaque, under the cursor, with a dashed outline where it came from, and no
