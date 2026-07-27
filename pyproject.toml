@@ -12,11 +12,22 @@ dependencies = ["pywebview", "pyperclip", "pyyaml", "claude-console"]
 # pin. The cost is the other half of the same coin: a breaking change there
 # breaks this immediately, so run both suites when you touch it.
 #
-# Absolute path, deliberately. A relative one cannot serve both this checkout
-# and a worktree under .claude/worktrees/<slug>, which is four levels deeper and
-# gets this same file checked out into it.
-[tool.uv.sources]
-claude-console = { path = "C:/Users/griff/Desktop/code/claude-console", editable = true }
+# It is named above as an ordinary dependency and given NO [tool.uv.sources]
+# entry, because every form that entry can take is wrong here. An absolute path
+# is one machine's home directory in a public repo, and nobody else can install
+# the project. A relative path cannot serve both this checkout and a worktree
+# under .claude/worktrees/<slug>, which is four levels deeper and gets this same
+# file checked out into it. A git URL installs a copy and silently ends the
+# live-edit property this whole arrangement exists for.
+#
+# So the checkout is supplied on the command line instead, once, at setup:
+#
+#   uv pip install --python ".venv\Scripts\python.exe" -e <claude-console> -e . pytest
+#
+# Measured equivalent to the [tool.uv.sources] form it replaces: uv resolves the
+# dependency from the editable already being installed rather than reaching for
+# an index, and `claude_console.__file__` lands in the source tree either way.
+# This machine's literal path is in CLAUDE.local.md, which is not tracked.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

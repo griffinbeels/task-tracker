@@ -224,8 +224,8 @@ function taskRow(task, options = {}) {
 //
 // Seeded from the TASK, never from the element's text. Search, the
 // all-projects view and IN PROGRESS all decorate a foreign row's title with
-// its project name, so reading the DOM would offer "sm64_tracker · Doc Pass"
-// as the name to edit and then save that as the title.
+// its project name, so reading the DOM would offer "another-project · Fix the
+// toolbar" as the name to edit and then save that as the title.
 //
 // task.project, never currentProject (invariant 6): every one of those three
 // views can show a row from a project other than the selected one.

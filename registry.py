@@ -231,7 +231,7 @@ def set_last_project(name: str | None) -> None:
 # like last_project, and hand-editable like every other file here — so it is
 # filtered rather than trusted on the way out. The renderer indexes each group
 # entry by position, and a bare string where a list belongs is iterable, which
-# would turn "sm64_tracker" into eleven collapsed projects.
+# would turn one project name into as many collapsed projects as it has letters.
 def collapsed_view() -> dict:
     raw = _read_session().get("collapsed")
     if not isinstance(raw, dict):

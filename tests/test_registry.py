@@ -31,10 +31,10 @@ def test_settings_round_trip(tmp_path):
 
 
 def test_add_project_creates_tasks_dir_untracked(tmp_path):
-    repo = tmp_path / "sm64_tracker"
+    repo = tmp_path / "photo-sorter"
     repo.mkdir()
 
-    project = registry.add_project("sm64_tracker", str(repo))
+    project = registry.add_project("photo-sorter", str(repo))
 
     assert project.tracked is False
     assert (repo / ".tasks" / "open").is_dir()
@@ -133,10 +133,10 @@ def test_collapsed_view_defaults_to_nothing_folded(tmp_path):
 
 
 def test_collapsed_view_round_trips(tmp_path):
-    registry.set_collapsed_view(["sm64_tracker"], [["task_tracker", "Editor polish"]])
+    registry.set_collapsed_view(["photo-sorter"], [["task_tracker", "Editor polish"]])
 
     assert registry.collapsed_view() == {
-        "projects": ["sm64_tracker"],
+        "projects": ["photo-sorter"],
         "groups": [["task_tracker", "Editor polish"]],
     }
 
@@ -146,17 +146,17 @@ def test_writing_the_collapsed_view_keeps_the_last_project(tmp_path):
     # file — so the fold state would have been wiped on every project switch.
     registry.set_last_project("task_tracker")
 
-    registry.set_collapsed_view(["sm64_tracker"], [])
+    registry.set_collapsed_view(["photo-sorter"], [])
 
     assert registry.last_project() == "task_tracker"
 
 
 def test_writing_the_last_project_keeps_the_collapsed_view(tmp_path):
-    registry.set_collapsed_view(["sm64_tracker"], [])
+    registry.set_collapsed_view(["photo-sorter"], [])
 
     registry.set_last_project("task_tracker")
 
-    assert registry.collapsed_view()["projects"] == ["sm64_tracker"]
+    assert registry.collapsed_view()["projects"] == ["photo-sorter"]
 
 
 def test_a_hand_edited_collapsed_view_is_filtered_not_trusted(tmp_path):
@@ -176,7 +176,7 @@ def test_a_hand_edited_collapsed_view_is_filtered_not_trusted(tmp_path):
 def test_a_collapsed_view_of_the_wrong_shape_folds_nothing(tmp_path):
     registry.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     (registry.CONFIG_DIR / "session.json").write_text(
-        json.dumps({"collapsed": {"projects": "sm64_tracker"}}),
+        json.dumps({"collapsed": {"projects": "photo-sorter"}}),
         encoding="utf-8", newline="\n")
 
     # A bare string is iterable; without a list check every character would

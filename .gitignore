@@ -18,3 +18,17 @@ __pycache__/
 # the parent's `git status`.
 .claude/worktrees/
 .worktrees/
+
+# Design specs, implementation plans, prototypes and per-feature intent notes.
+# Kept on disk — they are the record of why things are the way they are, and one
+# of them is the reproduction asset for an open bug — but not published. This is
+# a public repo, and that material is working notes rather than documentation:
+# it quotes conversations, names other projects on this machine, and carries
+# absolute paths into a home directory. CLAUDE.md and .claude/rules/ are the
+# current documentation; those are tracked, and they are what a reader needs.
+docs/superpowers/
+.planning/
+
+# This machine's own paths — the claude-console checkout the setup command wants.
+# Personal, per-checkout, and the reason pyproject.toml no longer names one.
+CLAUDE.local.md
