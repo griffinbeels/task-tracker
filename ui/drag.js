@@ -71,15 +71,70 @@ function wireDrag() {
   // from a claimed one. There is one ending function now and it is told which
   // kind it is, so the flag has nothing left to disambiguate.
 
+  // How long a displaced row takes to get out of the way, and on what curve.
+  // Firm out, no overshoot — chosen against the prototype.
+  const DISPLACE_MS = 200;
+  const DISPLACE_EASE = 'cubic-bezier(.2, .9, .2, 1)';
+  const FLIPPABLE = '.project-block, .group, .task';
+
+  // First, Last, Invert, Play. Measure, let `mutate` move things, measure again,
+  // then animate each block from where it was to where it now is. The layout is
+  // never fought: every block is already where it belongs and the transform is
+  // pure decoration on top, which is why an interrupted one can just be dropped.
+  //
+  // Three things here are not obvious and each was measured in the prototype:
+  //
+  // `before` is read WITH any in-flight transform included, which is what makes a
+  // direction change reverse the motion from where it actually is rather than
+  // finishing the old one and then coming back.
+  //
+  // Every in-flight animation is cancelled BEFORE the second measurement. A rect
+  // read while a transform is running is a position nothing is at, so the deltas
+  // would be computed against phantom layout. (The drop geometry is immune to this
+  // by a different route — it reads boxes frozen at lift — but this function has
+  // to know where things really are.)
+  //
+  // A block whose ancestor is also animating is skipped, or the two transforms
+  // compound and the inner one lands somewhere neither intended. Document order
+  // guarantees the ancestor is seen first.
+  function flip(mutate, exclude) {
+    const before = new Map([...list.querySelectorAll(FLIPPABLE)]
+      .map(element => [element, element.getBoundingClientRect()]));
+    mutate();
+    const settled = [...list.querySelectorAll(FLIPPABLE)];
+    for (const element of settled) {
+      element.getAnimations().forEach(animation => animation.cancel());
+    }
+    const animated = [];
+    for (const element of settled) {
+      // The dragged block is the gap, and the gap does not glide: it is the slot
+      // the card has claimed, so it belongs at the new index the instant the
+      // decision is made. The rows moving around it are the news.
+      if (element === exclude || (exclude && exclude.contains(element))) continue;
+      if (animated.some(done => done.contains(element))) continue;
+      const was = before.get(element);
+      if (!was) continue;
+      const now = element.getBoundingClientRect();
+      const dx = was.left - now.left, dy = was.top - now.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      element.animate(
+        [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+        { duration: DISPLACE_MS, easing: DISPLACE_EASE });
+      animated.push(element);
+    }
+  }
+
   // Put the block back where the drag found it. Cheap to call twice: the first
-  // call clears the record.
+  // call clears the record. Through `flip`, so an abandoned drag slides home
+  // rather than jumping — the row was never written, and a jump reads exactly
+  // like something having been written and then undone.
   function undoPreview() {
     if (!startedAt) return;
     const { element, parent, before } = startedAt;
     startedAt = null;
     if (!element.isConnected || !parent.isConnected) return;
-    parent.insertBefore(
-      element, before && before.parentElement === parent ? before : null);
+    flip(() => parent.insertBefore(
+      element, before && before.parentElement === parent ? before : null), element);
   }
 
   // A drag ends in a `click`, and the native API used to swallow it for us.
@@ -312,7 +367,7 @@ function wireDrag() {
       // insertBefore that changes nothing still invalidates layout for every
       // rect read on the next one.
       if (dragged.parentElement !== container || dragged.nextSibling !== before) {
-        container.insertBefore(dragged, before);
+        flip(() => container.insertBefore(dragged, before), dragged);
       }
     }
     // ONE rule: draw the container this drop would move the task INTO, and
