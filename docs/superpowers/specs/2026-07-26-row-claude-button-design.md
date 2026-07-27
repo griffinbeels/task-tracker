@@ -237,9 +237,22 @@ are the user's to perform and belong in `CLAUDE.md`'s list when this lands.
 
 ## Deliberately not in scope
 
-- **No button on a group header.** Ticking the header's box already selects
-  every member, so a member's `(C)` then launches the whole group under the
-  group's own name — that path exists and needs nothing new.
+- ~~No button on a group header.~~ **Added the same day, after the row button
+  was tried in the running app.** It is the same control in the same place in
+  the header — right after the bucket picker, on the column the rows' own
+  buttons sit in — and it follows the same rule by calling the same `aimedAt`:
+  with the group ticked, the click resolves to the whole selection, so the
+  group launches alongside anything else ticked beside it.
+
+  It names `block.tasks` — the rows this header actually drew — and not the
+  group's full membership, which is exactly what the `done` two controls along
+  does. The two disagree only for a header in IN PROGRESS reading `2 of 5`,
+  where the other three are sitting in a bucket rather than in this session.
+  (The group *drag* is the deliberate exception on the other side: a group
+  lives in one bucket, so there is no such thing as moving part of one.)
+
+  The session name comes out right for free: `launcher._shared_group` names a
+  window after the group when every task in it shares one.
 - **No confirmation dialog.** "Immediately" is the point, and the gesture is a
   deliberate click on a hover-revealed target rather than a drag that can
   misfire — which is exactly why dragging into IN PROGRESS still does not spawn

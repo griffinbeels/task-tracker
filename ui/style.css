@@ -152,8 +152,9 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .claude { opacity: 0; display: flex; align-items: center; padding: 2px;
           color: #d77757; background: none; border: none; border-radius: 4px;
           cursor: pointer; }
-.task:hover .claude { opacity: .75; }
-.task:hover .claude:hover { opacity: 1; background: rgba(215, 119, 87, .18); }
+.task:hover .claude, .group-header:hover .claude { opacity: .75; }
+.task:hover .claude:hover, .group-header:hover .claude:hover {
+  opacity: 1; background: rgba(215, 119, 87, .18); }
 /* Same reason as .copy svg: the click target must be the <button>, or
    taskRow's row-click handler opens the editor underneath it. */
 .claude svg { pointer-events: none; display: block; }

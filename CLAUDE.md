@@ -710,12 +710,20 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
 
 31. **A button outside the selection bar acts on the tasks it names — unless
     every one of them is ticked, in which case it acts on the selection.**
-    `aimedAt` in `ui/selection.js` is that rule, and it has two callers:
-    `completeWithSelection` (every `done` in the app) and the Claude button on
-    a task row. A third control that decides for itself is the defect, and it
-    is silent in a specific way — the bar reads "4 selected", the click
-    finishes or launches exactly one of them, and that reads as the ticks being
-    ignored rather than as a button being narrower on purpose.
+    `aimedAt` in `ui/selection.js` is that rule, and everything outside the bar
+    goes through it: `completeWithSelection` (every `done` in the app) and the
+    Claude button, which a task row and a group header each carry. A control
+    that decides for itself is the defect, and it is silent in a specific way —
+    the bar reads "4 selected", the click finishes or launches exactly one of
+    them, and that reads as the ticks being ignored rather than as a button
+    being narrower on purpose.
+
+    **What a header's button names is the rows it DREW**, `block.tasks`, not
+    the group's full membership — the same set its `done` acts on. The two
+    differ only for a header in IN PROGRESS reading `2 of 5`, where the other
+    three are in a bucket and not in this session. The group *drag* is the
+    deliberate exception on the other side, because a group lives in one
+    bucket (invariant 16) and there is no such thing as moving part of one.
 
     **`fromSelection` is one answer, not two flags.** It says whether the
     selection was what acted, and two separate things hang off it in `handOff`:
@@ -889,6 +897,17 @@ show two unrelated tasks under one id at different points in time.
   another project must have one that launches *that* project's task. The row is
   one control wider than it was, so a long title now wraps a word earlier —
   that is by design (`.title` has no ellipsis on purpose), not a regression.
+
+  And four for the **group header's** Claude button, which carries the same
+  rule one level up. With nothing ticked, press it: one session opens on every
+  row that header drew, named after the **group** rather than after a member
+  (`launcher._shared_group` does that, and only when every task shares one).
+  Tick the whole group with its header box plus one loose task elsewhere, then
+  press it: all of them go, not just the group. In IN PROGRESS, on a header
+  reading `2 of 5`: it must launch those 2 and leave the other 3 in their
+  bucket — the same set its `done` acts on, and deliberately not the set a
+  header *drag* moves. And pressing it must not start a drag, while dragging
+  the header by its name must still work.
 
   Four more for the
   bar's own position, which is a floating overlay rather than a row: tick a box
