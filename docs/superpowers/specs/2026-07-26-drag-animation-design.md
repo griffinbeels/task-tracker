@@ -274,15 +274,37 @@ their transforms. An element whose ancestor is already animating is skipped.
 | `LIFT_SCALE` | 1.05 | chosen against the prototype |
 | `LIFT_MS` | 130 | |
 | `DISPLACE_MS` | 200 | Reardon/Atlassian range, chosen against the prototype |
-| `DISPLACE_EASE` | `cubic-bezier(.2, .9, .2, 1)` | firm out, no overshoot |
+| `DISPLACE_EASE` | ~~`cubic-bezier(.2, .9, .2, 1)`~~ → **`cubic-bezier(.4, 0, .2, 1)`** | **changed during implementation.** The first curve is **35% travelled by the first painted frame** — a 10px hop on a 30px row, reported as *"it glitches upwards, it should just start moving"*. `y1 = 0` is zero initial velocity |
 | `SETTLE_MS` | 160 | |
 | `FLASH_MS` | 700 | Atlassian's published value |
 | `FLASH_EASE` | `cubic-bezier(.25, .1, .25, 1)` | Atlassian's published value |
 | `AUTOSCROLL_EDGE` | 46px | |
 | `AUTOSCROLL_MAX` | 12px/frame | ramped by proximity to the edge |
-| `PAIR_BAND` | 1/3 | unchanged |
-| `GROUP_STICKY` | 8px | unchanged |
+| `PAIR_BAND` | ~~1/3~~ → **1/4** | **changed during implementation** — see below |
+| ~~`GROUP_STICKY`~~ | **removed** | **changed during implementation** — see below |
 | ~~`PAIR_INSET`~~ | **removed** | see below |
+
+**Three rows above changed after this spec was written, and the reason is one
+measurement.** Leaving a group and reordering past the next row were separated by
+**four pixels**: `GROUP_STICKY`'s 8px sat exactly on top of the next row's 10px
+reorder zone. Reported as *"very difficult to drag an element OUT OF A GROUP…
+more likely to fall back into its original group or auto-combine with another
+task"* (2026-07-27). The sticky is deleted — the freeze had already made it
+redundant, since the card's centre must travel from the last member's top edge to
+the block's real bottom before it is outside at all — and `PAIR_BAND` went to a
+quarter, which makes a row 75/25 reorder-to-pair and the window 13.3px.
+
+A fourth change was tried and **rejected by arithmetic**: measuring a group as it
+will be once the member has left (its own height off the bottom) cut a middle
+member's escape from 53px to 15px, but for the **last** member of any group
+`bottom − ownHeight` lands above that member's own centre, so the card starts
+outside its own group and the row leaves on the first pixel of movement.
+
+A fifth thing this spec did not anticipate: **the last member leaving deletes the
+group, and the preview did not say so.** `.group.emptying` fades the container
+while the position you are in is the one that ends it — the same "draw the
+consequence" rule as the drop boxes, applied to the one consequence that is a
+deletion. Invariant 28 is the current record for all of this.
 
 ---
 

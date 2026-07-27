@@ -1444,9 +1444,11 @@ show two unrelated tasks under one id at different points in time.
   whole of `ui/drag.js` and `ui/drag-geometry.js` and none of which a diff can
   show. **Drag has no automated behavioural coverage, by decision (2026-07-27)**
   — a headless harness driving the real scripts was offered and declined, and
-  the prototype at `docs/superpowers/prototypes/2026-07-26-drag-feel.html` is
-  the reversal path if that is ever revisited. Three convention tests guard
-  part of it and are named where they apply below.
+  the prototype at `docs/superpowers/prototypes/2026-07-26-drag-feel.html` and
+  the harness generator beside it (`2026-07-27-drag-harness.js`, which nothing
+  runs) are the reversal path if that is ever revisited — the harness is what
+  found six of this feature's bugs, and its header says how to run it. Three
+  convention tests guard part of it and are named where they apply below.
 
   **The card.** Grab any row and move: **exactly one** of it on screen, fully
   opaque, under the cursor, with a dashed outline where it came from, and no

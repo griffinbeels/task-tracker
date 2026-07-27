@@ -126,7 +126,7 @@ const FLIPPABLE = '.project-block, .group, .task';
 // A block whose ancestor is also animating is skipped, or the two transforms
 // compound and the inner one lands where neither intended. Document order
 // guarantees the ancestor is seen first.
-function flipBlocks(mutate, identify, exclude) {
+function flipBlocks(mutate, identify) {
   const list = document.getElementById('task-list');
   // The ELEMENT is kept beside its rectangle, not just the rectangle. A block a
   // render removes is detached rather than destroyed, so this map is the only
@@ -139,10 +139,24 @@ function flipBlocks(mutate, identify, exclude) {
   for (const element of settled) {
     element.getAnimations().forEach(animation => animation.cancel());
   }
+  // EVERY block that moved animates, including the dragged one — the gap.
+  //
+  // The gap used to be excluded, on the reasoning that it is the slot the card
+  // has claimed and so belongs at its new index the instant the decision is made.
+  // That confused the decision with the drawing, and it was the jump: a slot
+  // change swaps TWO things, and the neighbour glided while the gap — a visible
+  // dashed box exactly the size of a row — teleported. One object moving smoothly
+  // beside another moving instantly reads as the second one glitching, in both
+  // directions, on every trigger. Reported twice (2026-07-27).
+  //
+  // Animating it costs nothing in correctness: it is already at the new index in
+  // the DOM, which is what the drop writes and what `inProgressOrderFromDom`
+  // reads. Only its paint is deferred. And it cannot feed back into the geometry,
+  // because the geometry reads boxes frozen at lift and never a live rect — which
+  // is exactly what the freeze bought.
   const animated = [];
   const arrived = [];
   for (const element of settled) {
-    if (element === exclude || (exclude && exclude.contains(element))) continue;
     if (animated.some(done => done.contains(element))) continue;
     const was = before.get(identify(element));
     if (!was) { arrived.push(element); continue; }
@@ -216,7 +230,7 @@ function keyOf(element) {
 // move is a pair — both rows gain a group container and step into its rail — and
 // that is a change worth seeing.
 function flipRender(mutate) {
-  const { arrived, gone } = flipBlocks(mutate, keyOf, null);
+  const { arrived, gone } = flipBlocks(mutate, keyOf);
 
   // A block that has LEFT. It is detached but not destroyed, so it goes back on
   // screen in the drag layer at the rectangle it used to occupy and dissolves
@@ -295,8 +309,7 @@ function wireDrag() {
     startedAt = null;
     if (!element.isConnected || !parent.isConnected) return;
     flipBlocks(() => parent.insertBefore(
-      element, before && before.parentElement === parent ? before : null),
-               each => each, element);
+      element, before && before.parentElement === parent ? before : null), each => each);
   }
 
   // A drag ends in a `click`, and the native API used to swallow it for us.
@@ -471,6 +484,10 @@ function wireDrag() {
     held.style.transform = 'none';
     const rest = held.getBoundingClientRect();
     held.style.transform = lift;
+    // The gap animates now, so it may be mid-flight — and a rect read then is a
+    // position nothing is at. Its animation is FINISHED rather than cancelled:
+    // finishing lands it at its real slot, which is exactly the target wanted.
+    row.getAnimations().forEach(each => each.finish());
     const target = row.getBoundingClientRect();
 
     // transform, never left/top: those are layout properties, cannot be
@@ -620,8 +637,7 @@ function wireDrag() {
       // insertBefore that changes nothing still invalidates layout for every
       // rect read on the next one.
       if (dragged.parentElement !== container || dragged.nextSibling !== before) {
-        flipBlocks(() => container.insertBefore(dragged, before),
-                   element => element, dragged);
+        flipBlocks(() => container.insertBefore(dragged, before), element => element);
       }
     }
     // ONE rule: draw the container this drop would move the task INTO, and
