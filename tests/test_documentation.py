@@ -63,13 +63,49 @@ def test_no_tracked_file_carries_a_home_directory_path():
         + "\n  ".join(offenders))
 
 
-# Other projects on this machine. This one has no reason to name any of them,
-# and they arrive the same way every time: as the example in a test fixture or a
-# comment, written while looking at whatever happened to be on screen.
-FOREIGN_PROJECTS = ("sm64_tracker", "MARELO", "grime-to-five", "game-learnings")
+# Repositories this one may legitimately name: its own, and the shared module it
+# depends on, which is published as a dependency anyway.
+NAMEABLE = {"task_tracker", "task-tracker", "claude-console", "claude_console"}
+
+
+def _sibling_projects() -> set[str]:
+    """Other checkouts beside this one, discovered rather than listed.
+
+    A hardcoded denylist would have to spell the names out, and this file is
+    published — the guard would leak exactly what it exists to keep out, which
+    is what the first version of it did. Reading the neighbours off disk keeps
+    the names out of the repo and picks up a project created tomorrow with no
+    edit here.
+
+    Only directories that are git repositories count. "Another project" means a
+    checkout, and matching on any folder name would fail every file that says
+    `docs` the moment a folder called docs appeared next door.
+    """
+    try:
+        neighbours = list(REPO.parent.iterdir())
+    except OSError:
+        return set()
+    return {
+        directory.name
+        for directory in neighbours
+        if directory.is_dir()
+        and (directory / ".git").exists()
+        and directory.name not in NAMEABLE
+        and len(directory.name) >= 4
+    }
 
 
 def test_no_tracked_file_names_another_project_on_this_machine():
+    """Machine-dependent on purpose: it can only see the neighbours it has.
+
+    That makes it a real check here, where the neighbours are the projects whose
+    names kept turning up as example values, and a no-op on a machine that has
+    only cloned this one — which is the right way round for a privacy guard.
+    """
+    projects = _sibling_projects()
+    if not projects:
+        return
+
     offenders = []
     for relative in _tracked_files():
         if relative == f"tests/{Path(__file__).name}":
@@ -79,12 +115,12 @@ def test_no_tracked_file_names_another_project_on_this_machine():
         except (UnicodeDecodeError, OSError):
             continue
         for number, line in enumerate(text.splitlines(), start=1):
-            for project in FOREIGN_PROJECTS:
+            for project in projects:
                 if project in line:
                     offenders.append(f"{relative}:{number}: {line.strip()[:90]}")
 
     assert not offenders, (
-        "another project on this machine is named in a public repository — use "
+        "another checkout on this machine is named in a public repository — use "
         "a neutral example instead:\n  " + "\n  ".join(offenders))
 
 
