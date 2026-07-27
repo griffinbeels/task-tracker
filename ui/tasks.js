@@ -41,7 +41,7 @@ function taskRow(task, options = {}) {
     <span class="dot"></span>
     <span class="type"></span>
     <span class="title"></span>
-    <button class="copy" title="Copy as a prompt">${COPY_ICON}</button>
+    <button class="copy" title="Copy the task's file path">${COPY_ICON}</button>
     <button class="done" title="Mark done">done</button>`;
   // task.title and task.type are user-authored free text (store.py's Task.type
   // is a plain str with no validation) that can contain <, &, or quotes —
@@ -140,10 +140,11 @@ function taskRow(task, options = {}) {
     row.querySelector('.done').before(reset);
   }
 
-  // The whole task, as the text you would have typed to start it: exactly what
-  // "Spin up Claude" would send, built by the same backend function so the two
-  // cannot drift apart. It takes task.project rather than currentProject, so
-  // unlike selection and editing it stays correct in the search and
+  // Where the task lives: exactly what "Spin up Claude" would send, built by
+  // the same backend function so the two cannot drift apart. A path rather than
+  // the prose, because whatever reads it can open the file and get the markdown
+  // as written (invariant 2). It takes task.project rather than currentProject,
+  // so unlike selection and editing it stays correct in the search and
   // all-projects views, where a row can belong to any project (invariant 6).
   // Nothing is written — copying is not a commitment to start the task.
   const copyButton = row.querySelector('.copy');
@@ -363,7 +364,7 @@ document.getElementById('spin-up').onclick = async () => {
 function matches(task, query) {
   const needle = query.toLowerCase();
   return task.title.toLowerCase().includes(needle)
-      || task.body.toLowerCase().includes(needle);
+      || asShown(task.body).toLowerCase().includes(needle);
 }
 
 function renderSearch(query) {

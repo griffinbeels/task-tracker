@@ -92,7 +92,7 @@ def test_copy_task_prompt_copies_one_task_in_the_hand_off_format(tmp_path, monke
 
     returned = app.Api().copy_task_prompt("repo", wanted.id)
 
-    assert returned == "FEATURE: body two"
+    assert returned == str(wanted.path)
     assert copied["text"] == returned
 
 

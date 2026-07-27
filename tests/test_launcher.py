@@ -11,6 +11,8 @@ meant every task-shaped assertion carried three lines of Win32 scaffolding it
 had no opinion about.
 """
 
+from pathlib import Path
+
 import claude_console
 import pytest
 
@@ -18,11 +20,11 @@ import launcher
 import store
 
 
-def make_task(task_id, title, type, body, color="", group=None):
+def make_task(task_id, title, type, body, color="", group=None, path=None):
     return store.Task(
         id=task_id, title=title, type=type, bucket="now", status="open",
         order=0, created="2026-07-25", started=None, done=None, body=body,
-        color=color, group=group,
+        color=color, group=group, path=path,
     )
 
 
@@ -56,66 +58,69 @@ def spawned(monkeypatch):
     return opened
 
 
-def test_prompt_contains_each_body_verbatim():
-    tricky = 'audio drifts\n---\n"quoted" and `backticks`\n\n  indented'
-    prompt = launcher.build_prompt([make_task(42, "Replay audio desync", "BUG", tricky)])
+def test_the_prompt_is_where_the_task_lives(tmp_path):
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts after 3s", "BUG")
 
-    assert tricky in prompt
-    assert prompt.startswith("BUG: ")
+    assert launcher.build_prompt([task]) == str(task.path)
 
 
-def test_prompt_gives_each_task_its_own_line_in_the_given_order():
-    prompt = launcher.build_prompt([
-        make_task(1, "First", "BUG", "body one"),
-        make_task(2, "Second", "FEATURE", "body two"),
-    ])
+def test_nothing_the_editor_stored_can_reach_the_session(tmp_path):
+    """The whole point of a pointer: there is no text to mangle on the way.
 
-    assert prompt == "BUG: body one\nFEATURE: body two"
+    Each of these was its own bug in the prose prompt — escapes on a line that
+    looks like a list, the `<br>` an empty paragraph serializes to, and a
+    non-breaking space off a web-page paste. All three are still in the file,
+    where they are markdown and are read as such.
+    """
+    body = "1\\. one\\, two\n\n<br>\nhello\u00a0world"
+    task = store.create_task(tmp_path, "Replay audio desync", body, "BUG")
+
+    prompt = launcher.build_prompt([task])
+
+    assert prompt == str(task.path)
+    assert "<br>" not in prompt
+    assert "\u00a0" not in prompt
+    assert "\\," not in prompt
+    assert body in task.path.read_text(encoding="utf-8")
 
 
-def test_prompt_format_is_exactly_type_colon_body():
-    prompt = launcher.build_prompt([make_task(1, "Only", "BUG", "just this")])
+def test_each_task_gets_its_own_line_in_the_given_order(tmp_path):
+    first = store.create_task(tmp_path, "First", "body one", "BUG")
+    second = store.create_task(tmp_path, "Second", "body two", "FEATURE")
 
-    assert prompt == "BUG: just this"
+    assert launcher.build_prompt([first, second]) == f"{first.path}\n{second.path}"
 
 
-def test_a_trailing_newline_does_not_become_a_blank_line_between_tasks():
-    # Bodies read off disk end with the file's own newline, which would
-    # otherwise double every separator.
-    prompt = launcher.build_prompt([
-        make_task(1, "First", "BUG", "body one\n"),
-        make_task(2, "Second", "FEATURE", "body two\n"),
-    ])
+def test_the_path_is_absolute_because_the_clipboard_can_go_anywhere(tmp_path):
+    # A relative path is not wrong somewhere else; it means a different file.
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
 
-    assert prompt == "BUG: body one\nFEATURE: body two"
+    written = Path(launcher.build_prompt([task]))
+
+    assert written.is_absolute()
+    assert written.exists()
 
 
 def test_nothing_selected_is_an_empty_prompt():
     assert launcher.build_prompt([]) == ""
 
 
-def test_a_task_with_no_body_falls_back_to_its_title():
-    # `BUG: ` on its own says nothing. The title is the only text the task has,
-    # so it is what gets handed over — still verbatim, just a different field.
-    prompt = launcher.build_prompt([make_task(1, "Replay audio desync", "BUG", "")])
-
-    assert prompt == "BUG: Replay audio desync"
-
-
-def test_a_whitespace_only_body_counts_as_no_body():
-    prompt = launcher.build_prompt([make_task(1, "Replay audio desync", "BUG", "  \n\n")])
-
-    assert prompt == "BUG: Replay audio desync"
+def test_a_task_with_no_path_cannot_be_handed_over():
+    # `store.save_task`'s rule, raised the same way. Nothing in the app can
+    # reach it — every task the bridge selects was read off disk — so this
+    # pins that a hand-built Task fails loudly instead of typing "None".
+    with pytest.raises(ValueError):
+        launcher.build_prompt([make_task(1, "Replay audio desync", "BUG", "drifts")])
 
 
-def test_copy_prompt_puts_the_hand_off_text_on_the_clipboard(monkeypatch):
+def test_copy_prompt_puts_the_hand_off_text_on_the_clipboard(tmp_path, monkeypatch):
     copied = {}
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: copied.update(text=text))
-    task = make_task(1, "Replay audio desync", "BUG", "drifts after 3s")
+    task = store.create_task(tmp_path, "Replay audio desync", "drifts after 3s", "BUG")
 
     returned = launcher.copy_prompt([task])
 
-    assert copied["text"] == "BUG: drifts after 3s"
+    assert copied["text"] == str(task.path)
     assert returned == copied["text"]
 
 
@@ -164,7 +169,7 @@ def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(
     assert reloaded.status == "in-progress"
     assert reloaded.started is not None
     assert copied["text"] == prompt
-    assert "drifts" in prompt
+    assert prompt == str(reloaded.path)
 
 
 def test_hand_off_types_the_prompt_into_the_session_it_opened(
@@ -236,7 +241,7 @@ def test_grouping_on_hand_off_does_not_change_what_is_typed(
 
     prompt = app.Api().hand_off("repo", [first.id, second.id])
 
-    assert prompt == "BUG: body one\nFEATURE: body two"
+    assert prompt == f"{first.path}\n{second.path}"
     assert {t.group for t in store.list_tasks(repo)} == {"First"}
     assert {t.status for t in store.list_tasks(repo)} == {"in-progress"}
 

@@ -62,7 +62,7 @@ function renderProgress() {
     });
     body.append(entry);
 
-    const outcome = task.body.split(/^## Outcome$/m)[1];
+    const outcome = asShown(task.body).split(/^## Outcome$/m)[1];
     if (outcome && outcome.trim()) {
       const note = document.createElement('div');
       note.className = 'outcome';

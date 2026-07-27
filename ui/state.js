@@ -66,6 +66,26 @@ function daysSince(isoDate) {
   return Math.floor((Date.now() - localDate(isoDate).getTime()) / 86400000);
 }
 
+// A body as the editor draws it, for the places that read one as text rather
+// than handing it back to the editor. Three things in a stored body are the
+// editor's rather than the user's: escapes on any line that looks like a block
+// construct, so a pasted "1. resize the text, then…" is stored as
+// "1\. resize the text\, then…" and searching for what you can see matches
+// nothing; a literal <br> where two presses of Enter left an empty paragraph;
+// and a non-breaking space wherever a paste off a web page put one.
+//
+// Match-only: nothing here is ever written back. The editor is given the
+// stored markdown untouched, because the escapes are what make it round-trip.
+// This is the only copy of the rule. The hand-off used to carry a twin of it
+// in launcher.py and no longer does: it sends the task file's path, so nothing
+// converts a body on its way to a session (invariant 2).
+function asShown(body) {
+  return String(body)
+    .replace(/(?<!\\)<br\s*\/?>/gi, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\\([!-/:-@[-`{-~])/g, '$1');
+}
+
 // Every pywebview.api call can reject (backend methods raise ValueError on
 // bad input — e.g. add_project on a non-directory path or a duplicate name).
 // Across the bridge that becomes a rejected promise; without a catch it's a

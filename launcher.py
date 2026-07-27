@@ -21,20 +21,38 @@ import store
 
 
 def build_prompt(tasks: list[store.Task]) -> str:
-    """One line per task: its type, then its body verbatim.
+    """Where each task lives, one absolute path per line, and nothing else.
 
-    This is what lands in the session's prompt box, so it reads as the notes
-    themselves rather than as a document about them — `FEATURE: <the idea>`,
-    one per line, nothing else added. Trailing blank lines are dropped so the
-    join is exactly one newline between tasks; nothing else about a body is
-    touched, and a body is never trimmed at the front or re-wrapped.
+    A session opened on a task can *read* the task, so the hand-off is a
+    pointer rather than a copy. The file it points at is the whole of what
+    used to be flattened into the prompt box — the prose, and also the type,
+    the group, the dates and any pasted screenshot's absolute path, still
+    formatted as the markdown it was written as.
 
-    A task with no body falls back to its title, because `FEATURE: ` on its own
-    hands over nothing at all. That is still verbatim — it selects a different
-    field of the task, it does not edit either one.
+    That ends a class of bug rather than fixing one. A prompt box takes plain
+    text, so everything the editor stores that is *notation* had to be undone
+    on the way out: the escapes Toast UI puts on any line that looks like a
+    block construct, the literal `<br>` it writes where two presses of Enter
+    left an empty paragraph, the non-breaking spaces a web-page paste leaves
+    behind — each one invisible in the editor and glaring in the session, each
+    one found by the user rather than by a test. None of them can happen to a
+    path. Bullets and numbering arrive as the list they are for the same
+    reason: nothing converts them.
+
+    **Absolute**, though the session's own directory is the project. The same
+    string goes on the clipboard, where the destination is unknown — and a
+    relative path is not wrong somewhere else, it silently means a different
+    file. This is invariant 14's reasoning, one directory up: it is also what
+    lets a session opened anywhere resolve it.
+
+    A task with no path cannot be handed over at all, which is `store.save_task`'s
+    rule and is raised the same way. Nothing in the app can reach it: every
+    task the bridge selects was read off disk.
     """
-    return "\n".join(f"{task.type}: {task.body.rstrip() or task.title}"
-                     for task in tasks)
+    for task in tasks:
+        if task.path is None:
+            raise ValueError("task has no path")
+    return "\n".join(str(task.path) for task in tasks)
 
 
 def copy_prompt(tasks: list[store.Task]) -> str:
