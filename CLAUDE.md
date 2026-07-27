@@ -568,18 +568,45 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     one substitution is the whole of claiming and releasing — neither is a
     special case anywhere in the handler.
 
-    **A drag that reorders live must handle the pointer landing on the row it
-    is dragging.** `dropIntent` refuses a drop whose target is the dragged row
-    itself — an unchanged guard from when the only gesture was reordering — but
-    the live `insertBefore` slides that row *under the cursor*, so the next
-    `dragover` resolves to it and `intent` goes null. Release there and `drop`
-    returns before calling anything: the row is visibly in its new section and
-    nothing was written, so the next render silently puts it back. This shipped
-    on 2026-07-26 and reads exactly like a backend failure — the tests for the
-    placement it never reached were green the whole time. The fix is that the
-    row already being in its destination IS the drop: commit where it sits,
-    with no `over` to insert against. Any future gesture that moves the dragged
-    element during `dragover` inherits this.
+    **The events are pointer events, and there is one ending.** `pointerdown` on
+    `#task-list`; `pointermove`, `pointerup` and `pointercancel` on **`window`**,
+    because a drag that leaves the list must keep tracking and a release out
+    there must still end it. Not `setPointerCapture`, which does the same job,
+    throws when the pointer id is not active, and cannot be driven by a
+    synthetic event. `dragend` and `drop` collapsed into one `finish(cancelled)`,
+    which is why the `wrote` flag is gone: it existed only to tell an abandoned
+    gesture from a claimed one from inside `dragend`, and the caller now knows.
+
+    **A drag ends in a `click`, and the native API swallowed it for us.** Pointer
+    events do not: without a capture-phase suppressor on `window`, every drop also
+    opens the editor — and not necessarily on the row you dragged, because the
+    preview has moved things and the click lands on whatever is under the pointer.
+    The flag clears on use *and* on the next `pointerdown`, since a `pointerup`
+    outside the document produces no click at all and a flag left standing would
+    eat the next real one.
+
+    **`#drag-layer` holds a CLONE of the row, and six document-wide queries could
+    not tell it from a row.** Checkboxes, `data-project`, `data-id` and — for a
+    group — its whole container, all copied. `selectedIds()` counted a second
+    ticked task, `restoreTicks` ticked a box nothing can ever clear, Clear
+    reported having cleared it, and `focusGroupName` — which runs immediately
+    after a pair drop — could open the rename box inside a clone about to be
+    deleted. Every query for `.task`, `.group`, `.select` or `.select-group` is
+    scoped to `#task-list`, and
+    `test_the_selection_is_read_from_the_list_only` fails the build on the
+    seventh. **"The rows on screen" stopped being a synonym for "the rows in the
+    list" the moment a decoration layer existed**, and five of those six queries
+    predate it.
+
+    **The old "pointer landing on the row it is dragging" hazard is GONE, not
+    guarded.** `dropIntent` used to refuse a drop whose target was the dragged
+    row itself, while the live `insertBefore` slid that row under the cursor — so
+    the next event resolved to it, `intent` went null, and releasing there wrote
+    nothing while the row sat visibly in its new section. It cannot happen now:
+    the probe is the card's centre against boxes frozen at lift (invariant 28), so
+    nothing the preview does to the DOM can feed back into the decision. Kept here
+    because a future gesture that reintroduces live re-measurement inherits the
+    whole failure mode, and it reads exactly like a backend fault.
 
     **The preview is a lie until something writes it, so a gesture that writes
     nothing takes it back.** `dragover`'s `insertBefore` is a REAL DOM move, and
@@ -603,10 +630,58 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     while the preview is still in place** — it runs after an await, so it
     depends on dragend having left the DOM alone.
 
-28. **Where a drop lands is read from geometry, not from `event.target`.** Two
-    rectangles decide everything, and they are the two the user can see. Every
+28. **Where a drop lands is read from geometry, not from `event.target` — and the
+    point it is read at is the CARD's centre, against boxes frozen at lift.**
+
+    Both halves are Reardon's rule (*"once the centre position of an item A goes
+    over the edge of another item B, B moves out of the way"*), and neither is
+    the mouse pointer. `dropIntent` takes a `probe` — `{x, y}` — rather than an
+    event, which is what makes it provable: nothing in `ui/drag-geometry.js`
+    can reach for `event.clientY` and quietly aim one decision with the mouse
+    while every other one uses the card
+    (`test_the_drag_geometry_never_reads_the_pointer_directly`).
+
+    **The pointer was the wrong point, measurably.** Grab a row two pixels above
+    its own bottom edge — an ordinary way to pick one up — and the pointer starts
+    *below that row's own midpoint*, so the old threshold was already crossed: a
+    6px **sideways** twitch reordered it, having moved down not at all. Where you
+    grabbed a row decided whether it reordered instantly, and that is what
+    "robotic" turned out to mean. With the card's centre it yields exactly as the
+    card reaches the next row's edge — measured at **0.0px** off, driven
+    headlessly against the real scripts.
+
+    **Freezing is not an optimisation; the edge rule is unstable without it.**
+    Re-measuring live means claiming a slot moves the very edge that decided it,
+    so the forward and reverse triggers land on the same pixel and the row
+    flickers between two slots under a still cursor. Frozen, each block has
+    exactly one threshold for the whole gesture: 20 crossings at ±0.5px never
+    drift. It buys two more things that were separately wrong. **The thing you
+    are aiming at stops moving** — a row leaving NOW shortens NOW and lifts NEXT
+    and SOMEDAY up underneath the cursor, measured at 30px of movement mid-drag
+    while the aim correctly held. And **no rect can be read mid-animation**,
+    which a rect is when a FLIP is running: a position nothing is at.
+
+    `freeze()` includes `.project-block`, because IN PROGRESS holds its blocks a
+    level down inside a wrapper per project — leaving it out freezes every box
+    except the two that decide which project's list a running row belongs to. The
+    cache is cleared in `finish`; left standing it answers the next drag with the
+    last drag's thresholds, silently.
+
+    **`slotFor` is a count, and the dead zone falls out of it.** How many frozen
+    thresholds the centre has passed. A block that started BELOW yields at its
+    **top** edge; one that started ABOVE yields at its **bottom**; a block in a
+    list the drag did not start in yields at its **centre**, because an edge rule
+    cannot express "index 0" there — the first block's top edge *is* the top of
+    the list. The first two are each half a card-height from where you began, so
+    a row never twitches out of its own slot. `slotFor`'s old `displaced`
+    compensation is gone with the live measurement it compensated for, and
+    `blocksIn` returns blocks in **frozen** order, since indexing the live
+    children the preview has already permuted would make one cursor position mean
+    a different slot every frame.
+
+    Two rectangles decide everything, and they are the two the user can see. Every
     **section** is a box: anywhere inside it means "this category", at the slot
-    nearest the cursor. Every **group** is a nested box inside one: anywhere
+    the card has reached. Every **group** is a nested box inside one: anywhere
     inside it means "and in this group". Padding, headings, the gaps between
     blocks and the empty line are all inside the rectangle they look like they
     are inside, which an element-based rule could not say — the padding of a
@@ -625,19 +700,27 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
 
     - **Grouping is aimed, reordering is not.** Reorganising is the common
       gesture, so it is what everything defaults to; making a new group needs
-      the cursor inside a band a third of a row tall, inset from both ends
-      (`PAIR_BAND`, `PAIR_INSET`). It used to be an even split — the middle
-      half of a row grouped — which made the rarer and more surprising outcome
-      exactly as easy to hit as the common one.
+      the card's centre inside a band a third of a row tall (`PAIR_BAND`). It
+      used to be an even split — the middle half of a row grouped — which made
+      the rarer and more surprising outcome exactly as easy to hit as the common
+      one. **`PAIR_INSET` is gone**, and not because it was wrong: the card is
+      rail-locked, so its centre's x never changes for a whole gesture and every
+      horizontal test against a full-width row passes always. Keeping it would
+      have meant reading the POINTER's x for this one decision — a decision made
+      by something the card does not show, which is the disconnect this replaced.
+      The band is vertical now, and that is the whole of "aimed".
     - **A group keeps `GROUP_STICKY` pixels of grip on its own member.**
       Without it, sorting inside a group and overshooting the last row by one
       pixel throws the row out of the group. Leaving still costs one deliberate
       drag clear of the box; only the twitch is absorbed.
-    - **Every measurement excludes the dragged element, and `slotFor`
-      discounts its height.** The element stays in the flow during an HTML5
-      drag, so the live preview displaces every block below it — feed that back
-      in and the preview chooses its own next position, and the row flips
-      between two slots while the cursor holds still.
+    - **Every measurement excludes the dragged element.** It stays in the flow —
+      that is what reserves the gap — so the live preview displaces every block
+      below it; feed that back in and the preview chooses its own next position,
+      and the row flips between two slots while the cursor holds still. `slotFor`
+      used to subtract the dragged block's height from every threshold below it to
+      compensate. **That compensation is gone**, because there is nothing left to
+      compensate for: the thresholds are frozen at lift, from a layout in which
+      the block still sat in its own slot.
     - **A section owns exactly its own rectangle, and the margin between two
       belongs to the one BELOW.** `sectionUnder` used to take the *nearest*,
       which splits a margin down the middle and let a bordered box go on
@@ -645,10 +728,12 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
       reads as a hard edge, so a drop caught beyond it looks like the cursor
       being misread. The exception is the space past the last section, which is
       most of the window and belongs to it rather than to nothing.
-    - **It is measured, never hit-tested.** `event.target.closest` answers with
-      whatever element is under the pointer, and the dragged row is still in
-      the flow — so it can name the section the row came FROM while the cursor
-      is over a different one.
+    - **It is measured, never hit-tested — and measured ONCE.**
+      `event.target.closest` answers with whatever element is under the pointer,
+      and the dragged row is still in the flow — so it can name the section the
+      row came FROM while the cursor is over a different one. The only
+      `event.target` left in the whole gesture is `pointerdown`'s, which is
+      finding out what you grabbed rather than where you are aiming.
 
     **A box is drawn for the container the drop moves the task INTO, and only
     when that is not the container it is already in.** One rule, and everything
@@ -760,6 +845,16 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
       viewport size while its contents scale — Chromium divides a zoomed
       element's containing block by the zoom. So the overlays need no wrapper,
       and the document never grows a horizontal scrollbar.
+
+      The corollary bit later: **a fixed child of a zoomed element does not take
+      `left`/`top` in viewport pixels.** `#drag-layer` is a zoom region on purpose
+      — the card is a clone of a row and must be the size that row is now — so
+      placing the card at a viewport coordinate needs the mapping. `begin` in
+      `ui/drag.js` **probes** it rather than reasoning about it: write `0`, read
+      the box, write `100`, read again. That yields the origin and the scale
+      together, in two lines, and cannot be wrong about the engine. Reasoning
+      about `zoom` has been wrong here before (invariant 25's whole second half),
+      which is why the probe is the pattern and not the fallback.
     - `getBoundingClientRect()` returns **post-zoom** pixels, and
       `event.clientX/Y` are in that same space — which is the entire reason
       invariant 28's drag geometry needed no change. A future measurement that

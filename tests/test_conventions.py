@@ -515,6 +515,39 @@ def _without_comment(line):
     return line.split("//")[0]
 
 
+def test_the_drag_geometry_never_reads_the_pointer_directly():
+    """Where a drop lands is decided by the card's centre, not by the mouse.
+
+    Those are different points, and the difference IS the bug this replaced. The
+    pointer sits wherever you happened to grab the row, so grabbing two pixels
+    above a row's bottom edge put it below that row's own midpoint before the drag
+    had begun — a 6px SIDEWAYS twitch then reordered it, having moved down not at
+    all (measured 2026-07-26). Where you grabbed a row decided whether it
+    reordered instantly.
+
+    `ui/drag.js` builds the probe, once, and hands it in. A helper in
+    `ui/drag-geometry.js` that reached for `event.clientY` instead would work — and
+    would silently aim whichever decision it owns with the pointer again, while
+    every other decision used the card. Two rules disagreeing about where the
+    gesture IS is not something a reviewer would see in a diff; it shows up as the
+    drop landing one slot off, sometimes.
+
+    What it cannot catch: a probe built wrongly in drag.js, and a helper handed
+    the pointer's coordinates under the name `probe`.
+    """
+    source = (REPO / "ui" / "drag-geometry.js").read_text(encoding="utf-8")
+    offenders = [
+        f"{number}: {line.strip()}"
+        for number, line in enumerate(source.splitlines(), start=1)
+        if "clientX" in _without_comment(line) or "clientY" in _without_comment(line)
+    ]
+    assert not offenders, (
+        "This file must decide from the `probe` point it is handed, never from an "
+        "event — otherwise one decision aims with the pointer and the rest aim "
+        "with the card:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_the_selection_is_read_from_the_list_only():
     """A row's clone is not a row, and six queries could not tell the difference.
 

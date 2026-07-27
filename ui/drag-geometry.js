@@ -5,16 +5,29 @@
 // here serves it.
 //
 // WHERE a drop lands is read from GEOMETRY, not from `event.target`. Every
-// section is a box: anywhere inside it means "this category", at the slot
-// nearest the cursor. Every group is a nested box inside that one: anywhere
-// inside it means "and in this group". Those are the two rectangles a user can
-// actually see, so they are the two the rule is written against — an
-// element-based rule kept disagreeing with them, because the padding of a box
-// belongs to the box on screen and to nothing at all in the DOM.
+// section is a box: anywhere inside it means "this category", at the slot the
+// card has reached. Every group is a nested box inside that one: anywhere inside
+// it means "and in this group". Those are the two rectangles a user can actually
+// see, so they are the two the rule is written against — an element-based rule
+// kept disagreeing with them, because the padding of a box belongs to the box on
+// screen and to nothing at all in the DOM.
 //
 // `event.target.closest` would also answer with whatever element happens to be
 // under the pointer, and the dragged row is still in the flow — so it can name
 // the section the row came FROM while the cursor is over a different one.
+//
+// TWO THINGS DECIDE EVERYTHING HERE, and neither is the mouse pointer.
+//
+// The POINT is the card's centre, handed in as `probe`. Where you grabbed the row
+// stops mattering, and the list answers to the thing you can see rather than to a
+// pointer that may be twenty pixels off one end of it.
+//
+// The BOXES are frozen at lift (`freeze` below). Reardon's rule needs that: an
+// edge that moves as you cross it is not a threshold.
+//
+// Nothing in this file reads an event, and a convention test says so — otherwise
+// one decision quietly goes back to aiming with the mouse while every other one
+// uses the card, which is a disagreement no reviewer would see.
 
 function groupOf(element) {
   const container = element.closest('.group');
@@ -69,9 +82,9 @@ function sectionPlacement(section) {
 // IN PROGRESS splits its list by project, so its blocks live one level down.
 // Geometry, like everything else here — the project a drop belongs to is the
 // wrapper whose box holds the cursor, and it must be the dragged row's own.
-function projectBlockUnder(section, event, project) {
+function projectBlockUnder(section, probe, project) {
   return [...section.querySelectorAll('.project-block')].find(
-    holder => holder.dataset.project === project && withinBox(holder, event)) || null;
+    holder => holder.dataset.project === project && withinBox(holder, probe)) || null;
 }
 
 // Inside IN PROGRESS but inside no project block at all: the section's own
@@ -90,9 +103,9 @@ function projectBlockUnder(section, event, project) {
 // ANOTHER project's block, which is a box of its own and stays refused, and a
 // task being claimed for the first time, which has no place in the list yet to
 // position within and so still lands at the end.
-function ownRunningList(section, event, dragged, isGroup) {
+function ownRunningList(section, probe, dragged, isGroup) {
   const blocks = [...section.querySelectorAll('.project-block')];
-  if (blocks.some(holder => withinBox(holder, event))) return null;
+  if (blocks.some(holder => withinBox(holder, probe))) return null;
   const current = draggedState(dragged, isGroup);
   if (!current || current.status !== 'in-progress') return null;
   return blocks.find(
@@ -121,11 +134,17 @@ function placement(destination, dragged, isGroup) {
 }
 
 // Grouping must be aimed; reordering must not. The band is a third of a row's
-// height, centred, and inset from both ends — "very clearly on top of that
-// task" rather than merely nearest to it. Everything outside it reorders.
+// height, centred — "very clearly on top of that task" rather than merely
+// nearest to it. Everything outside it reorders.
+//
+// It used to be inset from both ends as well (`PAIR_INSET`, 12px). That constant
+// is gone, and not because it was wrong: the card is rail-locked now, so its
+// centre's x never changes for the whole gesture, and every horizontal test
+// against a full-width row passes always. Keeping it would have meant reading the
+// POINTER's x for this one decision — a decision made by something the card does
+// not show, which is exactly the disconnect this design removes. So the band is
+// vertical, and one third of a row is the whole of "aimed".
 const PAIR_BAND = 1 / 3;
-
-const PAIR_INSET = 12;
 
 // A group keeps a few pixels of grip on the row already inside it, so that
 // sorting within a group and overshooting the last member by a pixel does not
@@ -133,7 +152,52 @@ const PAIR_INSET = 12;
 // of the box; only the twitch is absorbed.
 const GROUP_STICKY = 8;
 
-// The section the cursor is in. A section owns exactly its own rectangle, and
+// --- The frozen layout ---------------------------------------------------
+//
+// Every box in the list, measured ONCE at lift and never again. Everything below
+// reads `fbox`, so the whole rule set is evaluated against a layout that cannot
+// move while the gesture is happening.
+//
+// This is not an optimisation. Reardon's rule — "once the centre position of an
+// item A goes over the edge of another item B, B moves out of the way" — is
+// UNSTABLE against a live layout: claiming a slot moves the very edge that
+// decided it, so the forward and reverse triggers land on the same pixel and the
+// row flickers between two slots under a still cursor. Frozen, each block has
+// exactly one threshold for the whole gesture, and it cannot be crossed twice.
+//
+// It buys two more things that were separately wrong before. The thing you are
+// aiming at stops moving: a row leaving NOW shortens NOW and lifts NEXT and
+// SOMEDAY up underneath the cursor mid-gesture. And no rect can be read while
+// something is animating — a rect read mid-transition is a position nothing is
+// at, which is what Phase 2's FLIP would otherwise feed straight back in here.
+//
+// `.project-block` is in the set because IN PROGRESS holds its blocks a level
+// down inside a wrapper per project, and `projectBlockUnder` and `ownRunningList`
+// both measure those wrappers. Leaving it out would freeze every box except the
+// two that decide which project's list a running row belongs to.
+let frozen = null;
+
+function freeze() {
+  frozen = new Map();
+  for (const element of document.querySelectorAll(
+      '#task-list section, #task-list .project-block, #task-list .group, #task-list .task')) {
+    frozen.set(element, element.getBoundingClientRect());
+  }
+}
+
+function clearFrozen() {
+  frozen = null;
+}
+
+// The box to decide against: frozen if this gesture froze one, live otherwise.
+// The fallback is not a nicety — a block created since the lift (nothing does
+// that today) has no frozen box, and answering with its live one is better than
+// answering with undefined.
+function fbox(element) {
+  return (frozen && frozen.get(element)) || element.getBoundingClientRect();
+}
+
+// The section the probe is in. A section owns exactly its own rectangle, and
 // the margin between two of them belongs to the one BELOW.
 //
 // Not "the nearest", which is what this was: nearest splits the margin down
@@ -146,80 +210,103 @@ const GROUP_STICKY = 8;
 // whatever element happens to be under the pointer, and the dragged row is
 // still in the flow — so it could name the section the row came FROM while the
 // cursor is over another one.
-function sectionUnder(event) {
+function sectionUnder(probe) {
   const sections = [...document.querySelectorAll(
     '#task-list section[data-bucket], #task-list #in-progress')];
   if (!sections.length) return null;
-  const pointerY = event.clientY;
   const inside = sections.find(candidate => {
-    const box = candidate.getBoundingClientRect();
-    return pointerY >= box.top && pointerY <= box.bottom;
+    const box = fbox(candidate);
+    return probe.y >= box.top && probe.y <= box.bottom;
   });
   if (inside) return inside;
   // Past the end of the list — the empty space below SOMEDAY is a great deal
   // of the window, and it belongs to the last section rather than to nothing.
   const last = sections[sections.length - 1];
-  if (pointerY > last.getBoundingClientRect().bottom) return last;
-  return sections.find(
-    candidate => pointerY < candidate.getBoundingClientRect().top) || last;
+  if (probe.y > fbox(last).bottom) return last;
+  return sections.find(candidate => probe.y < fbox(candidate).top) || last;
 }
 
 // The blocks a container orders, minus the one being dragged. A top-level list
 // is rows and group containers together — a group occupies one slot, which is
 // what keeps its members contiguous (invariant 16).
-function blocksIn(container, dragged, selector) {
-  return [...container.children].filter(child =>
-    child !== dragged && child.matches(selector));
-}
-
-// The slot the cursor is nearest: before the first block whose middle is below
-// it, or the end. Midpoints rather than edges, so the answer changes as the
-// cursor passes the middle of a row and not as it crosses a seam.
 //
-// Measured as if the dragged block were not in the flow. It IS in the flow —
-// HTML5 drag leaves the element where it is, and the preview then moves it —
-// so every block after it sits one row lower than it otherwise would. Leave
-// that in and the preview decides its own next position: the row lands between
-// two slots, displaces the one below it, and the next reading picks the other
-// slot, so the list flips between them while the cursor holds still.
-function slotFor(blocks, pointerY, dragged) {
-  const displaced = dragged ? dragged.getBoundingClientRect().height : 0;
-  const at = blocks.findIndex(block => {
-    const box = block.getBoundingClientRect();
-    const after = dragged
-      && (dragged.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING);
-    return pointerY < box.top + box.height / 2 - (after ? displaced : 0);
-  });
-  return at === -1 ? blocks.length : at;
+// Returned in FROZEN order, not live DOM order. `slotFor`'s thresholds are
+// relative to the dragged block's own frozen position, so the list they index
+// into has to be the one they were computed against — the preview has already
+// permuted the live children, and indexing that would make the same cursor
+// position mean a different slot every frame.
+function blocksIn(container, dragged, selector) {
+  const live = [...container.children].filter(child =>
+    child !== dragged && child.matches(selector));
+  if (!frozen) return live;
+  return live.sort((first, second) => fbox(first).top - fbox(second).top);
 }
 
-function withinBox(element, event, grow = 0) {
-  const box = element.getBoundingClientRect();
-  return event.clientX >= box.left - grow && event.clientX <= box.right + grow
-    && event.clientY >= box.top - grow && event.clientY <= box.bottom + grow;
+// The slot the dragged block belongs in, by Reardon's rule: "once the centre
+// position of an item A goes over the edge of another item B, B moves out of the
+// way." One frozen threshold per block, and the slot is simply how many of them
+// the centre has passed.
+//
+// WHICH edge depends on where the block started relative to the dragged one, and
+// that is not arbitrary — it is what produces the dead zone. A block that was
+// BELOW yields when your centre reaches its top; a block that was ABOVE yields
+// when your centre reaches its bottom. Both are exactly half a card-height from
+// where you started, so the row never twitches out of its own slot, and every
+// threshold after that is a hard edge you can see.
+//
+// In a list the dragged block was never in there is no gap and no before/after,
+// so the threshold is the block's CENTRE — the ordinary insertion rule. An edge
+// rule cannot express "index 0" there: the first block's top edge IS the top of
+// the list, so it reads as already passed the moment you arrive.
+//
+// This replaced a midpoint rule fed the POINTER's y, with the dragged block's own
+// height subtracted back out of every threshold below it. Both halves were wrong
+// in the same direction: grab a row two pixels above its own bottom edge and the
+// pointer starts BELOW that row's midpoint, so the threshold was already crossed
+// and a 6px sideways twitch reordered it before it had moved down at all
+// (measured 2026-07-26). Where you grabbed a row decided whether it reordered
+// instantly, which is what "robotic" turned out to mean.
+function slotFor(blocks, centreY, dragged, container) {
+  const home = Boolean(frozen) && frozen.has(dragged)
+    && dragged.parentElement === container;
+  const mine = home ? fbox(dragged).top : null;
+  let passed = 0;
+  for (const block of blocks) {
+    const box = fbox(block);
+    const threshold = home ? (box.top >= mine ? box.top : box.bottom)
+                           : box.top + box.height / 2;
+    if (centreY >= threshold) passed++;
+  }
+  return passed;
 }
 
-// The group box the cursor is inside. The dragged row's OWN group is not
+function withinBox(element, probe, grow = 0) {
+  const box = fbox(element);
+  return probe.x >= box.left - grow && probe.x <= box.right + grow
+    && probe.y >= box.top - grow && probe.y <= box.bottom + grow;
+}
+
+// The group box the probe is inside. The dragged row's OWN group is not
 // excluded — that is how sorting within a group works — it just gets the extra
 // grip.
-function groupUnder(section, event, dragged) {
+function groupUnder(section, probe, dragged) {
   const mine = groupOf(dragged);
   return [...section.querySelectorAll('.group')].find(container =>
     container !== dragged
-    && withinBox(container, event,
+    && withinBox(container, probe,
                  container.dataset.group === mine ? GROUP_STICKY : 0)) || null;
 }
 
-// A loose top-level row the cursor is very clearly on top of — the one gesture
-// here that makes a new group, so the one that has to be aimed.
-function pairTarget(section, event, dragged, project) {
+// A loose top-level row the card is very clearly on top of — the one gesture
+// here that makes a new group, so the one that has to be aimed. Vertical only
+// now: see PAIR_BAND for why the horizontal inset went.
+function pairTarget(section, probe, dragged, project) {
   return [...section.querySelectorAll('.task')].find(row => {
     if (row === dragged || row.dataset.project !== project) return false;
     if (row.parentElement.classList.contains('group')) return false;
-    const box = row.getBoundingClientRect();
+    const box = fbox(row);
     const margin = box.height * (1 - PAIR_BAND) / 2;
-    return event.clientY >= box.top + margin && event.clientY <= box.bottom - margin
-      && event.clientX >= box.left + PAIR_INSET && event.clientX <= box.right - PAIR_INSET;
+    return probe.y >= box.top + margin && probe.y <= box.bottom - margin;
   }) || null;
 }
 
@@ -227,8 +314,13 @@ function pairTarget(section, event, dragged, project) {
 // single place_task/place_group call. Two gestures keep their own names because
 // they are not placements: `pair` names a NEW group, and `sort` permutes one
 // group's own slots. A refusal is null.
-function dropIntent(event, dragged, draggedIsGroup) {
-  const section = sectionUnder(event);
+// `probe` is a point — {x, y} in viewport pixels — and is the CARD's centre, not
+// the pointer. Taking a point rather than an event is what makes that provable:
+// nothing in this file can reach for `event.clientY` and quietly aim one decision
+// with the mouse while every other one uses the card
+// (test_the_drag_geometry_never_reads_the_pointer_directly).
+function dropIntent(probe, dragged, draggedIsGroup) {
+  const section = sectionUnder(probe);
   if (!section) return null;
   const lands = sectionPlacement(section);
   const project = dragged.dataset.project;
@@ -241,18 +333,18 @@ function dropIntent(event, dragged, draggedIsGroup) {
 
   // 1. Grouping — the aimed gesture, so it is tried first and refuses easily.
   if (!draggedIsGroup) {
-    const target = pairTarget(section, event, dragged, project);
+    const target = pairTarget(section, probe, dragged, project);
     if (target) return { kind: 'pair', over: target, element: target,
                          status: lands.status, section };
   }
 
   // 2. Inside a group's box. A group is one level deep, so a dragged group
   // never enters one — it reorders past it at the top level instead.
-  const container = draggedIsGroup ? null : groupUnder(section, event, dragged);
+  const container = draggedIsGroup ? null : groupUnder(section, probe, dragged);
   if (container && container.dataset.project === project) {
     const name = container.dataset.group;
     const members = blocksIn(container, dragged, '.task');
-    const before = members[slotFor(members, event.clientY, dragged)] || null;
+    const before = members[slotFor(members, probe.y, dragged, container)] || null;
     // A group's own member order lives in `Task.order` and is the same list the
     // bucket view draws, so reordering inside one is always that — never the
     // WIP order, which ranks whole blocks. IN PROGRESS renders only part of a
@@ -281,8 +373,8 @@ function dropIntent(event, dragged, draggedIsGroup) {
   // (ownRunningList), and only a row with no place in that list yet falls
   // through to the claim below, which lands at the end.
   const holder = lands.orders === 'wip'
-    ? (projectBlockUnder(section, event, project)
-       || ownRunningList(section, event, dragged, draggedIsGroup))
+    ? (projectBlockUnder(section, probe, project)
+       || ownRunningList(section, probe, dragged, draggedIsGroup))
     : section;
   if (!holder) {
     const claim = placement({ bucket: null, group: null, status: lands.status },
@@ -293,5 +385,5 @@ function dropIntent(event, dragged, draggedIsGroup) {
   return { kind: 'place', bucket: lands.bucket, group: null, status: lands.status,
            into: section, section, positioned: lands.orders,
            preview: { container: holder,
-                      before: blocks[slotFor(blocks, event.clientY, dragged)] || null } };
+                      before: blocks[slotFor(blocks, probe.y, dragged, holder)] || null } };
 }

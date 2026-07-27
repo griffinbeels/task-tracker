@@ -131,6 +131,11 @@ function wireDrag() {
     list.querySelectorAll('.dragging-source').forEach(
       stale => stale.classList.remove('dragging-source'));
 
+    // FIRST, before the card is appended or the gap class is added: these are the
+    // only boxes measured at rest for the whole gesture, and everything in
+    // drag-geometry.js decides against them.
+    freeze();
+
     const box = element.getBoundingClientRect();
     const held = element.cloneNode(true);
     held.classList.add('held');
@@ -198,6 +203,10 @@ function wireDrag() {
     if (row) row.classList.remove('dragging-source');
     document.body.classList.remove('dragging');
     clearDropAffordance(list);
+    // The frozen layout belongs to one gesture. Left standing it would answer the
+    // NEXT drag's geometry with this drag's boxes, which is a whole list of
+    // thresholds in the wrong places and no error anywhere.
+    clearFrozen();
     dragged = null;
     intent = null;
     // Nothing was written, so nothing may be left looking moved. The preview is a
@@ -227,7 +236,7 @@ function wireDrag() {
   });
 
   function move(event) {
-    const { held, origin, scale, grabX, grabY, startX } = card;
+    const { held, origin, scale, grabX, grabY, startX, size } = card;
     // Rail-locked: the card tracks vertically and never sideways, so it stays
     // over the column it came from and reads as the row itself lifted out of the
     // list rather than as a thing flying around near it.
@@ -239,8 +248,19 @@ function wireDrag() {
     held.style.left = ((cardX - origin.x) / scale.x) + 'px';
     held.style.top = ((cardY - origin.y) / scale.y) + 'px';
 
+    // The card's CENTRE is what decides where this lands — Reardon's rule, and the
+    // only place in the app that turns a pointer position into an aim point. It is
+    // built here and nowhere else, which is what lets drag-geometry.js contain no
+    // reference to an event at all.
+    //
+    // `size` is the card's own box, so a group dragged as a whole block aims from
+    // the middle of the block. If a future variant carries only a header, the aim
+    // point follows the visible card rather than the gap, which is the half the
+    // user can see.
+    const probe = { x: cardX + size.w / 2, y: cardY + size.h / 2 };
+
     clearDropAffordance(list);
-    intent = dropIntent(event, dragged, draggedIsGroup);
+    intent = dropIntent(probe, dragged, draggedIsGroup);
     if (!intent) return;
     // The live move IS the affordance for a reorder: the row is drawn where it
     // would land, indented into a group's rail or clear of it, which says more
