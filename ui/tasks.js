@@ -383,15 +383,21 @@ document.getElementById('task-list').addEventListener('change', event => {
 // a bracket in one would break a selector string, which is invariant 5's
 // concern wearing a different hat.
 //
+// It joins on NUL because that is the one character a project name cannot
+// contain — and it is written `\0` rather than as the byte itself, which is
+// what it was until this merge: a literal 0x00 makes this a *binary* file to
+// every text tool, so `grep` answers "Binary file ui/tasks.js matches" instead
+// of the line you asked for.
+//
 // A group header's own box is DERIVED here rather than remembered: a header
 // whose every member is ticked is exactly what that box means, and leaving it
 // empty under a fully ticked group is the same broken-render defect as leaving
 // it ticked under an empty one.
 function restoreTicks(picked) {
   if (!picked.length) return;
-  const wanted = new Set(picked.map(({ project, id }) => `${project} ${id}`));
+  const wanted = new Set(picked.map(({ project, id }) => `${project}\0${id}`));
   document.querySelectorAll('.task').forEach(row => {
-    if (wanted.has(`${row.dataset.project} ${row.dataset.id}`)) {
+    if (wanted.has(`${row.dataset.project}\0${row.dataset.id}`)) {
       row.querySelector('.select').checked = true;
     }
   });
