@@ -442,6 +442,31 @@ function projectBlockUnder(section, event, project) {
     holder => holder.dataset.project === project && withinBox(holder, event)) || null;
 }
 
+// Inside IN PROGRESS but inside no project block at all: the section's own
+// heading, its 8px frame of padding, the space below the last project. A
+// section is a box and everything in it aims at that box (invariant 28), so a
+// row ALREADY in this list keeps its place in its own project's list at the
+// slot nearest the cursor — dropping on the heading means the top, exactly as
+// it does on a bucket's NOW/NEXT/SOMEDAY.
+//
+// Without this those strips resolved to "claim a task that is already claimed",
+// which is a no-op, which is a refusal — so the commonest reorder there is
+// (drag a running task up to the top, overshooting into the heading) previewed
+// as moved and wrote nothing.
+//
+// Two things deliberately still fall through to the claim: a cursor over
+// ANOTHER project's block, which is a box of its own and stays refused, and a
+// task being claimed for the first time, which has no place in the list yet to
+// position within and so still lands at the end.
+function ownRunningList(section, event, dragged, isGroup) {
+  const blocks = [...section.querySelectorAll('.project-block')];
+  if (blocks.some(holder => withinBox(holder, event))) return null;
+  const current = draggedState(dragged, isGroup);
+  if (!current || current.status !== 'in-progress') return null;
+  return blocks.find(
+    holder => holder.dataset.project === dragged.dataset.project) || null;
+}
+
 // A destination that would change nothing gets no affordance — the outline is
 // a promise that something will happen. Positional drops never come through
 // here: moving a row inside its own bucket changes none of these three fields
@@ -634,11 +659,15 @@ function dropIntent(event, dragged, draggedIsGroup) {
   // out on, which is why leaving a group needs no target of its own any more.
   // IN PROGRESS holds its blocks inside a wrapper per project. With the cursor
   // over one, the drop has a position in that project's list like anywhere
-  // else; over the box but not over any wrapper — the empty line, the space
-  // below the last project — there is no list to position within, so it is
-  // simply a claim, landing at the end.
+  // else; over the box but not over any wrapper — the section's own heading,
+  // its padding, the empty line, the space below the last project — a row that
+  // is already running keeps its position in its OWN project's list
+  // (ownRunningList), and only a row with no place in that list yet falls
+  // through to the claim below, which lands at the end.
   const holder = lands.orders === 'wip'
-    ? projectBlockUnder(section, event, project) : section;
+    ? (projectBlockUnder(section, event, project)
+       || ownRunningList(section, event, dragged, draggedIsGroup))
+    : section;
   if (!holder) {
     const claim = placement({ bucket: null, group: null, status: lands.status },
                             dragged, draggedIsGroup);
@@ -658,11 +687,40 @@ function wireDrag() {
   let draggedGroup = null;
   let draggedFrom = null;
   let intent = null;
+  // Where the preview picked the block up from. The live move in `dragover` is
+  // a REAL DOM move, and nothing else ever undoes it — so a gesture that wrote
+  // nothing used to leave the list showing a position that was never saved,
+  // for as long as it took something else to force a render. The next rename,
+  // edit or fold then put the row back, which reads as that unrelated edit
+  // having reset the task's position. Nothing on screen may claim a place that
+  // was not written.
+  let startedAt = null;
+  // Set the instant `drop` commits to acting. `dragend` fires immediately after
+  // drop's synchronous part (and on its own when there was no drop at all —
+  // released outside the list, or cancelled with Escape), so this flag is the
+  // only thing that can tell those two endings apart from inside dragend.
+  let wrote = false;
+
+  // Put the block back where the drag found it. Cheap to call twice: the first
+  // call clears the record.
+  function undoPreview() {
+    if (!startedAt) return;
+    const { element, parent, before } = startedAt;
+    startedAt = null;
+    if (!element.isConnected || !parent.isConnected) return;
+    parent.insertBefore(
+      element, before && before.parentElement === parent ? before : null);
+  }
 
   list.addEventListener('dragstart', event => {
     const header = event.target.closest('.group-header');
     dragged = header ? header.parentElement : event.target.closest('.task');
     draggedIsGroup = Boolean(header);
+    startedAt = dragged
+      ? { element: dragged, parent: dragged.parentElement,
+          before: dragged.nextSibling }
+      : null;
+    wrote = false;
     const container = dragged ? dragged.closest('.group') : null;
     draggedGroup = container ? container.dataset.group : null;
     // The container it STARTED in — its group if it is in one, otherwise its
@@ -676,6 +734,11 @@ function wireDrag() {
   });
 
   list.addEventListener('dragend', () => {
+    // The only signal a drag that never reached `drop` gives at all: released
+    // outside #task-list — the header, the selection bar, past the window edge
+    // — or cancelled with Escape. Nothing was written, so nothing may be left
+    // looking moved.
+    if (!wrote) undoPreview();
     clearDropAffordance(list);
     dragged = null;
     intent = null;
@@ -734,7 +797,12 @@ function wireDrag() {
     const wasGroup = draggedIsGroup;
     dragged = null;
     intent = null;
-    if (!settled || !row) return;
+    // The destination refused this drop — a cross-project one, or a claim that
+    // would change nothing. The preview moved the block for real on the way
+    // here, so take it back: a refusal that leaves the row sitting where it was
+    // never written is indistinguishable from a drop that worked.
+    if (!settled || !row) { undoPreview(); return; }
+    wrote = true;
     // The row's OWN project, never currentProject. In a bucket section the two
     // are the same; in IN PROGRESS, which spans projects, they are not — and
     // dropIntent has already refused any drop across two of them.
@@ -753,7 +821,14 @@ function wireDrag() {
       const moved = taskOf(row);
       const born = await callApi('create_group', project,
         [targetId, Number(row.dataset.id)], target ? target.title : 'New group');
-      if (born === API_FAILED) return;
+      // Redraw rather than return bare. callApi has already said what went
+      // wrong, but the preview has moved the row and dragend has already run
+      // and declined to undo it (this path claimed the drop), so the list is
+      // showing a pairing that does not exist. A refresh is the only thing that
+      // can be right here — it draws whatever actually landed on disk, which
+      // for a half-failed pair is not something the DOM could work out. Same at
+      // every failure below.
+      if (born === API_FAILED) { await refresh(); return; }
       // A group born in a section the dragged row did not come from has to be
       // placed as well as named — pairing a backlog task onto a running one
       // means both are running now. create_group already put them in the
@@ -762,7 +837,7 @@ function wireDrag() {
       // between them leaves a valid group that simply was not claimed.
       if (moved && moved.status !== settled.status
           && await callApi('place_group', project, born,
-               { status: settled.status }) === API_FAILED) return;
+               { status: settled.status }) === API_FAILED) { await refresh(); return; }
       await refresh();
       // Only on birth. A task joining an existing group must not reopen it —
       // that name is an identity by then, not a suggestion (invariant 11).
@@ -776,11 +851,11 @@ function wireDrag() {
       // section showing part of a bucket — or part of a group — can reorder
       // without stamping over anything it cannot see.
       const container = row.closest('.group');
-      if (!container) return;
+      if (!container) { undoPreview(); return; }
       const ids = [...container.querySelectorAll('.task')].map(
         element => Number(element.dataset.id));
       if (await callApi('reorder_group', project,
-          container.dataset.group, ids) === API_FAILED) return;
+          container.dataset.group, ids) === API_FAILED) { await refresh(); return; }
       await refresh();
       return;
     }
@@ -808,10 +883,16 @@ function wireDrag() {
         ? await callApi('place_group', project, name, destination, ids)
         : await callApi('place_task', project, Number(row.dataset.id),
                         destination, ids);
-      if (outcome === API_FAILED) return;
+      if (outcome === API_FAILED) { await refresh(); return; }
     }
+    // Read after the call above, deliberately: dragend has already fired by
+    // now, and it leaves the preview alone once the drop has claimed it (see
+    // `wrote`), so the DOM here still says where the user let go.
     if (settled.positioned === 'wip' && await callApi('set_in_progress_order',
-        inProgressOrderFromDom(settled.section)) === API_FAILED) return;
+        inProgressOrderFromDom(settled.section)) === API_FAILED) {
+      await refresh();
+      return;
+    }
     // Before the refresh, while state.tasks still counts the member on its way
     // out — a group that just lost its last one does not exist any more, and
     // nothing would ever unfold its leftover entry.

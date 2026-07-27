@@ -511,6 +511,28 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     with no `over` to insert against. Any future gesture that moves the dragged
     element during `dragover` inherits this.
 
+    **The preview is a lie until something writes it, so a gesture that writes
+    nothing takes it back.** `dragover`'s `insertBefore` is a REAL DOM move, and
+    for months nothing ever undid it: release outside `#task-list` — the header,
+    the selection bar, past the window edge — or press Escape, and only
+    `dragend` fires, which cleared the outline and left the row sitting in its
+    new place. Same for a `drop` whose `intent` is null, and for one whose
+    `callApi` failed. The list then showed a position nobody saved for as long
+    as it took something else to force a render, and the next rename or edit put
+    it back — which reads as *that* edit having reset the task's position, and
+    is what this was reported as (2026-07-26). Measured before and after in a
+    headless copy of the real renderer: pre-fix, a `dragstart` + `dragover` +
+    `dragend` with no drop left `[2,3,1]` on screen with zero bridge calls.
+    `wireDrag` now records where the block was picked up, `dragend` restores it
+    unless `drop` claimed the gesture first (`wrote`), and every failure path
+    inside `drop` calls `refresh()` — a redraw is the only thing that can be
+    right once a write may have half-landed. **`wrote` must be set before
+    `drop`'s first `await`**: `dragend` fires immediately after drop's
+    synchronous part, and it is the only thing that can tell an abandoned drag
+    from a claimed one. **And `inProgressOrderFromDom` must keep being read
+    while the preview is still in place** — it runs after an await, so it
+    depends on dragend having left the DOM alone.
+
 28. **Where a drop lands is read from geometry, not from `event.target`.** Two
     rectangles decide everything, and they are the two the user can see. Every
     **section** is a box: anywhere inside it means "this category", at the slot
@@ -602,6 +624,23 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     difference is **where the order it writes is kept**: `sectionPlacement`
     reports `orders: 'bucket'` or `orders: 'wip'`, and that one word is the
     whole of it.
+
+    It costs one function to hold that line, because IN PROGRESS keeps its
+    blocks a level down inside a wrapper per project while a bucket section
+    holds them directly. A bucket's `holder` is the section itself, so its
+    heading and padding are inside it and a drop there lands at the top; IN
+    PROGRESS's is the project wrapper, so the section's own heading, its 8px
+    frame and the space below the last project were outside every wrapper and
+    resolved to "claim a task that is already claimed" — a no-op, which is a
+    refusal. Dragging a running task *up to the top of the list* overshoots into
+    exactly that strip, so the commonest reorder there previewed as moved and
+    wrote nothing. `ownRunningList` gives an already-running row its own
+    project's wrapper whenever the cursor is inside the section but inside no
+    wrapper at all, which restores the bucket behaviour verbatim. Two things
+    deliberately still fall through to the claim: a cursor over ANOTHER
+    project's wrapper, which is a box of its own and stays refused, and a task
+    being claimed for the first time, which has no place in the list to position
+    within and still lands at the end.
 
     A bucket's order is `Task.order`, in the task files. IN PROGRESS's cannot
     be, and that is not a shortcut — `order` is a *per-bucket* position, so two
@@ -837,6 +876,22 @@ show two unrelated tasks under one id at different points in time.
   remembers. Press ↻: the order must survive the restart. And claim a new task
   into IN PROGRESS: it must land at the END of that project's list, never
   silently in the middle of it.
+
+  And five for the preview never outliving the gesture that drew it — the whole
+  set is "nothing on screen may claim a place that was not written", and every
+  one of them is silent, because a row left in the wrong place looks exactly
+  like a row that moved. Start dragging a task, carry it a few rows, and let go
+  **outside the list** — on the header, on the Spin up button, past the window
+  edge: it must snap back where it started, not sit in its new place. Same drag,
+  cancelled with **Escape** mid-drag: same. Both again in IN PROGRESS, which is
+  where this was noticed. Then the confirmation that the snap-back is not
+  overzealous: reorder a bucket properly and the row must STAY where it was
+  dropped, with no flicker back to its old slot on the way. And the strip this
+  opened up — drag a running task onto **the IN PROGRESS heading itself**, or
+  into the padding around the box: it must land at the top of its own project's
+  list and survive a ↻, rather than looking moved and reverting on the next
+  edit. Dropping on ANOTHER project's rows is still refused, and must still
+  leave the dragged row where it started.
 
   Two of those ten failed on first use and are the ones worth repeating after
   any change to `wireDrag`, because both looked like they had worked. Drop a
