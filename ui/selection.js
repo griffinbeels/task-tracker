@@ -5,9 +5,9 @@
 // function the toolbar's button calls, because a hand-off is shaped by the
 // tasks and by the name row above it rather than by this bar.
 //
-// It also owns what a tick MEANS to the buttons outside the bar: a `done` on a
-// row or a group header goes through completeWithSelection here, so "done"
-// says the same thing everywhere it is written.
+// It also owns what a tick MEANS to the buttons outside the bar: every one of
+// them resolves what it acts on through aimedAt here, so a `done` and a Claude
+// button pressed on the same row aim at the same tasks.
 
 // The existing spin-up guard, extracted so both spin-up and the bar's own
 // actions can share it. selectedIds() returns [{project, id}, ...] — collapse
@@ -85,37 +85,54 @@ async function completeTasksWithConfirm(project, ids) {
   await refresh();
 }
 
-// Every `done` button in the app ends here, and this is the rule that makes
-// them one control rather than three. A button names some tasks — one row, or
-// the rows a group header drew — and normally completes exactly those. But
-// when every task it names is ticked, the click is aimed at a selection the
-// user has visibly made: the bar is on screen saying "4 selected", and
-// finishing 1 of those 4 reads as the ticks having been ignored rather than as
-// a narrower gesture. So it completes the selection instead, through the same
-// function the bar's own Done calls — same threshold, same question, same fold
-// repair, same refresh, because it is the same action reached from a different
-// button.
+// What a button OUTSIDE the bar acts on, and the rule that makes every one of
+// them the same control. A button names some tasks — one row, or the rows a
+// group header drew — and normally means exactly those. But when every task it
+// names is ticked, the click is aimed at a selection the user has visibly
+// made: the bar is on screen saying "4 selected", and acting on 1 of those 4
+// reads as the ticks having been ignored rather than as a narrower gesture. So
+// it resolves to the selection instead.
 //
-// An unticked row is untouched by this: `done` on a row nobody picked out
+// An unticked row is untouched by this: a button on a row nobody picked out
 // means that row, whatever else is selected elsewhere. That is the whole
 // distinction, and it is the one the checkbox already draws.
-async function completeWithSelection(project, ids) {
-  if (!ids.length) return;
+//
+// `fromSelection` is the answer to "was the selection what this acts on", and
+// it is here rather than in each caller because more than bookkeeping hangs off
+// it: the hand-off reads the batch-name row only when it is true, and restores
+// the ticks a refresh threw away only when it is false. Two flags would be free
+// to disagree; one cannot.
+//
+// null means refused — nothing named, or a selection the user has just been
+// alerted spans two projects.
+function aimedAt(project, ids) {
+  if (!ids.length) return null;
   const tickedHere = new Set(selectedIds()
     .filter(picked => picked.project === project)
     .map(picked => picked.id));
   if (!ids.every(id => tickedHere.has(id))) {
-    await completeTasksWithConfirm(project, ids);
-    return;
+    return { project, ids, fromSelection: false };
   }
   // Refused here exactly as it is at the bar — selectedInOneProject alerts and
-  // returns null — rather than quietly completing this project's half of a
+  // returns null — rather than quietly acting on this project's half of a
   // selection the user can see spans two. IN PROGRESS is where that selection
   // is possible (invariant 6), and it is where these buttons sit beside rows
   // from several projects at once.
   const selection = selectedInOneProject();
-  if (!selection) return;
-  await completeTasksWithConfirm(selection.project, selection.ids);
+  if (!selection) return null;
+  return { ...selection, fromSelection: true };
+}
+
+// Every `done` button in the app ends here — a task row's and a group header's
+// — and it is one of two callers of the rule above; the Claude button on a row
+// is the other. Everything else about completing (the confirm above three,
+// clearing the fold entry of a group this empties, refreshing even on failure)
+// belongs to completeTasksWithConfirm, which the bar's own Done calls too, so
+// no part of it is written twice.
+async function completeWithSelection(project, ids) {
+  const aimed = aimedAt(project, ids);
+  if (!aimed) return;
+  await completeTasksWithConfirm(aimed.project, aimed.ids);
 }
 
 document.getElementById('selection-done').onclick = async () => {

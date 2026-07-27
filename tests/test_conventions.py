@@ -502,6 +502,19 @@ def test_every_bridge_call_names_a_method_that_exists():
     )
 
 
+def _without_comment(line):
+    """The code part of a JS line, so a rule can be DESCRIBED without breaking it.
+
+    Both call-site tests below search for a literal, and the comment above the
+    function that owns that literal is the most natural place in the codebase
+    to write it down. Without this, explaining the convention in prose next to
+    the code it governs fails the build, which teaches the opposite lesson.
+    Line comments only — no `/* */` spans anything here, and a match inside a
+    string is not a thing either file does.
+    """
+    return line.split("//")[0]
+
+
 def test_only_the_selection_owns_completing_tasks():
     """A `done` button that completes tasks itself ignores the selection.
 
@@ -523,11 +536,46 @@ def test_only_the_selection_owns_completing_tasks():
         if script.name == "selection.js":
             continue
         for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
-            if "completeTasksWithConfirm" in line or "'complete_tasks'" in line:
+            code = _without_comment(line)
+            if "completeTasksWithConfirm" in code or "'complete_tasks'" in code:
                 offenders.append(f"{script.name}:{number}")
 
     assert not offenders, (
         "Completing tasks belongs to ui/selection.js, which is where the rule "
         "about what a tick means lives — call completeWithSelection(project, "
         "ids) instead at: " + ", ".join(offenders)
+    )
+
+
+def test_only_one_call_site_hands_tasks_to_claude():
+    """The symmetric half of the test above, for the other thing a row can do.
+
+    Two controls open a session on tasks — the header's Spin up and every task
+    row's Claude button — and four things have to come out the same either way:
+    which tasks (aimedAt), whether the batch-name row is read, the refresh, and
+    whether the ticks a refresh threw away are put back. All four live in
+    handOff in ui/tasks.js, and one call site is what forces a third control
+    through them rather than past them.
+
+    Deliberately a count and not an allowlist: naming the owning file would
+    still let a second button in that same file write its own hand-off, which
+    is exactly the shape the bug took the first time (a `done` that completed
+    the row it sat in while the bar said "4 selected").
+
+    What this cannot see, so that green is not mistaken for proof: a caller
+    that reaches handOff with the wrong ids, a button that resolves its own
+    targets and then calls it, and a button that does nothing at all. It pins
+    where the action lives, not that a caller meant it.
+    """
+    sites = []
+    for script in UI_SCRIPTS:
+        for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+            if "callApi('hand_off'" in _without_comment(line):
+                sites.append(f"{script.name}:{number}")
+
+    assert len(sites) == 1, (
+        "Opening a session on tasks belongs to exactly one function — handOff "
+        "in ui/tasks.js — because the batch name, the refresh and what becomes "
+        "of the ticks all live there. Call it instead of callApi('hand_off', "
+        "...). Call sites found: " + ", ".join(sites)
     )

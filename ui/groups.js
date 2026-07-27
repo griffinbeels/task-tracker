@@ -200,6 +200,31 @@ function groupBlock(block, options = {}) {
     releaseDragWhileUsing(picker, header);
   }
 
+  // The same control every row below carries, in the same place in the row —
+  // right after the bucket picker — aimed at the block this header drew.
+  // block.tasks and not the group's full membership, exactly like the `done`
+  // further along: a header in IN PROGRESS can read "2 of 5", and those other
+  // 3 are sitting in a bucket rather than in this session.
+  //
+  // Through aimedAt for the same reason `done` goes through
+  // completeWithSelection (invariant 31): with the whole group ticked the
+  // click is aimed at the selection, so the group launches together with
+  // whatever else is ticked beside it. CLAUDE_ICON is static markup with no
+  // user-authored text in it, which is what makes innerHTML safe here
+  // (invariant 5) — block.group, one element along, is not, and is set as
+  // textContent for exactly that reason.
+  const claude = document.createElement('button');
+  claude.className = 'claude';
+  claude.title = 'Spin up Claude on this group';
+  claude.innerHTML = CLAUDE_ICON;
+  claude.onclick = async () => {
+    const aimed = aimedAt(project, block.tasks.map(task => task.id));
+    if (!aimed) return;
+    await handOff(aimed.project, aimed.ids, aimed.fromSelection);
+  };
+  header.append(claude);
+  releaseDragWhileUsing(claude, header);
+
   if (showReset) {
     const reset = document.createElement('button');
     reset.className = 'reset';
