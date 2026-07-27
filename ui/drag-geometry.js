@@ -399,17 +399,36 @@ function withinBox(element, probe, entering) {
 // bottom edge, which for the last member is half a row and for a first member is
 // the whole group — visibly sorting down through the rail on the way, which is
 // honest about what is happening.
-function groupUnder(section, probe, dragged) {
-  const mine = groupOf(dragged);
+function groupUnder(section, probe, dragged, homeGroup) {
+  const mine = homeGroup;
   return [...section.querySelectorAll('.group')].find(
     container => container !== dragged
       && withinBox(container, probe, container.dataset.group !== mine)) || null;
 }
 
-// A loose top-level row the card is resting over, whether or not it is aimed at
-// the band. This is what the dwell clock watches: it answers "which row would
-// grouping be with, if you stayed here", and drag.js decides whether you have.
-function rowUnder(section, probe, dragged, project) {
+// What the card is resting over that would COMMIT it to a group, if it stayed.
+// The dwell clock in drag.js watches this and decides whether it has; nothing here
+// knows about time.
+//
+// A group first, then a loose row. Both are commitments to a grouping and both are
+// therefore gated on the same clock — *"it should be harder to make groups / enter
+// groups… I should have to hover a task over another task for a second at least"*
+// (2026-07-27). Reordering is not gated at all, and that asymmetry is the whole
+// design: the frequent gesture answers instantly, the rare one asks you to mean it.
+//
+// The dragged row's OWN group is never a candidate. Sorting inside it and leaving it
+// are not commitments — you are already in.
+function dwellCandidate(section, probe, dragged, project, homeGroup) {
+  // The group the row STARTED in, handed in — never groupOf(dragged). The preview
+  // has already moved the element by the time this runs, so asking it answers with
+  // wherever the last move put it. Same rule as invariant 28's `draggedFrom`, and
+  // getting it wrong made a row that had just left its own group need a full second
+  // to get back in.
+  const own = homeGroup;
+  const group = [...section.querySelectorAll('.group')].find(
+    container => container !== dragged && container.dataset.project === project
+      && container.dataset.group !== own && withinBox(container, probe, true));
+  if (group) return group;
   return [...section.querySelectorAll('.task')].find(row => {
     if (row === dragged || row.dataset.project !== project) return false;
     if (row.parentElement.classList.contains('group')) return false;
@@ -439,7 +458,7 @@ function pairTarget(section, probe, dragged, project) {
 // nothing in this file can reach for `event.clientY` and quietly aim one decision
 // with the mouse while every other one uses the card
 // (test_the_drag_geometry_never_reads_the_pointer_directly).
-function dropIntent(probe, dragged, draggedIsGroup, armedPair) {
+function dropIntent(probe, dragged, draggedIsGroup, armedPair, homeGroup) {
   const section = sectionUnder(probe);
   if (!section) return null;
   const lands = sectionPlacement(section);
@@ -469,6 +488,7 @@ function dropIntent(probe, dragged, draggedIsGroup, armedPair) {
   // stop — so making one easier no longer makes the other harder.
   if (!draggedIsGroup) {
     if (armedPair && armedPair !== dragged && armedPair.isConnected
+        && armedPair.classList.contains('task')
         && armedPair.dataset.project === project
         && !armedPair.parentElement.classList.contains('group')
         && withinBox(armedPair, probe)) {
@@ -482,7 +502,17 @@ function dropIntent(probe, dragged, draggedIsGroup, armedPair) {
 
   // 2. Inside a group's box. A group is one level deep, so a dragged group
   // never enters one — it reorders past it at the top level instead.
-  const container = draggedIsGroup ? null : groupUnder(section, probe, dragged);
+  //
+  // Its OWN group resolves immediately: sorting inside it and carrying a row out of
+  // it are both continuations of where the row already is. Any OTHER group is a
+  // commitment and needs the dwell — without that, merely CARRYING a card past a
+  // group made it join, so a plain reorder handed the card between the top-level
+  // order and the group in turn, each displacing its neighbours the opposite way.
+  // That is the jitter, and it is why passing over a group must cost nothing.
+  const inside = draggedIsGroup ? null : groupUnder(section, probe, dragged, homeGroup);
+  const own = homeGroup;
+  const container = !inside ? null
+    : (inside.dataset.group === own || armedPair === inside) ? inside : null;
   if (container && container.dataset.project === project) {
     const name = container.dataset.group;
     const members = blocksIn(container, dragged, '.task');
@@ -493,7 +523,7 @@ function dropIntent(probe, dragged, draggedIsGroup, armedPair) {
     // bucket, so it trades the slots its members already hold rather than
     // renumbering a bucket it cannot see; a bucket section draws the whole
     // bucket, so its ordered id list positions the member directly.
-    if (lands.orders === 'wip' && name === groupOf(dragged)) {
+    if (lands.orders === 'wip' && name === homeGroup) {
       return { kind: 'sort', preview: { container, before }, into: container,
                section };
     }

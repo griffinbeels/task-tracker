@@ -6,7 +6,7 @@
 // each of which loads the REAL ui/*.js against a stubbed `window.pywebview.api`
 // and drives synthetic pointer events:
 //
-//   app-harness.html   90 assertions: the card, Reardon's aiming rule, the
+//   app-harness.html   92 assertions: the card, Reardon's aiming rule, the
 //                      motion sampled mid-transition, the settle's ordering,
 //                      leaving a group, enter and exit
 //   app-scroll.html    autoscroll, in a window short enough to scroll
@@ -24,6 +24,12 @@
 // activation eaten by the click suppressor, and a displacement curve 35%
 // travelled by its first painted frame.
 //
+// A THIRD probe worth knowing about, kept beside these: build-jitter.js in the
+// scratchpad wrapped Node.insertBefore and Element.animate to count how often the
+// FLIP restarted with no slot change (answer: never) AND listened for uncaught
+// errors, which nothing else here had ever done. Both came back clean, which is
+// what redirected the search to the container flip-flop that was the real cause.
+//
 // One workflow note: every assertion shares ONE function scope, so a `const`
 // name reused across blocks is a SyntaxError that leaves #results reading EMPTY
 // with no other clue. Extract the <script> out of the generated page and
@@ -39,6 +45,9 @@
 // The UI constant below points at a worktree that no longer exists. Repoint it
 // at this checkout's `ui/` before running.
 
+// Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
+// Not the test suite that was declined — a one-off, in the scratchpad, so a UI
+// change is not handed over on the strength of its diff.
 // Drive the REAL ui/*.js with a stubbed bridge and synthetic pointer events.
 // Not the test suite that was declined — a one-off, in the scratchpad, so a UI
 // change is not handed over on the strength of its diff.
@@ -736,8 +745,8 @@ const TEST = `
         onto.className);
     await sleep(200);
     log('B2  and not yet at 200ms', !onto.classList.contains('pairing'));
-    await sleep(400);
-    log('B3  after the dwell it OFFERS the group',
+    await sleep(950);
+    log('B3  after the full second it OFFERS the group',
         onto.classList.contains('pairing') && onto.classList.contains('drop-into'),
         onto.className.replace('task ', ''));
     log('B4  and draws both rows in the rail it would create',
@@ -758,7 +767,7 @@ const TEST = `
         !onto.classList.contains('pairing') && !mover.classList.contains('pairing'));
     // And it re-arms on returning, rather than being spent.
     pt('pointermove', dwBox.left + 90, restY);
-    await sleep(600);
+    await sleep(1150);
     log('B7  and it re-arms on coming back', onto.classList.contains('pairing'));
     const callsBeforePair = window.__CALLS.length;
     pt('pointerup', dwBox.left + 90, restY);
@@ -836,7 +845,11 @@ const TEST = `
             above.closest('.group') ? 'already inside' : 'outside');
         // And just below it: in.
         pt('pointermove', ab.left + 90, titleMid + 4);
-        log('P2  at the title midpoint it enters the group',
+        log('P1b and it does NOT enter merely by arriving there',
+            above.closest('.group') === null,
+            above.closest('.group') ? 'joined instantly' : 'waiting for the dwell');
+        await sleep(1150);
+        log('P2  at the title midpoint, after the dwell, it enters the group',
             above.closest('.group') === enterGroup,
             above.closest('.group') ? 'inside' : 'still outside, header is '
               + (firstMemberTop - gb.top).toFixed(0) + 'px tall');
@@ -858,6 +871,43 @@ const TEST = `
         log('P6  and moving again does not resume it',
             document.querySelector('#drag-layer .held') === null);
       }
+    }
+
+    // ========== carrying a card PAST a group must cost nothing ==========
+    // Two containers claiming one card as it passes is what "it jitters up and
+    // down" is made of: the top-level order displaces the neighbours one way, the
+    // group displaces its members the other, and a plain reorder handed the card
+    // between them. Passing must now be free; only stopping commits.
+    // Any section that still has a group with a loose row above it — earlier tests
+    // move rows between sections, so naming one is a coin toss.
+    let jGroup = null, jMover = null;
+    for (const section of document.querySelectorAll('#task-list section')) {
+      const group = section.querySelector(':scope > .group');
+      if (!group) continue;
+      const above = [...section.children].filter(child => child.matches('.task'))
+        .find(row => row.getBoundingClientRect().top < group.getBoundingClientRect().top);
+      if (above) { jGroup = group; jMover = above; break; }
+    }
+    out.push('DIAG pass-through test: ' + (jGroup ? 'found a group with a row above it'
+      : 'NO section has a group with a loose row above it'));
+    if (jGroup && jMover) {
+      const gb = jGroup.getBoundingClientRect();
+      const mb = jMover.getBoundingClientRect();
+      const from = mb.top + mb.height / 2;
+      pt('pointerdown', mb.left + 90, from, jMover);
+      pt('pointermove', mb.left + 96, from);
+      const joins = [];
+      // Sweep the card's centre clean through the group, 3px at a time, without
+      // ever pausing.
+      for (let y = gb.top - 10; y <= gb.bottom + 10; y += 3) {
+        pt('pointermove', mb.left + 90, y);
+        if (jMover.closest('.group')) joins.push(Math.round(y - gb.top));
+      }
+      log('J1  sweeping straight through a group never joins it', joins.length === 0,
+          joins.length ? 'joined at +' + joins.join(', +') + 'px into the group'
+            : 'passed cleanly over ' + Math.round((gb.height + 20) / 3) + ' samples');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(400);
     }
   } catch (error) {
     out.push('THREW  ' + error.message + '\\n' + error.stack);

@@ -23,8 +23,9 @@ function clearDropAffordance(root) {
       'drop-into', 'drop-zone', 'emptying', 'pairing'));
 }
 
-// How long the card has to rest over a row before grouping is offered, and how
-// that offer is drawn.
+// How long the card has to rest on a target before a GROUPING is offered — either
+// pairing with a loose row or entering an existing group — and how that offer is
+// drawn.
 //
 // The band alone could not satisfy both things asked for — make grouping stricter
 // than reordering, then *"it basically feels impossible to trigger the group
@@ -33,17 +34,32 @@ function clearDropAffordance(root) {
 // are moving, grouping when you stop, so making one easier cannot make the other
 // harder.
 //
-// 420ms is long enough that carrying a row past another does not arm it and short
-// enough to feel like an answer rather than a wait. It is armed rather than
-// applied: the preview appears first and one pixel of movement takes it back, which
-// is what *"signaling to the user 'hey looks like you want to make a group,
-// right?'"* asks for.
-const PAIR_DWELL_MS = 420;
+// A full second, asked for in those words: *"I should have to hover a task over
+// another task for a second at least in order to actually trigger the make group
+// action. Same with entering a group"* (2026-07-27). It was 420ms, which is long
+// enough not to fire while moving but short enough to fire while thinking.
+//
+// It gates ENTERING a group as well, and that is not only about difficulty. Merely
+// carrying a card past a group used to make it join — so a plain reorder handed the
+// card between the top-level order and the group in turn, each displacing its
+// neighbours the opposite way. Two containers claiming one card as it passes is
+// what "it jitters up and down" is made of, and a dwell means passing costs nothing.
+//
+// It is armed rather than applied: the preview appears first and one pixel of
+// movement takes it back, which is what *"signaling to the user 'hey looks like you
+// want to make a group, right?'"* asks for.
+//
+// The dragged row's own group is never gated. Sorting inside it and leaving it are
+// continuations of where the row already is, not commitments.
+const DWELL_MS = 1000;
 
-// The offer, drawn as the thing itself: both rows step into a group's rail and
-// indent, exactly as they will sit once the group exists. Not a symbol for the
-// outcome — the outcome, at 30% of the way there. The existing FLIP animates the
-// indent, because it is a real layout change like any other.
+// The offer, drawn as the thing itself: both rows take the group's own rail, so it
+// reads as the group that would exist rather than as a symbol for one.
+//
+// PAINT ONLY. It briefly indented them too, which narrows the title, wraps it, and
+// grows the row — so an offer flickering at a threshold moved the whole list. A
+// preview that is offered and revoked continuously may not ask the layout for
+// anything.
 function drawPairingPreview(target, dragged) {
   target.classList.add('drop-into', 'pairing');
   if (dragged) dragged.classList.add('pairing');
@@ -788,7 +804,8 @@ function wireDrag() {
     // reason the autoscroll tick re-aims.
     const over = sectionUnder(probe);
     const resting = draggedIsGroup || !over
-      ? null : rowUnder(over, probe, dragged, dragged.dataset.project);
+      ? null : dwellCandidate(over, probe, dragged, dragged.dataset.project,
+                              draggedGroup);
     if (resting !== dwellOver) {
       dwellOver = resting;
       armedPair = null;
@@ -797,11 +814,11 @@ function wireDrag() {
         if (!card || dwellOver !== resting) return;
         armedPair = resting;
         move(card.lastPointer);
-      }, PAIR_DWELL_MS) : null;
+      }, DWELL_MS) : null;
     }
 
     clearDropAffordance(list);
-    intent = dropIntent(probe, dragged, draggedIsGroup, armedPair);
+    intent = dropIntent(probe, dragged, draggedIsGroup, armedPair, draggedGroup);
     if (!intent) return;
     // The live move IS the affordance for a reorder: the row is drawn where it
     // would land, indented into a group's rail or clear of it, which says more
