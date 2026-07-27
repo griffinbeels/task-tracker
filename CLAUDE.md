@@ -924,8 +924,15 @@ Implementation plans: `docs/superpowers/plans/2026-07-25-task-tracker.md`,
 `docs/superpowers/plans/2026-07-25-task-groups.md`
 
 **The specs and plans are historical records, not current documentation — the
-code and these invariants are.** Six things in them are known-wrong and were
-corrected during implementation. `2026-07-26-drag-recategorization-design.md`
+code and these invariants are.** Seven things in them are known-wrong and were
+corrected during implementation. `2026-07-25-selection-bar-design.md:137` says
+"The bar needs `#selection-bar[hidden] { display: none }`", and its plan
+(`2026-07-25-selection-bar.md:392`) lays the bar out in the flow with a
+`margin-bottom`. Both describe the bug: in the flow the bar shoved every task
+down as it appeared, and `display: none` cannot animate. The bar is now
+`position: fixed` against the bottom edge and its `[hidden]` rule deliberately
+keeps `display: flex` — copying either line back is the way to reintroduce the
+jump and kill the slide at once. `2026-07-26-drag-recategorization-design.md`
 says under "Deliberately not in scope" that **IN PROGRESS still never
 reorders** — it does, and the design of how is invariant 28, not that file:
 the section learned to reorder the same day, once its order moved to
