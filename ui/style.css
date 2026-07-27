@@ -140,6 +140,24 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    everything else open the editor. */
 .copy svg { pointer-events: none; display: block; }
 
+/* Hover-revealed on exactly the same terms as .copy above, opacity and not
+   display for the same reason: the button holds its box in the row at all
+   times, so the title cannot shift sideways as the pointer arrives.
+   The one deliberate difference is the colour. Every other control in a row
+   is drawn in the row's own text colour, because every other control acts on
+   the row; this one opens a window outside this app, and #d77757 is the
+   character's own orange, sampled from a real session rather than guessed.
+   It sits a little brighter at rest-on-hover than .copy's .6 — an orange
+   glyph at .6 against this background reads as disabled. */
+.claude { opacity: 0; display: flex; align-items: center; padding: 2px;
+          color: #d77757; background: none; border: none; border-radius: 4px;
+          cursor: pointer; }
+.task:hover .claude { opacity: .75; }
+.task:hover .claude:hover { opacity: 1; background: rgba(215, 119, 87, .18); }
+/* Same reason as .copy svg: the click target must be the <button>, or
+   taskRow's row-click handler opens the editor underneath it. */
+.claude svg { pointer-events: none; display: block; }
+
 /* Higher elevation than NOW: a Claude session is running against these right
    now. Boxed rather than merely first, so it reads as a different kind of
    thing than the three buckets below it. */

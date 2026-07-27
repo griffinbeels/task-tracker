@@ -13,6 +13,22 @@ const COPIED_ICON = `
        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="20 6 9 17 4 12"></polyline>
   </svg>`;
+// The Claude character, measured off the source art rather than traced by eye:
+// a 16x16 pixel grid, so at a 16px render every unit is exactly one CSS pixel
+// and no edge lands mid-pixel. The silhouette is one closed outline — body,
+// arm band and four legs traced as a single subpath, because two adjacent
+// subpaths sharing an edge can leave an anti-aliasing seam — and the two eyes
+// are separate subpaths that become holes under fill-rule="evenodd".
+//
+// Inline SVG rather than a bitmap for two reasons: it is static markup with no
+// user-authored text in it, exactly like the two icons above, so innerHTML is
+// safe here (invariant 5); and it has to stay sharp under the zoom feature,
+// which a PNG would not.
+const CLAUDE_ICON = `
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+    <path fill-rule="evenodd" d="M2 3H14V7H16V9H14V11H13V13H12V11H11V13H10V11H6V13H5V11H4V13H3V11H2V9H0V7H2Z
+                                 M4 5H5V7H4Z M11 5H12V7H11Z"></path>
+  </svg>`;
 
 // Open only: an in-progress task lives in the IN PROGRESS section instead, and
 // keeps its bucket untouched the whole time so it lands back where it came
@@ -41,6 +57,7 @@ function taskRow(task, options = {}) {
     <span class="dot"></span>
     <span class="type"></span>
     <span class="title"></span>
+    <button class="claude" title="Spin up Claude">${CLAUDE_ICON}</button>
     <button class="copy" title="Copy as a prompt">${COPY_ICON}</button>
     <button class="done" title="Mark done">done</button>`;
   // task.title and task.type are user-authored free text (store.py's Task.type
@@ -122,7 +139,9 @@ function taskRow(task, options = {}) {
           { bucket: target, order }) === API_FAILED) return;
       await refresh();
     };
-    row.querySelector('.copy').before(bucketPicker);
+    // Before the Claude button, which is the first of the three action
+    // controls: start, copy, finish, left to right.
+    row.querySelector('.claude').before(bucketPicker);
   }
 
   if (showReset) {
@@ -159,6 +178,18 @@ function taskRow(task, options = {}) {
       copyButton.innerHTML = COPY_ICON;
       copyButton.classList.remove('copied');
     }, 1200);
+  };
+
+  // Start this task the way the header's Spin up would, without the round trip
+  // through the checkbox — tick it, reach for the header, press the button,
+  // untick. What it acts on is aimedAt's answer (ui/selection.js): this row on
+  // its own, or the whole selection when this row is part of one. That is the
+  // same rule the `done` two controls along obeys, and it is written once so
+  // the two cannot answer the same click differently.
+  row.querySelector('.claude').onclick = async () => {
+    const aimed = aimedAt(task.project, [task.id]);
+    if (!aimed) return;
+    await handOff(aimed.project, aimed.ids, aimed.fromSelection);
   };
 
   row.querySelector('.done').onclick = async () => {
@@ -342,22 +373,83 @@ document.getElementById('task-list').addEventListener('change', event => {
   if (event.target.classList.contains('select')) renderHandoffName();
 });
 
+// Put back ticks a refresh threw away. Rows are matched by project and id and
+// never by position: the task that just launched has moved to IN PROGRESS, and
+// everything that was below it has shifted up.
+//
+// Matched by walking the rows rather than by building a selector, because a
+// project name is user-authored text out of a hand-editable file — a quote or
+// a bracket in one would break a selector string, which is invariant 5's
+// concern wearing a different hat.
+//
+// A group header's own box is DERIVED here rather than remembered: a header
+// whose every member is ticked is exactly what that box means, and leaving it
+// empty under a fully ticked group is the same broken-render defect as leaving
+// it ticked under an empty one.
+function restoreTicks(picked) {
+  if (!picked.length) return;
+  const wanted = new Set(picked.map(({ project, id }) => `${project} ${id}`));
+  document.querySelectorAll('.task').forEach(row => {
+    if (wanted.has(`${row.dataset.project} ${row.dataset.id}`)) {
+      row.querySelector('.select').checked = true;
+    }
+  });
+  document.querySelectorAll('.group').forEach(container => {
+    const boxes = [...container.querySelectorAll('.task .select')];
+    const header = container.querySelector('.select-group');
+    if (header && boxes.length) header.checked = boxes.every(box => box.checked);
+  });
+  // Assigning .checked fires no change event, so the two things that listen for
+  // one have to be called by hand — the same reason the group header's own
+  // select-all box calls them.
+  renderSelectionBar();
+  renderHandoffName();
+}
+
+// The one place a hand-off is performed. The header's Spin up and every row's
+// Claude button both end here, so the batch name, the refresh and what becomes
+// of the ticks cannot come out differently depending on which control was
+// pressed — the same reasoning that puts build_prompt behind both the copy
+// button and the hand-off on the Python side.
+// test_only_one_call_site_hands_tasks_to_claude fails the build on a second
+// callApi('hand_off', ...) anywhere in the UI.
+//
+// fromSelection answers "was the selection what launched", and both decisions
+// below follow from that one answer. The name row is read only when it was: the
+// row is hidden below two ticks and its value can be left over from a larger
+// selection, so passing it to a single-task hand-off would name a side task
+// after a batch that is still sitting there staged. And the ticks are restored
+// only when it was NOT: refresh() rebuilds #task-list with replaceChildren, so
+// every checkbox comes back a new, unchecked element, and a hand-off fired from
+// an unticked row would otherwise silently clear a batch the user had spent
+// time staging.
+//
+// The failure path needs no branch: it returns before refresh(), so nothing was
+// re-rendered and there is nothing to put back.
+async function handOff(project, ids, fromSelection) {
+  const nameRow = document.getElementById('handoff-name');
+  const nameInput = document.getElementById('handoff-name-input');
+  const name = fromSelection && !nameRow.hidden ? nameInput.value.trim() : '';
+  const keep = fromSelection ? [] : selectedIds();
+  if (await callApi('hand_off', project, ids, name) === API_FAILED) return;
+  // Otherwise the next batch inherits this one's name.
+  nameInput.value = '';
+  await refresh();
+  restoreTicks(keep);
+}
+
 document.getElementById('spin-up').onclick = async () => {
   // selectedInOneProject (selection.js) owns the per-project rule for every
   // caller: it falls back to currentProject when nothing is ticked, and
   // alerts and returns null on a mixed-project selection (invariant 6).
+  //
+  // Not aimedAt: this is not a row button, so there is no row to be inside or
+  // outside the selection, and the "nothing ticked opens an empty session in
+  // the current project" fallback is selectedInOneProject's rather than that
+  // rule's. What it launches IS the selection, which is what it passes on.
   const picked = selectedInOneProject();
   if (!picked) return;
-  const nameRow = document.getElementById('handoff-name');
-  const nameInput = document.getElementById('handoff-name-input');
-  // Below two selections the row is hidden and its value may be stale from
-  // an earlier, larger selection — passing it here would silently name a
-  // single-task session after a batch that was since abandoned.
-  const name = nameRow.hidden ? '' : nameInput.value.trim();
-  if (await callApi('hand_off', picked.project, picked.ids, name) === API_FAILED) return;
-  // Otherwise the next batch inherits this one's name.
-  nameInput.value = '';
-  await refresh();
+  await handOff(picked.project, picked.ids, true);
 };
 
 function matches(task, query) {
@@ -393,6 +485,9 @@ function renderSearch(query) {
       // view's month it actually finished in (store.complete_task also
       // guards this, but removing the control here is the clearer fix).
       row.querySelector('.done').remove();
+      // Same reason, the other direction: store.start_task refuses a completed
+      // task, so this button could only ever raise.
+      row.querySelector('.claude').remove();
     }
     return row;
   });

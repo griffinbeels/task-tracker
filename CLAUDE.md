@@ -88,10 +88,10 @@ bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
-| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row. `handOff` is the **one** place a session is opened on tasks — the header's Spin up and every row's Claude button both go through it, so the batch name, the refresh and the tick restoration cannot come out differently per control |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
-| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `completeWithSelection` — what a tick means to the `done` buttons *outside* the bar, so a row, a group header and the bar are one control rather than three |
+| `ui/selection.js` | The selection bar: what is ticked, and the two things you can do to all of it. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `aimedAt` — what a tick means to every button *outside* the bar, so a row's `done`, a group header's `done` and a row's Claude button all aim at the same tasks. `completeWithSelection` is one of its two callers |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
@@ -708,6 +708,37 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
 
     Chip changes count. A discarded colour pick is a discarded decision.
 
+31. **A button outside the selection bar acts on the tasks it names — unless
+    every one of them is ticked, in which case it acts on the selection.**
+    `aimedAt` in `ui/selection.js` is that rule, and it has two callers:
+    `completeWithSelection` (every `done` in the app) and the Claude button on
+    a task row. A third control that decides for itself is the defect, and it
+    is silent in a specific way — the bar reads "4 selected", the click
+    finishes or launches exactly one of them, and that reads as the ticks being
+    ignored rather than as a button being narrower on purpose.
+
+    **`fromSelection` is one answer, not two flags.** It says whether the
+    selection was what acted, and two separate things hang off it in `handOff`:
+    the batch-name row is read only when it is true (the row is hidden below
+    two ticks and its value can be left over from a larger selection, so a
+    single-task hand-off would take a name meant for a batch still sitting
+    there staged), and **the ticks are restored only when it is false**.
+    `refresh()` rebuilds `#task-list` with `replaceChildren`, so every checkbox
+    comes back new and unchecked — without the restore, launching one unticked
+    row would silently clear a batch the user had spent time staging, which is
+    the opposite of "that row goes on its own". A group header's box is
+    *derived* on the way back rather than remembered: all members ticked is
+    exactly what it means.
+
+    The mechanism, rather than the principle: `test_only_one_call_site_hands_
+    tasks_to_claude` allows exactly one `callApi('hand_off'` across the UI
+    scripts, and `test_only_the_selection_owns_completing_tasks` keeps
+    `'complete_tasks'` inside `selection.js`. One call site is what forces a
+    new button through `handOff`/`completeWithSelection` and therefore through
+    `aimedAt`. Both search code only — `_without_comment` strips `//` first, so
+    the convention can be written down next to the code it governs. Neither can
+    see a caller that reaches the right function with the wrong ids.
+
 ## Data on disk
 
 ```
@@ -838,7 +869,28 @@ show two unrelated tasks under one id at different points in time.
   four complete, with the same confirm the bar asks. Tick those four and press
   `done` on a *fifth*, unticked row — only that row completes and the four
   stay ticked. Tick a whole group with its header box plus one loose task, and
-  press the header's own `done` — all of them go, not just the group. Four more for the
+  press the header's own `done` — all of them go, not just the group.
+
+  And seven for the row's **Claude button**, which shares that same rule
+  (invariant 31) and is the other half of it. With nothing ticked, click a
+  row's Claude face: a session opens on that task alone, named after it, and
+  the row moves to IN PROGRESS. Tick four and click the face on **one of those
+  four**: one session opens with all four, named exactly as Spin up names it —
+  and with a batch name typed in the name row, the session takes that name.
+  Tick four and click the face on a **fifth, unticked** row: only that row
+  launches and **the four stay ticked**, with the bar still reading `4
+  selected` — this is the one that a refresh silently undoes if the restore is
+  lost. Do that again with the four ticked via a group header's box: the header
+  box must come back ticked too, not only its members. Click the face on a row
+  already in IN PROGRESS: a session opens and `git status` in a tracked project
+  must show no new `started` date. Click the face and the editor must **not**
+  also open, and hovering must not shift the title sideways. In the search
+  view, an archived result must have no face at all, while a live result from
+  another project must have one that launches *that* project's task. The row is
+  one control wider than it was, so a long title now wraps a word earlier —
+  that is by design (`.title` has no ellipsis on purpose), not a regression.
+
+  Four more for the
   bar's own position, which is a floating overlay rather than a row: tick a box
   and **nothing above it may move** — the list must stay exactly where it was
   while the bar slides up from the bottom edge, and untick must slide it back
