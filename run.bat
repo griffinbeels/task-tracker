@@ -38,16 +38,36 @@ if not exist ".venv\Scripts\pythonw.exe" (
   )
 )
 
+REM --- find the shared module's checkout ---
+REM  pyproject.toml names claude-console as a dependency but deliberately gives
+REM  no path to it. This repo is public: an absolute path there would publish one
+REM  machine's home directory, a relative one cannot serve both this checkout and
+REM  a worktree four levels under it, and a git URL would install a copy and end
+REM  the live-edit property the shared module exists for. So the path is supplied
+REM  at install time, here, and the convention is that the two repos sit side by
+REM  side. Set CLAUDE_CONSOLE_PATH to override that.
+REM
+REM  Without this the install fails outright -- uv looks for claude-console on an
+REM  index, does not find it, and reports the whole requirement set unsatisfiable.
+set "CONSOLE=%CLAUDE_CONSOLE_PATH%"
+if not defined CONSOLE if exist "%~dp0..\claude-console\pyproject.toml" set "CONSOLE=%~dp0..\claude-console"
+if not defined CONSOLE if exist "%~dp0..\..\..\..\claude-console\pyproject.toml" set "CONSOLE=%~dp0..\..\..\..\claude-console"
+if not defined CONSOLE (
+  echo ERROR: could not find the claude-console checkout.
+  echo It is a required dependency and is installed from a checkout, not an index.
+  echo Clone it beside this repo, or point CLAUDE_CONSOLE_PATH at it.
+  echo.
+  pause
+  exit /b 1
+)
+
 REM --- keep dependencies in step with pyproject.toml ---
 REM  Reads pyproject.toml rather than naming packages, which is what makes the
 REM  line above true. It used to list `pywebview pyperclip pyyaml` by hand, and
 REM  the moment `claude-console` joined the dependencies that hand-written list
 REM  went stale silently: the venv came up without it and the app died on
 REM  `import claude_console` before drawing anything.
-REM
-REM  `-e .` is also what resolves claude-console at all -- it is a path source
-REM  in [tool.uv.sources], not something on an index.
-uv pip install --quiet --python ".venv\Scripts\python.exe" -e .
+uv pip install --quiet --python ".venv\Scripts\python.exe" -e "%CONSOLE%" -e .
 if errorlevel 1 (
   echo.
   echo ERROR: could not install dependencies.

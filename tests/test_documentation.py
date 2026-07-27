@@ -179,6 +179,36 @@ def test_every_invariant_number_lives_in_exactly_one_rule():
         f"unexpected: {sorted(set(owners) - expected)}")
 
 
+def test_the_launcher_supplies_every_dependency_pyproject_cannot_resolve():
+    """pyproject.toml names claude-console but gives no path to it, so whoever
+    installs has to supply one. run.bat is the only installer a user touches.
+
+    This coupling broke the moment [tool.uv.sources] came out: `uv pip install
+    -e .` on a fresh venv reports the entire requirement set unsatisfiable,
+    because claude-console is on no index. An existing venv hides it — the
+    package is already there — so the failure only appears on a fresh clone or
+    after deleting .venv, which is the worst time to find it.
+    """
+    # A table header is a line, not a substring: the comment that explains why
+    # the table is absent necessarily names it, and matching that would make
+    # this test impossible to satisfy.
+    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+    assert not [line for line in pyproject
+                if line.strip().startswith("[tool.uv.sources]")], (
+        "a [tool.uv.sources] entry is back; it can only name a path, and every "
+        "form of that is wrong here — see the comment in pyproject.toml")
+
+    launcher = (REPO / "run.bat").read_text(encoding="utf-8")
+    assert "claude-console" in launcher, (
+        "run.bat must locate the claude-console checkout, since pyproject.toml "
+        "no longer names one")
+    install = [line for line in launcher.splitlines() if "uv pip install" in line]
+    assert install, "run.bat no longer installs anything"
+    assert all("-e \"%CONSOLE%\"" in line for line in install), (
+        "run.bat's install must pass the claude-console checkout as its own "
+        f"editable, or a fresh venv cannot resolve it:\n  " + "\n  ".join(install))
+
+
 def test_the_root_map_stays_a_map():
     lines = ROOT_DOC.read_text(encoding="utf-8").splitlines()
     assert len(lines) <= ROOT_DOC_CEILING, (
