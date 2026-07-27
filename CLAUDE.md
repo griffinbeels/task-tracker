@@ -91,7 +91,7 @@ bundler.
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row. `handOffSelection` is the hand-off, and **both** Spin up Claude buttons — the toolbar's and the selection bar's — are assigned that one function |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
-| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives |
+| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `completeWithSelection` — what a tick means to the `done` buttons *outside* the bar, so a row, a group header and the bar are one control rather than three |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
@@ -832,7 +832,13 @@ show two unrelated tasks under one id at different points in time.
   without the explicit call this depends on) and that `Clear` empties the
   header box along with every row's — a header left ticked with no members
   ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
-  Spin up: the folded members must still go to the session.
+  Spin up: the folded members must still go to the session. Three for
+  `completeWithSelection`, which makes every `done` in the app one control:
+  tick four tasks and press the `done` on any one of those four rows — all
+  four complete, with the same confirm the bar asks. Tick those four and press
+  `done` on a *fifth*, unticked row — only that row completes and the four
+  stay ticked. Tick a whole group with its header box plus one loose task, and
+  press the header's own `done` — all of them go, not just the group.
 
   Four for **the bar's own Spin up Claude**, which is the toolbar's button in
   reach of the cursor that just ticked the boxes — the same
@@ -1106,9 +1112,12 @@ the tracker, select this project, and they are the backlog. Highlights:
   puts a dialog in front of the most common action in the app to serve the
   rarest one. If this is ever picked up, the shape to build is a field in the
   editor for a done task, beside Restore.
-- **Restore is singular.** `store.restore_task` and `Api.restore_task` mirror
-  `complete_task` exactly, one task at a time; nothing restores a whole batch
-  out of `done/` the way the selection bar and a group header complete one.
+- **Restore is singular.** `store.restore_task` mirrors `store.complete_task`
+  exactly, one task at a time, and `Api.restore_task` is the only bridge method
+  of the pair left: completing has no singular one any more, because every
+  `done` in the app now goes through `Api.complete_tasks` (a batch of one is a
+  batch). Nothing restores a whole batch out of `done/` the way the selection
+  bar, a group header and a task row all complete one.
 - **Two groups can never be merged**, by drag or on spin-up — both paths refuse
   rather than guess which name survives. If that becomes wanted it needs an
   explicit gesture with an explicit choice.

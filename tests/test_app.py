@@ -228,7 +228,10 @@ def test_editing_a_completed_task_does_not_drag_its_old_group_around(tmp_path):
     finished = store.create_task(repo, "One", "body", "BUG")
     still_open = store.create_task(repo, "Two", "body", "BUG")
     app.Api().group_tasks("repo", [finished.id, still_open.id], "Editor polish")
-    app.Api().complete_task("repo", finished.id)
+    # Through the bridge, not store.complete_task: grouping rewrote the file,
+    # so the `finished` object in hand is stale and completing it directly
+    # would write the pre-group version back and destroy the premise.
+    app.Api().complete_tasks("repo", [finished.id])
 
     app.Api().update_task("repo", finished.id, {"bucket": "someday"})
 
@@ -597,7 +600,7 @@ def test_delete_tasks_leaves_another_project_alone(tmp_path):
 def test_restore_task_returns_the_reopened_task(tmp_path):
     repo = make_repo(tmp_path)
     task = store.create_task(repo, "Finished", "body", "BUG")
-    app.Api().complete_task("repo", task.id)
+    app.Api().complete_tasks("repo", [task.id])
 
     payload = app.Api().restore_task("repo", task.id)
 
@@ -611,7 +614,7 @@ def test_restore_task_returns_the_reopened_task(tmp_path):
 def test_a_restored_task_is_open_on_disk(tmp_path):
     repo = make_repo(tmp_path)
     task = store.create_task(repo, "Finished", "body", "BUG")
-    app.Api().complete_task("repo", task.id)
+    app.Api().complete_tasks("repo", [task.id])
 
     app.Api().restore_task("repo", task.id)
 
@@ -619,16 +622,18 @@ def test_a_restored_task_is_open_on_disk(tmp_path):
 
 
 def test_restore_task_closes_the_hole_the_completion_left(tmp_path):
-    # complete_task does not renumber, so the bucket a restore lands in has a
-    # gap in its order run — the one bucket in the app that reliably does.
-    # Without the renumber here the run stays 0, 2, 3 rather than 0, 1, 2, and
-    # a grouped restore into it can leave a loose task wedged between a
-    # group's members (invariant 16).
+    # store.complete_task, deliberately, because it is the completion that does
+    # NOT renumber: every path the app itself offers goes through
+    # Api.complete_tasks, which closes its own hole. This is therefore the
+    # bucket a hand-edited file leaves behind, and restore must survive it —
+    # without the renumber the run stays 0, 2, 3 rather than 0, 1, 2, and a
+    # grouped restore into it can leave a loose task wedged between a group's
+    # members (invariant 16).
     repo = make_repo(tmp_path)
     store.create_task(repo, "First", "body", "BUG")
     middle = store.create_task(repo, "Middle", "body", "BUG")
     store.create_task(repo, "Last", "body", "BUG")
-    app.Api().complete_task("repo", middle.id)
+    store.complete_task(middle)
 
     payload = app.Api().restore_task("repo", middle.id)
 

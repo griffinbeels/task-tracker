@@ -373,19 +373,18 @@ class Api:
         project = _project(project_name)
         os.startfile(store.resolve_attachment(Path(project.path), reference))
 
-    def complete_task(self, project_name, task_id):
-        _, task = self._find(project_name, task_id)
-        return _task_dict(store.complete_task(task), project_name)
-
     def restore_task(self, project_name, task_id):
         """Undo a completion — see store.restore_task for where it lands.
 
         Renumbered afterwards for the same domain rule delete_tasks and
         complete_tasks below spell out, arrived at from the other direction:
-        those two hollow a bucket out, this one adds into a bucket already
-        hollowed out by the completion it is undoing. Reread rather than
-        returned straight from the store call, because the renumber can move
-        the task's order again and the payload must say what is on disk.
+        those two hollow a bucket out, this one adds back into it. The
+        completion being undone repaired its own hole on the way through, so
+        the usual case is already contiguous and this is the belt to that
+        braces — store.restore_task takes max(order) + 1 over whatever the
+        files hold, and those are hand-editable. Reread rather than returned
+        straight from the store call, because the renumber can move the task's
+        order again and the payload must say what is on disk.
         """
         project, task = self._find(project_name, task_id)
         restored = store.restore_task(task)
