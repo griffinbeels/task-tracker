@@ -58,11 +58,17 @@ does not quietly reformat prose you wrote by hand.
 
 Select tasks and press the **Claude button** — the little Claude face, in the
 toolbar and again in the selection bar. A terminal opens in that project's
-directory and your tasks are typed into its prompt box — one per line, as
-`FEATURE: what you wrote` — and left there unsent, so you can edit or add to
-them before hitting Enter. Nothing is appended to what you wrote.
+directory and each task's **file path** is typed into its prompt box — one
+absolute path per line, and nothing else — left there unsent, so you can edit
+or add to them before hitting Enter.
 
-The same text also goes to the clipboard, as the fallback for a session that
+A pointer rather than a copy, because a session opened on the project can read
+the task itself. The file carries what a prompt box never could: the type, the
+group, the dates, any pasted screenshot's absolute path, and your prose still
+formatted as the markdown you wrote it as, lists and numbering included.
+Nothing converts a task body on the way out, so nothing can mangle it.
+
+The same paths also go to the clipboard, as the fallback for a session that
 takes too long to come up. With no tasks selected the button still works: it
 just opens a session in the current project with an empty prompt.
 
