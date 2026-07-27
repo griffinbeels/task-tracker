@@ -50,7 +50,7 @@ function wireDrag() {
   let draggedGroup = null;
   let draggedFrom = null;
   let intent = null;
-  // Where the preview picked the block up from. The live move in `dragover` is
+  // Where the preview picked the block up from. The live move in `pointermove` is
   // a REAL DOM move, and nothing else ever undoes it — so a gesture that wrote
   // nothing used to leave the list showing a position that was never saved,
   // for as long as it took something else to force a render. The next rename,
@@ -58,11 +58,18 @@ function wireDrag() {
   // having reset the task's position. Nothing on screen may claim a place that
   // was not written.
   let startedAt = null;
-  // Set the instant `drop` commits to acting. `dragend` fires immediately after
-  // drop's synchronous part (and on its own when there was no drop at all —
-  // released outside the list, or cancelled with Escape), so this flag is the
-  // only thing that can tell those two endings apart from inside dragend.
-  let wrote = false;
+  // The card, and the numbers that place it. Null except during a drag.
+  let card = null;
+  // A press that has not yet moved far enough to be a drag. Below the threshold
+  // the gesture is a click, and that is what keeps click-to-open-the-editor and
+  // double-click-to-rename working on the same pixels a drag starts from.
+  let press = null;
+  const THRESHOLD = 4;
+
+  // `wrote` used to live here, because `dragend` fired immediately after drop's
+  // synchronous part and was the only thing that could tell an abandoned gesture
+  // from a claimed one. There is one ending function now and it is told which
+  // kind it is, so the flag has nothing left to disambiguate.
 
   // Put the block back where the drag found it. Cheap to call twice: the first
   // call clears the record.
@@ -75,41 +82,163 @@ function wireDrag() {
       element, before && before.parentElement === parent ? before : null);
   }
 
-  list.addEventListener('dragstart', event => {
+  // A drag ends in a `click`, and the native API used to swallow it for us.
+  // Pointer events do not: pointerdown/pointerup on a row is a click as far as
+  // the browser is concerned, so without this every single drop would also open
+  // the editor — and not necessarily on the row you dragged, since the preview
+  // has moved things and the click lands on whatever is under the pointer.
+  //
+  // Capture phase on `window`, so it runs before the row's own onclick. Cleared
+  // on the next pointerdown as well as on use, because a pointerup outside the
+  // document produces no click at all and a flag left standing would eat the next
+  // legitimate one.
+  let swallowClick = false;
+  window.addEventListener('click', event => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+
+  // A press on a row, remembered but not yet acted on.
+  list.addEventListener('pointerdown', event => {
+    swallowClick = false;
+    if (event.button !== 0) return;
+    // A control does its own job. This ONE guard replaced
+    // releaseDragWhileUsing's eight per-control registrations, and unlike them it
+    // covers every control added later — the eighth arrived with the Claude
+    // button. The two rename boxes are here for the same reason: selecting text
+    // with the mouse inside `draggable="true"` started a drag instead, which is
+    // what the two `draggable = false` dances in the rename paths existed for.
+    if (event.target.closest('input, select, button, .title-input, .group-name-input')) return;
     const header = event.target.closest('.group-header');
-    dragged = header ? header.parentElement : event.target.closest('.task');
-    draggedIsGroup = Boolean(header);
-    startedAt = dragged
-      ? { element: dragged, parent: dragged.parentElement,
-          before: dragged.nextSibling }
-      : null;
-    wrote = false;
-    const container = dragged ? dragged.closest('.group') : null;
-    draggedGroup = container ? container.dataset.group : null;
-    // The container it STARTED in — its group if it is in one, otherwise its
-    // section. Read once and now: the preview moves the element, so asking
-    // later would answer with wherever the last dragover put it. A dragged
-    // group is not inside itself; its container is its section.
-    const from = dragged
-      ? dragged.closest('section[data-bucket], #in-progress') : null;
-    draggedFrom = draggedIsGroup ? from : ((dragged && dragged.closest('.group')) || from);
-    intent = null;
+    const element = header ? header.parentElement : event.target.closest('.task');
+    if (!element) return;
+    // The permission the two undraggable views set (search, all projects), and
+    // the same class the grab cursor hangs off.
+    if ((header || element).classList.contains('nodrag')) return;
+    press = { element, isGroup: Boolean(header), x: event.clientX, y: event.clientY };
   });
 
-  list.addEventListener('dragend', () => {
-    // The only signal a drag that never reached `drop` gives at all: released
-    // outside #task-list — the header, the selection bar, past the window edge
-    // — or cancelled with Escape. Nothing was written, so nothing may be left
-    // looking moved.
-    if (!wrote) undoPreview();
+  // Lift: build the card, turn the row into the gap, and record where it was.
+  function begin(event) {
+    const { element, isGroup } = press;
+    const layer = document.getElementById('drag-layer');
+    // Flush anything a previous drop left mid-flight. Nothing does yet — the
+    // settle arrives in a later task — but a stale card holds a stale gap, and
+    // `.held` would then resolve to the wrong element and track nothing.
+    layer.replaceChildren();
+    list.querySelectorAll('.dragging-source').forEach(
+      stale => stale.classList.remove('dragging-source'));
+
+    const box = element.getBoundingClientRect();
+    const held = element.cloneNode(true);
+    held.classList.add('held');
+    held.style.width = box.width + 'px';
+    layer.append(held);
+
+    // `position: fixed` does NOT resolve against the viewport inside an element
+    // carrying CSS `zoom`, and #drag-layer is a zoom region on purpose. Probe the
+    // mapping instead of reasoning about it: two writes and two reads give the
+    // origin and the scale together, and cannot be wrong about the engine.
+    held.style.left = '0px';
+    held.style.top = '0px';
+    const at0 = held.getBoundingClientRect();
+    held.style.left = '100px';
+    held.style.top = '100px';
+    const at100 = held.getBoundingClientRect();
+
+    card = {
+      held,
+      origin: { x: at0.left, y: at0.top },
+      scale: { x: (at100.left - at0.left) / 100, y: (at100.top - at0.top) / 100 },
+      size: { w: box.width, h: box.height },
+      grabX: press.x - box.left, grabY: press.y - box.top,
+      startX: press.x,
+    };
+    held.style.transformOrigin = card.grabX + 'px ' + card.grabY + 'px';
+
+    dragged = element;
+    draggedIsGroup = isGroup;
+    startedAt = { element, parent: element.parentElement, before: element.nextSibling };
+    const container = element.closest('.group');
+    draggedGroup = container ? container.dataset.group : null;
+    // The container it STARTED in — its group if it is in one, otherwise its
+    // section. Read once and now: the preview moves the element, so asking later
+    // would answer with wherever the last move put it. A dragged group is not
+    // inside itself; its container is its section.
+    const from = element.closest('section[data-bucket], #in-progress');
+    draggedFrom = isGroup ? from : (container || from);
+    intent = null;
+
+    element.classList.add('dragging-source');
+    document.body.classList.add('dragging');
+    move(event);
+
+    // The lift, as a CSS transition rather than element.animate(fill:'forwards').
+    // A forwards-filling WAAPI animation outranks the inline style for the
+    // property it animates for as long as it exists, so a later measurement that
+    // clears the transform would still read the lift's scale back. A transition
+    // writes the inline style, so there is one source of truth for `transform`.
+    held.style.transform = 'scale(1)';
+    requestAnimationFrame(() => {
+      if (card && card.held === held) held.style.transform = 'scale(1.05)';
+    });
+  }
+
+  // Every ending, told which one it is. This is `dragend` and `drop` collapsed
+  // into one function, which is why `wrote` is gone: the caller knows.
+  async function finish(cancelled) {
+    swallowClick = true;
+    const settled = intent;
+    const row = dragged;
+    const wasInGroup = draggedGroup;
+    const wasGroup = draggedIsGroup;
+    if (card) { card.held.remove(); card = null; }
+    if (row) row.classList.remove('dragging-source');
+    document.body.classList.remove('dragging');
     clearDropAffordance(list);
     dragged = null;
     intent = null;
+    // Nothing was written, so nothing may be left looking moved. The preview is a
+    // REAL DOM move and this is the only thing that ever undoes it.
+    if (cancelled || !settled || !row) { undoPreview(); return; }
+    await commit(settled, row, wasInGroup, wasGroup);
+  }
+
+  window.addEventListener('pointermove', event => {
+    if (card) { move(event); return; }
+    if (!press) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < THRESHOLD) return;
+    begin(event);
+  });
+  // On `window`, not on #task-list, and deliberately not via setPointerCapture: a
+  // drag that leaves the list must keep tracking and a release out there must
+  // still end it — the header, the selection bar, past the window edge. Capture
+  // would do the same job and throws when the pointer id is not active, which
+  // also makes the whole gesture impossible to drive with a synthetic event.
+  window.addEventListener('pointerup', () => { press = null; if (card) finish(false); });
+  window.addEventListener('pointercancel', () => { press = null; if (card) finish(true); });
+  window.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !card) return;
+    event.preventDefault();
+    press = null;
+    finish(true);
   });
 
-  list.addEventListener('dragover', event => {
-    event.preventDefault();
-    if (!dragged) return;
+  function move(event) {
+    const { held, origin, scale, grabX, grabY, startX } = card;
+    // Rail-locked: the card tracks vertically and never sideways, so it stays
+    // over the column it came from and reads as the row itself lifted out of the
+    // list rather than as a thing flying around near it.
+    //
+    // 1:1 with the pointer and with NO easing. This is the one thing in the whole
+    // feature that must not be animated.
+    const cardX = startX - grabX;
+    const cardY = event.clientY - grabY;
+    held.style.left = ((cardX - origin.x) / scale.x) + 'px';
+    held.style.top = ((cardY - origin.y) / scale.y) + 'px';
+
     clearDropAffordance(list);
     intent = dropIntent(event, dragged, draggedIsGroup);
     if (!intent) return;
@@ -119,7 +248,7 @@ function wireDrag() {
     // excluded, so inserting it cannot change the answer that put it there.
     if (intent.preview) {
       const { container, before } = intent.preview;
-      // Only when it actually moves. dragover fires continuously, and an
+      // Only when it actually moves. pointermove fires every frame, and an
       // insertBefore that changes nothing still invalidates layout for every
       // rect read on the next one.
       if (dragged.parentElement !== container || dragged.nextSibling !== before) {
@@ -149,23 +278,12 @@ function wireDrag() {
       intent.into.classList.add(
         intent.into === intent.section ? 'drop-zone' : 'drop-into');
     }
-  });
+  }
 
-  list.addEventListener('drop', async event => {
-    event.preventDefault();
-    clearDropAffordance(list);
-    const settled = intent;
-    const row = dragged;
-    const wasInGroup = draggedGroup;
-    const wasGroup = draggedIsGroup;
-    dragged = null;
-    intent = null;
-    // The destination refused this drop — a cross-project one, or a claim that
-    // would change nothing. The preview moved the block for real on the way
-    // here, so take it back: a refusal that leaves the row sitting where it was
-    // never written is indistinguishable from a drop that worked.
-    if (!settled || !row) { undoPreview(); return; }
-    wrote = true;
+  // What a drop actually writes. Reached only from `finish`, and only for a
+  // gesture that resolved to something — the refusals and the cancellations are
+  // handled there, where the preview is taken back.
+  async function commit(settled, row, wasInGroup, wasGroup) {
     // The row's OWN project, never currentProject. In a bucket section the two
     // are the same; in IN PROGRESS, which spans projects, they are not — and
     // dropIntent has already refused any drop across two of them.
@@ -185,8 +303,8 @@ function wireDrag() {
       const born = await callApi('create_group', project,
         [targetId, Number(row.dataset.id)], target ? target.title : 'New group');
       // Redraw rather than return bare. callApi has already said what went
-      // wrong, but the preview has moved the row and dragend has already run
-      // and declined to undo it (this path claimed the drop), so the list is
+      // wrong, but the preview has moved the row and `finish` left it there —
+      // this path claimed the gesture — so the list is
       // showing a pairing that does not exist. A refresh is the only thing that
       // can be right here — it draws whatever actually landed on disk, which
       // for a half-failed pair is not something the DOM could work out. Same at
@@ -248,9 +366,11 @@ function wireDrag() {
                         destination, ids);
       if (outcome === API_FAILED) { await refresh(); return; }
     }
-    // Read after the call above, deliberately: dragend has already fired by
-    // now, and it leaves the preview alone once the drop has claimed it (see
-    // `wrote`), so the DOM here still says where the user let go.
+    // Read after the call above, deliberately. `finish` leaves the preview in
+    // place for a claimed gesture — it only takes it back on a refusal or a
+    // cancellation — so the DOM here still says where the user let go. This used
+    // to be a statement about `dragend` having already fired and honoured
+    // `wrote`; one ending function makes it a statement about one branch.
     if (settled.positioned === 'wip' && await callApi('set_in_progress_order',
         inProgressOrderFromDom(settled.section)) === API_FAILED) {
       await refresh();
@@ -263,9 +383,10 @@ function wireDrag() {
       await forgetFoldIfEmptied(project, wasInGroup);
     }
     await refresh();
-  });
+  }
 }
 
 // Bound once, at load. Inside a render function this would stack a duplicate
-// listener on every redraw; #task-list outlives all of them.
+// listener on every redraw; #task-list outlives all of them — and the pointer
+// listeners are on `window`, which outlives everything.
 wireDrag();

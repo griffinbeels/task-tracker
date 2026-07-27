@@ -515,6 +515,51 @@ def _without_comment(line):
     return line.split("//")[0]
 
 
+def test_the_selection_is_read_from_the_list_only():
+    """A row's clone is not a row, and six queries could not tell the difference.
+
+    Dragging now lifts a `position: fixed` CLONE of the row into `#drag-layer` —
+    checkboxes, group container, `data-project` and `data-id` all copied. Every
+    document-wide query for `.task`, `.group`, `.select` or `.select-group` then
+    finds one more of each than the list holds, and each consequence is silent
+    and separately wrong: `selectedIds()` counts a second ticked task,
+    `restoreTicks` ticks a box in a decoration nothing can ever clear, Clear
+    reports having cleared it, and `focusGroupName` — which runs immediately
+    after a pair drop, while the card may still be settling — opens the rename
+    box inside a clone that is about to be deleted.
+
+    None of the six authors could have known: five predate the drag layer, and
+    "the rows on screen" was an exact synonym for "the rows in the list" until it
+    was not. Scoping is what makes it true again, and this is the mechanism
+    rather than the principle — a seventh unscoped query is a build failure, not
+    something a reviewer has to notice.
+
+    What it cannot catch: a query built by string concatenation, and a NEW
+    container of cloned rows that is not `#drag-layer`.
+    """
+    SELECTION_CLASSES = (".task", ".group", ".select-group", ".select")
+    offenders = []
+    for script in UI_SCRIPTS:
+        for number, line in enumerate(
+                script.read_text(encoding="utf-8").splitlines(), start=1):
+            code = _without_comment(line)
+            for match in re.finditer(
+                    r"document\.querySelectorAll?\(\s*'([^']*)'", code):
+                selector = match.group(1)
+                if not any(name in selector for name in SELECTION_CLASSES):
+                    continue
+                if "#task-list" in selector or "#drag-layer" in selector:
+                    continue
+                offenders.append(f"{script.name}:{number}  {selector}")
+
+    assert not offenders, (
+        "These query the whole document for rows, so they also find the clone "
+        "the drag lifts into #drag-layer. Scope them to `#task-list ` — or to "
+        "`#drag-layer ` if the clone really is the target:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 def test_only_the_selection_owns_completing_tasks():
     """A `done` button that completes tasks itself ignores the selection.
 

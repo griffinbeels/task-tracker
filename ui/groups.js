@@ -127,21 +127,17 @@ function caretButton(collapsed, onToggle) {
   return button;
 }
 
-// A <select> or button inside draggable="true" can start a drag instead of
-// doing its own job in Chromium — the dropdown never opens and nothing says
-// why. Suspend the header's draggability while the pointer is on the control.
-function releaseDragWhileUsing(control, header) {
-  // Restore what the header WAS, not `true`. Every header is draggable today,
-  // so the two agree — but they did not when IN PROGRESS could not reorder,
-  // and a hard `true` would have handed that section's headers a grab cursor
-  // and a drag ghost for a gesture that could never do anything. Reading the
-  // old value costs nothing and cannot go stale the way a constant can.
-  const wasDraggable = header.draggable;
-  const restore = () => { header.draggable = wasDraggable; };
-  control.addEventListener('mousedown', () => { header.draggable = false; });
-  control.addEventListener('mouseup', restore);
-  control.addEventListener('mouseleave', restore);
-}
+// `releaseDragWhileUsing` stood here, with eight call sites — one per control in
+// a header. A `<select>` or button inside `draggable="true"` starts a drag in
+// Chromium instead of doing its own job, so each control had to suspend the
+// header's draggability on mousedown and put it back on mouseup and mouseleave.
+//
+// There is no `draggable` attribute any more (drag.js), so there is nothing to
+// suspend. One guard replaced all eight: `pointerdown` starts no drag when its
+// target is inside `input, select, button`. That covers every control present
+// today and every one added later, which the per-control form could not — the
+// eighth call site arrived with the Claude button, and a ninth would have had to
+// be remembered too.
 
 function groupBlock(block, options = {}) {
   const { showBucket = true, showDisband = true, showReset = false,
@@ -155,8 +151,10 @@ function groupBlock(block, options = {}) {
   container.dataset.project = project;
 
   const header = document.createElement('div');
-  header.className = 'group-header';
-  header.draggable = headerDraggable;
+  // `.nodrag` rather than `draggable = false`: the attribute is gone, so this is
+  // now a permission drag.js reads on pointerdown, and the grab cursor hangs off
+  // the same class.
+  header.className = headerDraggable ? 'group-header' : 'group-header nodrag';
 
   const caret = caretButton(folded, () => toggleGroupCollapsed(project, block.group));
 
@@ -180,8 +178,6 @@ function groupBlock(block, options = {}) {
     ? `${total}` : `${block.tasks.length} of ${total}`;
 
   header.append(caret, selectAll, name, count);
-  releaseDragWhileUsing(caret, header);
-  releaseDragWhileUsing(selectAll, header);
 
   if (showBucket) {
     // The group owns the bucket. Moving it moves every member, which is what
@@ -201,7 +197,6 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(picker);
-    releaseDragWhileUsing(picker, header);
   }
 
   // The same control every row below carries, in the same place in the row —
@@ -227,7 +222,6 @@ function groupBlock(block, options = {}) {
     await handOff(aimed.project, aimed.ids, aimed.fromSelection);
   };
   header.append(claude);
-  releaseDragWhileUsing(claude, header);
 
   if (showReset) {
     const reset = document.createElement('button');
@@ -240,7 +234,6 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(reset);
-    releaseDragWhileUsing(reset, header);
   }
 
   // Unconditional, not behind an option: rows have `done` in both bucket
@@ -261,7 +254,6 @@ function groupBlock(block, options = {}) {
   done.onclick = () =>
     completeWithSelection(project, block.tasks.map(task => task.id));
   header.append(done);
-  releaseDragWhileUsing(done, header);
 
   if (showDisband) {
     // The undo for a mis-drag. Members stay exactly where they are.
@@ -279,7 +271,6 @@ function groupBlock(block, options = {}) {
       await refresh();
     };
     header.append(disband);
-    releaseDragWhileUsing(disband, header);
   }
 
   const rows = block.tasks.map(task => taskRow(task, {
@@ -322,13 +313,11 @@ function groupBlock(block, options = {}) {
 // name (callApi has already said why) keeps what was typed and the focus, so
 // it can be fixed rather than retyped.
 function renameInPlace(nameElement, project, current) {
-  // A text box inside draggable="true" cannot be selected with the mouse in
-  // Chromium — the drag starts instead. Suspend the header's own draggability
-  // for as long as the box is open.
-  const header = nameElement.closest('.group-header');
-  const restoreDrag = () => { if (header) header.draggable = true; };
-  if (header) header.draggable = false;
-
+  // Nothing to suspend any more. This used to set `header.draggable = false` for
+  // as long as the box was open, because a text box inside `draggable="true"`
+  // cannot be selected with the mouse in Chromium — the drag starts instead.
+  // drag.js refuses to start a drag from inside an `input`, so selecting text in
+  // here is just selecting text.
   const input = document.createElement('input');
   input.className = 'group-name-input';
   input.value = current;
@@ -342,7 +331,6 @@ function renameInPlace(nameElement, project, current) {
     const wanted = input.value.trim();
     if (!wanted || wanted === current) {
       input.replaceWith(nameElement);
-      restoreDrag();
       return;
     }
     committing = true;
@@ -367,7 +355,6 @@ function renameInPlace(nameElement, project, current) {
     if (event.key === 'Escape') {
       input.onblur = null;
       input.replaceWith(nameElement);
-      restoreDrag();
     }
   };
 }
@@ -377,7 +364,11 @@ function renameInPlace(nameElement, project, current) {
 // when a task joins one — a suggested value is written once, into an untouched
 // box (CLAUDE.md invariant 11).
 function focusGroupName(project, name) {
-  const container = [...document.querySelectorAll('.group')].find(
+  // #task-list, not the document: this runs immediately after a pair drop, when
+  // #drag-layer may still hold the dragged row's clone — and a clone of a group
+  // matches project and name exactly, so an unscoped query can open the rename
+  // box inside a decoration that is about to be deleted.
+  const container = [...document.querySelectorAll('#task-list .group')].find(
     element => element.dataset.project === project && element.dataset.group === name);
   // Calls the thing directly rather than synthesising the gesture that reaches
   // it. This used to fire .click(), which stopped opening anything the moment

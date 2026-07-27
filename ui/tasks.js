@@ -48,8 +48,11 @@ function tasksFor(project, bucket) {
 function taskRow(task, options = {}) {
   const { showBucket = true, showReset = false, draggable = true } = options;
   const row = document.createElement('div');
-  row.className = 'task';
-  row.draggable = draggable;
+  // `.nodrag` rather than the `draggable` attribute, which is gone (drag.js).
+  // It is a permission the pointerdown handler reads, and the grab cursor hangs
+  // off the same class — so a row that cannot be dragged no longer advertises
+  // that it can, which the attribute form never managed.
+  row.className = draggable ? 'task' : 'task nodrag';
   row.dataset.id = task.id;
   row.dataset.project = task.project;
   row.innerHTML = `
@@ -227,13 +230,9 @@ function taskRow(task, options = {}) {
 // task.project, never currentProject (invariant 6): every one of those three
 // views can show a row from a project other than the selected one.
 function renameTaskInPlace(titleElement, task) {
-  const row = titleElement.closest('.task');
-  // A text box inside draggable="true" cannot be selected with the mouse in
-  // Chromium — the drag starts instead. Same trap as renameInPlace.
-  const wasDraggable = row.draggable;
-  row.draggable = false;
-  const restore = () => { row.draggable = wasDraggable; };
-
+  // Nothing to suspend any more, same as renameInPlace: a text box inside
+  // `draggable="true"` could not be selected with the mouse in Chromium, and
+  // there is no such attribute now. drag.js starts no drag from inside an input.
   const input = document.createElement('input');
   input.className = 'title-input';
   input.value = task.title;
@@ -247,7 +246,6 @@ function renameTaskInPlace(titleElement, task) {
     const wanted = input.value.trim();
     if (!wanted || wanted === task.title) {
       input.replaceWith(titleElement);
-      restore();
       return;
     }
     committing = true;
@@ -274,7 +272,6 @@ function renameTaskInPlace(titleElement, task) {
     if (event.key === 'Escape') {
       input.onblur = null;
       input.replaceWith(titleElement);
-      restore();
     }
   };
 }
@@ -301,7 +298,10 @@ function bucketSection(bucket) {
 // those can be answered by a listener that only sees one section.
 
 function selectedIds() {
-  return [...document.querySelectorAll('.task .select:checked')]
+  // #task-list, not the document: #drag-layer holds a CLONE of the row being
+  // dragged, checkboxes and all, and an unscoped query counts it as a second
+  // ticked task (see test_the_selection_is_read_from_the_list_only).
+  return [...document.querySelectorAll('#task-list .task .select:checked')]
     .map(el => ({ project: el.closest('.task').dataset.project,
                   id: Number(el.closest('.task').dataset.id) }));
 }
@@ -396,12 +396,14 @@ document.getElementById('task-list').addEventListener('change', event => {
 function restoreTicks(picked) {
   if (!picked.length) return;
   const wanted = new Set(picked.map(({ project, id }) => `${project}\0${id}`));
-  document.querySelectorAll('.task').forEach(row => {
+  // #task-list-scoped, both of them: a dragged row's clone lives in #drag-layer
+  // and would be ticked here too, which is a tick nothing can ever clear.
+  document.querySelectorAll('#task-list .task').forEach(row => {
     if (wanted.has(`${row.dataset.project}\0${row.dataset.id}`)) {
       row.querySelector('.select').checked = true;
     }
   });
-  document.querySelectorAll('.group').forEach(container => {
+  document.querySelectorAll('#task-list .group').forEach(container => {
     const boxes = [...container.querySelectorAll('.task .select')];
     const header = container.querySelector('.select-group');
     if (header && boxes.length) header.checked = boxes.every(box => box.checked);
@@ -516,7 +518,7 @@ function renderSearch(query) {
   const list = document.getElementById('task-list');
   const rows = hits.map(task => {
     const row = taskRow(task);
-    row.draggable = false;
+    row.classList.add('nodrag');
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
     // Editing IS safe here, unlike selection: taskRow hands openEditor the
@@ -552,7 +554,7 @@ function renderAllProjects() {
   const list = document.getElementById('task-list');
   list.replaceChildren(...rows.map(task => {
     const row = taskRow(task);
-    row.draggable = false;
+    row.classList.add('nodrag');
     row.querySelector('.select').disabled = true;
     row.querySelector('.bucket').disabled = true;
     // Editing IS safe here — see renderSearch.

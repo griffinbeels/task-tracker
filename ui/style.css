@@ -185,13 +185,15 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* Brighter than the .85 above, never dimmer: the base opacity grew with the
    heading and a hover that lands below it fades the thing the pointer is on. */
 .project-heading:hover { opacity: 1; }
-/* A header that cannot be dragged must not offer the grab cursor. Every header
-   is draggable now — IN PROGRESS's became so when that section learned to
-   reorder — so this is no longer about a static section. It fires while
-   draggability is suspended: over a control inside the header, and for as long
-   as the rename box is open, both of which set draggable="false" on the way
-   in and restore it on the way out. */
-.group-header[draggable="false"] { cursor: default; }
+/* A row or header that cannot be dragged must not offer the grab cursor. This
+   used to key off `[draggable="false"]`, an attribute that no longer exists —
+   the permission is a class now (drag.js reads it on pointerdown), so one rule
+   covers both surfaces and the cursor cannot disagree with the gesture.
+
+   It also fixes something the attribute form never did: search and the
+   all-projects view have always set the row undraggable, and have always shown
+   a grab cursor over it anyway, because this selector named only the header. */
+.task.nodrag, .group-header.nodrag { cursor: default; }
 /* font-size and font-weight stated explicitly, not inherited: .project-heading
    just grew to 12px/700 to outrank the group headers below it, and without
    its own values here the count would grow right along with it — secondary
@@ -356,6 +358,45 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
    it — the drop path reads section.querySelectorAll('.task') and the FLIP sweeps
    .task, .group, and a clone inside the list would be counted by both. */
 #drag-layer { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+
+/* The card you are holding: a cloneNode of the row, so every rule that draws a
+   row draws this too and it cannot drift out of step with the list. It is the
+   only thing on screen that is the task — the source row becomes the gap below,
+   so there is exactly ONE of it at any moment, which is the whole point.
+   Native drag gave us two: a full-opacity row still sitting in the list, and a
+   translucent OS bitmap at the cursor that no CSS could reach.
+
+   ONE transition declaration, and it names `transform` only. `left` and `top`
+   carry the follow and must NEVER be eased — easing the position is precisely
+   the disconnect this replaces, and a second `transition` on a `:hover` rule
+   would silently replace this one wholesale while the state is active. */
+.held { position: fixed; margin: 0 !important; border-radius: 5px;
+        background: #232323; pointer-events: none; cursor: grabbing;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, .6),
+                    0 1px 0 rgba(255, 255, 255, .06) inset;
+        transition: transform 130ms cubic-bezier(0, 0, .2, 1); }
+
+/* The gap. It is the ORIGINAL element, still in the flow — so its box is exactly
+   the right size by construction and there is no placeholder to keep in step
+   with it, which is what the react-beautiful-dnd author names as the source of
+   the jitter in that design.
+
+   A dashed outline says the space is reserved rather than merely empty, and
+   `outline` claims no layout width, so showing it cannot nudge a neighbour.
+   The children hide rather than the element, or the outline would go with them.
+   For a dragged group the children are its header and every member row, which
+   leaves the block's own dashed box at full height — the size of the hole is
+   the size of the thing that will fill it. */
+.dragging-source { background: rgba(127, 127, 127, .05); border-radius: 5px;
+                   outline: 1px dashed rgba(127, 127, 127, .4);
+                   outline-offset: -1px; }
+.dragging-source > * { visibility: hidden; }
+
+/* For as long as a drag lasts. `user-select` is what the native API suppressed
+   for free: without it, dragging across text selects it and the row arrives
+   trailing a blue smear. The cursor is stated on the body rather than on the row
+   because the pointer spends most of a drag over something else. */
+body.dragging { user-select: none; cursor: grabbing; }
 /* min-height: 0 overrides the flex item's content-based auto height — without
    it a tall rendered document pushes #editor-body past the overlay's fixed
    bounds instead of scrolling inside itself, and the page scrolls (the exact
