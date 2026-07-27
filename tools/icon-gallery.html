@@ -1,0 +1,444 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Task Tracker — icon candidates</title>
+<!--
+  Ten candidates for the app's taskbar and title-bar icon.
+
+  This is not a mockup OF the icons — it renders the same markup
+  tools/build_icon.py rasterises, at the sizes Windows actually draws, so what
+  gets judged is the artifact rather than a picture of it. Open it by
+  double-clicking; nothing here needs a server.
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --paper: #f1f5f9;
+    --ink: #14181c;
+    --slate: #64748b;
+    --green: #4cc38a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 32px 80px;
+    background: #101215;
+    color: #e6eaf0;
+    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: .2px; }
+  .sub { color: #8b95a3; margin: 0 0 22px; max-width: 70ch; }
+  .sub code { color: #b9c3d1; }
+
+  /* ---- the decisive view: every candidate at the smallest size, together ---- */
+  .smallest {
+    background: #1b1b1b;
+    border: 1px solid #2a2f36;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 28px;
+  }
+  .smallest h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+  .smallest p { margin: 0 0 14px; color: #8b95a3; font-size: 12.5px; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; }
+  .row figure { margin: 0; text-align: center; }
+  .row figcaption { margin-top: 6px; font-size: 11px; color: #7c8695; }
+  .row .pair { display: flex; align-items: flex-end; gap: 8px; justify-content: center; height: 24px; }
+
+  /* ---- candidate cards ---- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: #171a1f;
+    border: 1px solid #2a2f36;
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color .18s ease, background .18s ease, transform .18s ease;
+  }
+  .card:hover { border-color: #3d4650; transform: translateY(-2px); }
+  .card.picked { border-color: var(--green); background: #16201b; }
+  .card header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 14px; }
+  .num {
+    font-variant-numeric: tabular-nums;
+    color: #6b7684;
+    font-size: 12px;
+    min-width: 18px;
+  }
+  .name { font-weight: 600; font-size: 15px; }
+  .tick { margin-left: auto; color: var(--green); opacity: 0; transition: opacity .18s ease; }
+  .card.picked .tick { opacity: 1; }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .hero div { display: grid; place-items: center; padding: 14px 0; }
+  .hero .on-dark { background: #1b1b1b; }
+  .hero .on-light { background: #e9edf2; }
+
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    background: #1b1b1b;
+    border-radius: 8px;
+    padding: 12px 14px 8px;
+    margin-bottom: 12px;
+  }
+  .sizes figure { margin: 0; text-align: center; }
+  .sizes figcaption { margin-top: 5px; font-size: 10px; color: #6b7684; }
+
+  /* ---- the two real contexts, faked at real scale ---- */
+  .context { display: flex; flex-direction: column; gap: 8px; }
+  .taskbar {
+    background: #1f1f1f;
+    border-radius: 6px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .tb-button {
+    width: 40px; height: 40px;
+    display: grid; place-items: center;
+    border-radius: 5px;
+    position: relative;
+  }
+  .tb-button.active { background: #2d2d2d; }
+  .tb-button.active::after {
+    content: "";
+    position: absolute; bottom: 3px; left: 50%;
+    transform: translateX(-50%);
+    width: 16px; height: 3px; border-radius: 2px;
+    background: #6aa0e8;
+  }
+  .titlebar {
+    background: #f3f3f3;
+    color: #1b1b1b;
+    border-radius: 6px 6px 0 0;
+    padding: 7px 10px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+  }
+  .titlebar .fill { margin-left: auto; color: #8a8a8a; letter-spacing: 2px; }
+
+  .picks {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: #0c0e11;
+    border-top: 1px solid #2a2f36;
+    padding: 12px 32px;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .picks strong { color: var(--green); font-weight: 600; }
+  .picks .hint { color: #6b7684; }
+  .dpr { color: #8b6f3a; }
+</style>
+
+<h1>Task Tracker — ten icon candidates</h1>
+<p class="sub">
+  Click any card to mark it a favourite — pick as many as you like, then tell me
+  the numbers. Seven are takes on the robotic notepad; <code>#8–#10</code> are the
+  wildcards. Everything is drawn on a 32-unit grid, so the small sizes land on
+  whole pixels.
+  <span id="dpr" class="dpr"></span>
+</p>
+
+<section class="smallest">
+  <h2>All ten at the size the title bar actually draws</h2>
+  <p>16px on the left of each pair, 24px on the right. If a candidate dies here, it dies.</p>
+  <div class="row" id="smallest-row"></div>
+</section>
+
+<div class="grid" id="grid"></div>
+
+<div class="picks">
+  <span class="hint">Favourites:</span>
+  <strong id="picked">none yet</strong>
+  <span class="hint" style="margin-left:auto">click a card to toggle</span>
+</div>
+
+<!-- ================= the candidates ================= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+
+    <!-- 1. Visor Pad — the pad's top third is a visor with two lit eye-slits -->
+    <symbol id="icon-1" viewBox="0 0 32 32">
+      <rect x="5" y="3" width="22" height="26" rx="3.5" fill="#f1f5f9"/>
+      <rect x="5" y="3" width="22" height="10" rx="3.5" fill="#14181c"/>
+      <rect x="5" y="9" width="22" height="4" fill="#14181c"/>
+      <rect x="8.5" y="6.75" width="6" height="2.5" rx="1.25" fill="#4cc38a"/>
+      <rect x="17.5" y="6.75" width="6" height="2.5" rx="1.25" fill="#4cc38a"/>
+      <rect x="9" y="17" width="14" height="2" rx="1" fill="#64748b"/>
+      <rect x="9" y="21.5" width="14" height="2" rx="1" fill="#64748b"/>
+      <rect x="9" y="26" width="8" height="2" rx="1" fill="#4cc38a"/>
+      <rect x="5" y="3" width="22" height="26" rx="3.5" fill="none" stroke="#14181c" stroke-width="1.5"/>
+    </symbol>
+
+    <!-- 2. Spiral Servo — the binding rings are servo joints, the ruling is circuitry -->
+    <symbol id="icon-2" viewBox="0 0 32 32">
+      <rect x="5" y="8" width="22" height="21" rx="2.5" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <g fill="#64748b">
+        <rect x="8.5" y="3" width="3" height="8" rx="1.5"/>
+        <rect x="14.5" y="3" width="3" height="8" rx="1.5"/>
+        <rect x="20.5" y="3" width="3" height="8" rx="1.5"/>
+      </g>
+      <g fill="#4cc38a">
+        <rect x="8.5" y="3" width="3" height="2.6" rx="1.3"/>
+        <rect x="14.5" y="3" width="3" height="2.6" rx="1.3"/>
+        <rect x="20.5" y="3" width="3" height="2.6" rx="1.3"/>
+      </g>
+      <path d="M9 15.5 H16.5 V20 H21.5" fill="none" stroke="#64748b" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="21.5" cy="20" r="2" fill="#4cc38a"/>
+      <path d="M9 24.5 H15.5" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- 3. Chassis Pad — a page clamped in an exoskeleton, bolts and a status LED -->
+    <symbol id="icon-3" viewBox="0 0 32 32">
+      <rect x="3.5" y="3" width="25" height="26" rx="4" fill="#7d8b9c"/>
+      <rect x="6.5" y="6" width="19" height="19" rx="1.5" fill="#f1f5f9"/>
+      <g fill="#14181c">
+        <circle cx="5" cy="5" r="1.05"/>
+        <circle cx="27" cy="5" r="1.05"/>
+        <circle cx="5" cy="27" r="1.05"/>
+        <circle cx="27" cy="27" r="1.05"/>
+      </g>
+      <rect x="13" y="26" width="6" height="2.2" rx="1.1" fill="#4cc38a"/>
+      <rect x="9" y="9.5" width="14" height="2" rx="1" fill="#64748b"/>
+      <rect x="9" y="14" width="14" height="2" rx="1" fill="#64748b"/>
+      <rect x="9" y="18.5" width="8.5" height="2" rx="1" fill="#4cc38a"/>
+    </symbol>
+
+    <!-- 4. Terminal Pad — the page IS a terminal -->
+    <symbol id="icon-4" viewBox="0 0 32 32">
+      <rect x="4" y="4" width="24" height="24" rx="4.5" fill="#4cc38a"/>
+      <rect x="7.5" y="7.5" width="17" height="17" rx="2" fill="#0f1f18"/>
+      <path d="M10.5 12 L13.5 15 L10.5 18" fill="none" stroke="#4cc38a" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="15.5" y="13.8" width="6" height="2.4" rx="1.2" fill="#4cc38a"/>
+      <rect x="10.5" y="20" width="9" height="2" rx="1" fill="#2f7d55"/>
+    </symbol>
+
+    <!-- 5. Checkbox Bot — the checklist boxes are the eyes -->
+    <symbol id="icon-5" viewBox="0 0 32 32">
+      <rect x="15.25" y="2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.1" r="1.7" fill="#4cc38a"/>
+      <rect x="5" y="5.5" width="22" height="23.5" rx="4" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8.75" y="10.5" width="6.25" height="6.25" rx="1.6" fill="#4cc38a"/>
+      <path d="M10.4 13.6 L11.8 15 L13.4 12.3" fill="none" stroke="#ffffff" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="17" y="10.5" width="6.25" height="6.25" rx="1.6" fill="none" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="10" y="21.5" width="12" height="2.2" rx="1.1" fill="#64748b"/>
+    </symbol>
+
+    <!-- 6. Folded Circuit — the dog-eared corner reveals circuitry under the paper -->
+    <symbol id="icon-6" viewBox="0 0 32 32">
+      <path d="M8.5 3 H20 L27 10 V26 A3 3 0 0 1 24 29 H8.5 A3 3 0 0 1 5.5 26 V6 A3 3 0 0 1 8.5 3 Z"
+            fill="#f1f5f9" stroke="#14181c" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M20 3 L27 10 H22.5 A2.5 2.5 0 0 1 20 7.5 Z" fill="#14181c"/>
+      <circle cx="23.2" cy="7.2" r="1.15" fill="#4cc38a"/>
+      <path d="M9.5 15.5 H14 V19.5 H20.5" fill="none" stroke="#64748b" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="20.5" cy="19.5" r="1.9" fill="#4cc38a"/>
+      <path d="M9.5 24.5 H16" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- 7. Clipboard Droid — the clip is a brow, its grip a sensor bar -->
+    <symbol id="icon-7" viewBox="0 0 32 32">
+      <rect x="5" y="5.5" width="22" height="23.5" rx="3.5" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="10.5" y="2" width="11" height="6.5" rx="2.5" fill="#64748b"/>
+      <rect x="12.75" y="4.4" width="6.5" height="2" rx="1" fill="#4cc38a"/>
+      <rect x="9" y="13" width="14" height="2.2" rx="1.1" fill="#64748b"/>
+      <rect x="9" y="18" width="14" height="2.2" rx="1.1" fill="#64748b"/>
+      <rect x="9" y="23" width="9" height="2.2" rx="1.1" fill="#4cc38a"/>
+    </symbol>
+
+    <!-- 8. Robot Head — no notepad at all; the face is a screen showing a check -->
+    <symbol id="icon-8" viewBox="0 0 32 32">
+      <rect x="1.5" y="13" width="2.5" height="6.5" rx="1.25" fill="#64748b"/>
+      <rect x="28" y="13" width="2.5" height="6.5" rx="1.25" fill="#64748b"/>
+      <rect x="15.25" y="2.2" width="1.5" height="4" rx="0.75" fill="#64748b"/>
+      <circle cx="16" cy="2.3" r="1.7" fill="#4cc38a"/>
+      <rect x="4" y="5.5" width="24" height="21" rx="5.5" fill="#f1f5f9" stroke="#14181c" stroke-width="1.5"/>
+      <rect x="8" y="10" width="16" height="11" rx="2.5" fill="#14181c"/>
+      <path d="M11.5 15.8 L14.2 18.5 L20.5 12.3" fill="none" stroke="#4cc38a" stroke-width="2.4"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- 9. Servo Check — the checkmark as an articulated arm, pivoting on a
+         visible servo joint. This slot started as a prompt caret beside a
+         check and both renders read as one zigzag: two angular strokes at
+         similar heights merge into a single mark, and the second version was
+         no better than the first. Un-fusing them was not the fix — one mark
+         was. -->
+    <symbol id="icon-9" viewBox="0 0 32 32">
+      <rect x="2.5" y="2.5" width="27" height="27" rx="7" fill="#4cc38a"/>
+      <path d="M9.6 16 L13.8 20.2 L23 11" fill="none" stroke="#0f1f18" stroke-width="3.4"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="9.6" cy="16" r="1.9" fill="#0f1f18"/>
+      <circle cx="13.8" cy="20.2" r="2.9" fill="#0f1f18"/>
+      <circle cx="13.8" cy="20.2" r="1.15" fill="#4cc38a"/>
+    </symbol>
+
+    <!-- 10. Stacked Tasks — the app's own rows, top one ticked and lit -->
+    <symbol id="icon-10" viewBox="0 0 32 32">
+      <rect x="3" y="4.5" width="26" height="7.5" rx="3.75" fill="#4cc38a"/>
+      <path d="M7.4 8.3 L9.2 10.1 L12.6 6.5" fill="none" stroke="#0f1f18" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="15.5" y="7.25" width="10" height="2" rx="1" fill="#0f1f18" opacity="0.38"/>
+      <!-- The two unticked rows carry an outline: pale fills on their own are
+           the one thing here that dissolves into a white title bar. -->
+      <rect x="3" y="13.5" width="26" height="7.5" rx="3.75" fill="#f1f5f9"
+            stroke="#8494a6" stroke-width="1"/>
+      <circle cx="9" cy="17.25" r="2.1" fill="none" stroke="#64748b" stroke-width="1.5"/>
+      <rect x="15.5" y="16.25" width="10" height="2" rx="1" fill="#64748b"/>
+      <rect x="3" y="22.5" width="26" height="7.5" rx="3.75" fill="#cbd5e1"
+            stroke="#8494a6" stroke-width="1"/>
+      <circle cx="9" cy="26.25" r="2.1" fill="none" stroke="#64748b" stroke-width="1.5"/>
+      <rect x="15.5" y="25.25" width="7" height="2" rx="1" fill="#64748b"/>
+    </symbol>
+
+  </defs>
+</svg>
+
+<script>
+  const CANDIDATES = [
+    [1, 'Visor Pad'],
+    [2, 'Spiral Servo'],
+    [3, 'Chassis Pad'],
+    [4, 'Terminal Pad'],
+    [5, 'Checkbox Bot'],
+    [6, 'Folded Circuit'],
+    [7, 'Clipboard Droid'],
+    [8, 'Robot Head'],
+    [9, 'Servo Check'],
+    [10, 'Stacked Tasks'],
+  ];
+  const SIZE_STRIP = [16, 20, 24, 32, 40, 48];
+  const picked = new Set();
+
+  function iconAt(number, size) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', size);
+    svg.setAttribute('height', size);
+    svg.setAttribute('viewBox', '0 0 32 32');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `#icon-${number}`);
+    svg.append(use);
+    return svg;
+  }
+
+  function labelled(node, text) {
+    const figure = document.createElement('figure');
+    const caption = document.createElement('figcaption');
+    caption.textContent = text;
+    figure.append(node, caption);
+    return figure;
+  }
+
+  // The decisive row: every candidate at 16 and 24, on the taskbar's own black.
+  const smallestRow = document.getElementById('smallest-row');
+  for (const [number, name] of CANDIDATES) {
+    const pair = document.createElement('div');
+    pair.className = 'pair';
+    pair.append(iconAt(number, 16), iconAt(number, 24));
+    smallestRow.append(labelled(pair, `${number}. ${name}`));
+  }
+
+  function buildCard([number, name]) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const head = document.createElement('header');
+    const num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = number;
+    const title = document.createElement('span');
+    title.className = 'name';
+    title.textContent = name;
+    const tick = document.createElement('span');
+    tick.className = 'tick';
+    tick.textContent = '✓ favourite';
+    head.append(num, title, tick);
+
+    const hero = document.createElement('div');
+    hero.className = 'hero';
+    const onDark = document.createElement('div');
+    onDark.className = 'on-dark';
+    onDark.append(iconAt(number, 96));
+    const onLight = document.createElement('div');
+    onLight.className = 'on-light';
+    onLight.append(iconAt(number, 96));
+    hero.append(onDark, onLight);
+
+    const sizes = document.createElement('div');
+    sizes.className = 'sizes';
+    for (const size of SIZE_STRIP) {
+      sizes.append(labelled(iconAt(number, size), `${size}`));
+    }
+
+    // The two contexts that actually matter, at real scale.
+    const context = document.createElement('div');
+    context.className = 'context';
+
+    const taskbar = document.createElement('div');
+    taskbar.className = 'taskbar';
+    for (const state of ['', '', 'active']) {
+      const button = document.createElement('div');
+      button.className = `tb-button ${state}`.trim();
+      button.append(iconAt(number, 24));
+      taskbar.append(button);
+    }
+
+    const titlebar = document.createElement('div');
+    titlebar.className = 'titlebar';
+    const caption = document.createElement('span');
+    caption.textContent = 'Tasks';
+    const fill = document.createElement('span');
+    fill.className = 'fill';
+    fill.textContent = '— ▢ ✕';
+    titlebar.append(iconAt(number, 16), caption, fill);
+
+    context.append(taskbar, titlebar);
+    card.append(head, hero, sizes, context);
+
+    card.addEventListener('click', () => {
+      if (picked.has(number)) {
+        picked.delete(number);
+      } else {
+        picked.add(number);
+      }
+      card.classList.toggle('picked', picked.has(number));
+      renderPicks();
+    });
+    return card;
+  }
+
+  const grid = document.getElementById('grid');
+  for (const candidate of CANDIDATES) {
+    grid.append(buildCard(candidate));
+  }
+
+  function renderPicks() {
+    const chosen = CANDIDATES
+      .filter(([number]) => picked.has(number))
+      .map(([number, name]) => `#${number} ${name}`);
+    document.getElementById('picked').textContent =
+      chosen.length ? chosen.join(', ') : 'none yet';
+  }
+
+  // Honesty about the preview: on a scaled display the "16px" icon is drawn
+  // with more device pixels than the real one will get, so it looks sharper
+  // here than in the title bar. Say so rather than let the sweep mislead.
+  const ratio = window.devicePixelRatio;
+  document.getElementById('dpr').textContent = ratio === 1
+    ? ''
+    : ` Note: this display is at ${ratio}× device pixels, so the small sizes render sharper here than Windows will draw them.`;
+</script>
