@@ -236,8 +236,30 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    checkbox 2px past that, undoing the caret gutter's whole point of keeping
    every row's checkbox on one column. An inset shadow paints the identical
    line while claiming no layout space, so the padding alone lines them up. */
+/* ONE transition declaration on this element, naming opacity only — and nothing
+   below may add a second. `.group.drop-into` sets an outline and no transition of
+   its own precisely so this one survives while that state is active; a
+   `transition` inside a higher-specificity rule REPLACES this wholesale rather
+   than adding to it, which is how a fade ends up working in one direction and
+   cutting in the other. */
 .group { box-shadow: inset 2px 0 0 rgba(127, 127, 127, .28); border-radius: 0 5px 5px 0;
-         margin: 2px 0; }
+         margin: 2px 0; transition: opacity 160ms cubic-bezier(.4, 0, .2, 1); }
+
+/* A group that this drop would DELETE, shown being deleted. A group is its name
+   and nothing else (invariant 15), so the last member leaving destroys it — and
+   until this rule, the preview did not say so: the row stepped out of the rail and
+   the header stayed behind looking like a group with somewhere to put things,
+   which reads as not having got out yet. It was the reason leaving a group felt
+   impossible to confirm.
+
+   Subtle on purpose. The news is that the position you are in is the one that ends
+   this group, not a demand for attention — and the row's own preview, already
+   drawn outside the rail, is the other half of saying it. Both directions animate
+   off the base rule above, so moving back in brings it back rather than snapping.
+
+   Only ever on a group down to its LAST member: with two left the group survives a
+   member leaving, and fading it then would be a lie. */
+.group.emptying { opacity: .3; }
 /* One caret column of indent, so a member's checkbox sits exactly one notch
    right of its group header's — the same rhythm as the gutter above it, and
    the thing that says these rows belong to that header. */

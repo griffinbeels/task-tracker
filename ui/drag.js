@@ -18,8 +18,34 @@
 // delegated `change` listener in tasks.js.
 
 function clearDropAffordance(root) {
-  root.querySelectorAll('.drop-into, .drop-zone').forEach(
-    element => element.classList.remove('drop-into', 'drop-zone'));
+  root.querySelectorAll('.drop-into, .drop-zone, .emptying').forEach(
+    element => element.classList.remove('drop-into', 'drop-zone', 'emptying'));
+}
+
+// A group about to cease existing, shown ceasing to exist.
+//
+// A group IS its name and nothing else (invariant 15), so the last member leaving
+// deletes it — but the preview does not say so. The row steps out of the rail and
+// the header stays behind looking like a group that still has somewhere to put
+// things, which reads as "you have not got out yet". Reported as the reason
+// leaving a group was hard: *"I need visual confirmation that I've managed to
+// trigger a position that would indeed get rid of the group"* (2026-07-27).
+//
+// This is the same rule as the drop boxes one level up — draw the consequence of
+// the position you are in — applied to the one consequence that is a deletion
+// rather than a move. It fires only when the group really is down to this one
+// member: with two left, the group survives and fading it would be a lie.
+function previewEmptyingGroup(intent, dragged, wasInGroup, isGroup) {
+  if (!wasInGroup || isGroup || !intent) return;
+  // `sort` permutes a group's own slots, so it never leaves. `pair` always does —
+  // it makes a NEW group. Everything else says where it is going.
+  const leaving = intent.kind === 'pair' || intent.group !== wasInGroup;
+  if (!leaving) return;
+  const project = dragged.dataset.project;
+  if (groupMemberCount(project, wasInGroup) !== 1) return;
+  const container = [...document.querySelectorAll('#task-list .group')].find(
+    each => each.dataset.project === project && each.dataset.group === wasInGroup);
+  if (container) container.classList.add('emptying');
 }
 
 // The whole IN PROGRESS list as [project, block key] pairs, straight off the
@@ -45,12 +71,32 @@ function inProgressOrderFromDom(section) {
 
 // --- FLIP: the one animation every rearrangement goes through -------------
 //
-// How long a displaced block takes to get out of the way, and on what curve.
-// Firm out, no overshoot — chosen against the prototype. The settle borrows the
-// same easing, so a drop and the rows it displaces move as one gesture rather
-// than as two things happening near each other.
+// How long a displaced block takes to get out of the way, and on what curve. The
+// settle borrows the same easing, so a drop and the rows it displaces move as one
+// gesture rather than as two things happening near each other.
+//
+// **The curve starts from rest, and that is the whole point of this constant.**
+// It was `cubic-bezier(.2, .9, .2, 1)` — chosen against the prototype for feeling
+// firm — and it was reported as *"the task cards that move underneath the card I'm
+// moving glitch upwards… it jumps a bit. It should just start moving towards its
+// new destination"* (2026-07-27).
+//
+// That reading was exact, and the arithmetic says why. Progress of a 200ms
+// displacement by the FIRST painted frame (16ms):
+//
+//     (.2, .9, .2, 1)   35%      <- a 10px hop on a 30px row, then a slide
+//     (.4, 0,  .2, 1)    2%      <- starts moving
+//
+// A control point with y=0.9 at x=0.2 is an initial slope of 4.5: the animation is
+// a third of the way through before anything is drawn, so the first frame IS the
+// jump. y1=0 is zero initial velocity, which is what "starts moving" means as a
+// number. The end is unchanged — both decelerate into place.
+//
+// The lesson generalises past this constant: a curve picked by watching a
+// prototype is picked from its MIDDLE, because the first frame is over before the
+// eye reports anything. Judge a displacement curve by its value at 16ms.
 const DISPLACE_MS = 200;
-const DISPLACE_EASE = 'cubic-bezier(.2, .9, .2, 1)';
+const DISPLACE_EASE = 'cubic-bezier(.4, 0, .2, 1)';
 const FLIPPABLE = '.project-block, .group, .task';
 
 // First, Last, Invert, Play. Measure, let `mutate` rearrange things, measure
@@ -534,6 +580,9 @@ function wireDrag() {
       intent.into.classList.add(
         intent.into === intent.section ? 'drop-zone' : 'drop-into');
     }
+    // After the boxes, because it is the same idea: draw what this position would
+    // do. The one consequence that is a deletion rather than a move.
+    previewEmptyingGroup(intent, dragged, draggedGroup, draggedIsGroup);
   }
 
   // What a drop actually writes. Reached only from `finish`, and only for a
