@@ -478,6 +478,21 @@ document.getElementById('spin-up').onclick = handOffSelection;
 // under the Name row it reads.
 document.getElementById('selection-spin-up').onclick = handOffSelection;
 
+// Both are empty in index.html and get the glyph here, beside the wiring, so
+// CLAUDE_ICON has exactly one definition and the markup holds no second copy
+// of the SVG. Static markup with no user-authored text in it, which is what
+// makes innerHTML safe (invariant 5) — the same reason taskRow and the group
+// header can interpolate it.
+//
+// These two are the whole of what "get rid of the Spin up Claude button" meant:
+// four controls open a Claude session and all four are now the same glyph. The
+// only difference left between them is that a row's waits for the row's hover,
+// which is a CSS rule about being inside a row rather than anything about the
+// button (see .claude in style.css).
+for (const id of ['spin-up', 'selection-spin-up']) {
+  document.getElementById(id).innerHTML = CLAUDE_ICON;
+}
+
 // How long to keep asking whether the hand-off finished. Comfortably past
 // claude_console's own 180s wait for a prompt box plus its paste retries — the
 // loop stops the moment nothing is in flight, so this is only the backstop for

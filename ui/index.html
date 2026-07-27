@@ -21,7 +21,11 @@
     <div id="toolbar">
       <input id="search" placeholder="Search all projects">
       <label><input type="checkbox" id="all-projects"> All projects</label>
-      <button id="spin-up" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in.">Spin up Claude</button>
+      <!-- Empty on purpose: tasks.js puts CLAUDE_ICON in it, next to the line
+           that wires its onclick. The glyph has one definition and this file
+           does not hold a second copy of it. The title is the only label a
+           Claude button has now, so it carries the whole explanation. -->
+      <button id="spin-up" class="claude" disabled title="Opens a Claude session in this project. Tick tasks first to start it with them typed in."></button>
     </div>
     <!-- Two rows in one bar: what you can DO to the selection, and — at two or
          more — what to name the session it is about to become. The name is a
@@ -41,12 +45,14 @@
         <!-- The same action as #spin-up above, wired to the same function in
              tasks.js — the only difference is that this one is in reach of the
              cursor that just ticked the boxes, and sits directly above the Name
-             row that names the session it opens. It is .primary because in this
-             bar it is the point; in the toolbar it is one of six equal
-             controls. Measured at 343px minimum window width against the
-             header's own 352px, so the full label costs nothing. -->
-        <button id="selection-spin-up" class="primary"
-                title="Opens one Claude session in this project with every ticked task typed into it.">Spin up Claude</button>
+             row that names the session it opens.
+
+             It was .primary — a filled green pill — while it carried a label.
+             It carries the Claude glyph now, and the glyph is what makes it
+             the point of this bar: an orange mark among three grey text
+             buttons. Empty here for the same reason as #spin-up above. -->
+        <button id="selection-spin-up" class="claude"
+                title="Opens one Claude session in this project with every ticked task typed into it."></button>
         <button id="selection-done">Done</button>
         <button id="selection-delete" class="danger">Delete</button>
         <button id="selection-clear" class="quiet">Clear</button>

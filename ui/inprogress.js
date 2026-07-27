@@ -62,8 +62,13 @@ function inProgressSection() {
   if (!running.length) {
     const hint = document.createElement('p');
     hint.className = 'wip-empty';
+    // Names the control as it now looks rather than as it used to read: the
+    // toolbar's button lost its "Spin up Claude" label and is the Claude glyph
+    // itself, so a hint quoting the old text would send the user hunting for
+    // words that are not on screen any more.
     hint.textContent =
-      'Nothing running. Drag a task here to claim it, or hit Spin up.';
+      'Nothing running. Drag a task here to claim it, or press the Claude '
+      + 'button in the toolbar.';
     section.append(hint);
     return section;
   }

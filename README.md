@@ -56,7 +56,8 @@ does not quietly reformat prose you wrote by hand.
 
 ## Handing tasks to Claude
 
-Select tasks and hit **Spin up Claude**. A terminal opens in that project's
+Select tasks and press the **Claude button** — the little Claude face, in the
+toolbar and again in the selection bar. A terminal opens in that project's
 directory and your tasks are typed into its prompt box — one per line, as
 `FEATURE: what you wrote` — and left there unsent, so you can edit or add to
 them before hitting Enter. Nothing is appended to what you wrote.

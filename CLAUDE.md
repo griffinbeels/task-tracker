@@ -88,12 +88,12 @@ bundler.
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), `asShown` (a body as the editor draws it — escapes resolved, the empty-paragraph `<br>` dropped, non-breaking spaces made ordinary — for the only two places that read a body as text: search, and the `## Outcome` split. The hand-off has no copy of this rule and needs none; it sends the file's path, so nothing converts a body at all), the Escape key that closes the topmost overlay, and `showToast` — the one overlaid notice, used so far only by the hand-off watch |
 | `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
-| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row, and `watchDelivery` — the bounded poll that asks whether the tasks reached the session, because the bridge is call-and-return and a hand-off finishes minutes later. `handOff` is the **one** place a session is opened on tasks — the toolbar's Spin up, the selection bar's, every row's Claude button and every group header's go through it, so the batch name, the refresh, the delivery watch and the tick restoration cannot come out differently per control. The two toolbar buttons share `handOffSelection`, which is that one function reached from two places rather than a second copy of it |
+| `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row, and `watchDelivery` — the bounded poll that asks whether the tasks reached the session, because the bridge is call-and-return and a hand-off finishes minutes later. `handOff` is the **one** place a session is opened on tasks — the toolbar's Claude button, the selection bar's, every row's and every group header's go through it, so the batch name, the refresh, the delivery watch and the tick restoration cannot come out differently per control. The two toolbar buttons share `handOffSelection`, which is that one function reached from two places rather than a second copy of it. It also owns `CLAUDE_ICON`, the single definition of the glyph all four of them draw |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and folding. What a group **is** — the drag that forms and dissolves them was 571 of this file's 951 lines and is now the two files below |
 | `ui/drag-geometry.js` | Where a drop lands, and nothing about how it looks. Takes a POINT — the card's centre — against boxes frozen at lift, and answers with one destination. Reads no event at all, and a convention test says so |
 | `ui/drag.js` | The gesture and its motion: the pointer handling, the card you hold, the gap it leaves, the preview, the three ways a drag can end — and `flipBlocks`, the one FLIP every rearrangement in the app goes through, drag or render |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
-| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; Spin up Claude is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `aimedAt` — what a tick means to every button *outside* the bar, so a row's `done`, a group header's `done` and a row's Claude button all aim at the same tasks. `completeWithSelection` is one of its two callers |
+| `ui/selection.js` | The selection bar: what is ticked, and what you can do to all of it — Done, Delete and Clear are here; the bar's Claude button is in the bar but is `tasks.js`'s function, since a hand-off is shaped by the tasks and the name row rather than by this bar. It owns `selectedInOneProject()`, the one place the per-project rule lives, and `aimedAt` — what a tick means to every button *outside* the bar, so a row's `done`, a group header's `done` and a row's Claude button all aim at the same tasks. `completeWithSelection` is one of its two callers |
 | `ui/editor.js` | The one editor overlay: fields, chips (project/type/when/group/colour), Toast UI, image paste |
 | `ui/triage.js` | Inbox queue navigation — which note is current, and nothing else |
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
@@ -1113,6 +1113,28 @@ show two unrelated tasks under one id at different points in time.
   predate the layer: **"the rows on screen" was an exact synonym for "the rows in
   the list" until it was not.** They are all scoped to `#task-list` now, and
   `test_the_selection_is_read_from_the_list_only` fails the build on a seventh.
+- **Every control that opens a Claude session is the Claude glyph, and the
+  glyph is written down once.** Four of them — the toolbar's `#spin-up`, the
+  selection bar's `#selection-spin-up`, every task row's and every group
+  header's. Two of those read "Spin up Claude" until 2026-07-27 while the other
+  two carried the icon, which reads as two features rather than one control in
+  four places. `CLAUDE_ICON` is a single `const` in `ui/tasks.js`; the two
+  markup buttons are **empty** in `index.html` and are filled beside the line
+  that wires their onclick. The only difference left between the four is a CSS
+  rule about being *inside a row*: `.claude` is a visible orange glyph, and
+  `.task .claude` / `.group-header .claude` hide it until the row is hovered.
+
+  `test_no_claude_button_carries_a_text_label` and
+  `test_the_claude_glyph_has_exactly_one_definition` fail the build on a label
+  creeping back, on a button that carries no `.claude`, on a second definition
+  of the glyph, on an `<svg>` in the markup, and on a button nothing fills.
+  **What no text-based test can referee is whether the glyph is visible**:
+  `.actions button` is a class *and* a type, so it outranks a bare `.claude`
+  and the bar's button renders as a grey pill with an orange glyph in it unless
+  `.actions button.claude` wins — which looks deliberate, not broken. Measured
+  instead, against the real stylesheet: `border=0px none`, `bg=rgba(0,0,0,0)`,
+  `28.0x28.0`. A future rule added to `.actions button` re-opens that fight
+  silently.
 - **Tests:** `store.py`, `registry.py`, `inbox.py`, `migrate.py`, `launcher.py`,
   `groups.py` and `Api` methods are all directly testable. Use `tmp_path` and the
   `monkeypatch.setattr(registry, "CONFIG_DIR", ...)` fixture pattern from
@@ -1175,8 +1197,9 @@ show two unrelated tasks under one id at different points in time.
   member rows does not fire a `change` event, so the count silently goes stale
   without the explicit call this depends on) and that `Clear` empties the
   header box along with every row's — a header left ticked with no members
-  ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
-  Spin up: the folded members must still go to the session.
+  ticked reads as a broken render. Fold a group, tick the group's checkbox, and
+  press the toolbar's Claude button: the folded members must still go to the
+  session.
 
   And four for the hand-off itself, which is the whole of what changed on
   2026-07-26 and none of which a diff can show. Spin up a batch: the window
@@ -1202,7 +1225,7 @@ show two unrelated tasks under one id at different points in time.
   stay ticked. Tick a whole group with its header box plus one loose task, and
   press the header's own `done` — all of them go, not just the group.
 
-  Four for **the bar's own Spin up Claude**, which is the toolbar's button in
+  Four for **the bar's own Claude button**, which is the toolbar's button in
   reach of the cursor that just ticked the boxes — the same
   `handOffSelection`, so what is being checked is the wiring and the fit, not
   the hand-off. Tick two tasks and press it: one session opens with both, and
@@ -1213,9 +1236,23 @@ show two unrelated tasks under one id at different points in time.
   name, since both read the same box. Tick tasks from two different projects in
   IN PROGRESS and press it: the same `Select tasks from one project at a time.`
   alert the toolbar gives, and **no window opens**. And narrow the window until
-  the header starts to crowd: the bar must still be one row with the full label
-  intact — measured (headless, real stylesheet) to fit down to 343px against
-  the header's own 352px floor, so the header is what gives first.
+  the header starts to crowd: the bar must still be **one row**, with none of
+  Done/Delete/Clear wrapping its own label onto a second line.
+
+  **That check used to pin a number and the number is now unreliable, which is
+  worth more than the number was.** It read "measured to fit down to 343px
+  against the header's own 352px floor". Re-measured on 2026-07-27 after the
+  label became a glyph: the bar holds to **326px**. But the same sweep run
+  against the OLD labelled markup says **406px**, not 343 — so whatever ruler
+  produced 343 is not the one used here, and the two figures must not be
+  compared. What the sweep does establish, under one ruler, is the direction
+  and the size of it: dropping the label bought the bar ~80px of headroom. The
+  method, if it is ever re-run: a `.actions` row of the real markup inside a
+  container of *window width − 24* (the bar is `left: 12px; right: 12px`),
+  stepping 1px at a time, calling it wrapped when the bar's height exceeds one
+  28px control inside its 5px padding and 1px border. The header cannot be
+  swept the same way — `header` is a flex row with no `flex-wrap`, so it
+  overflows rather than wrapping and its height never changes.
 
   Three more for **nothing showing through the bar**, which is the stacking
   ladder in "Adding a feature" seen from the front. Scroll a list long enough
@@ -1364,8 +1401,8 @@ show two unrelated tasks under one id at different points in time.
   set is "nothing on screen may claim a place that was not written", and every
   one of them is silent, because a row left in the wrong place looks exactly
   like a row that moved. Start dragging a task, carry it a few rows, and let go
-  **outside the list** — on the header, on the Spin up button, past the window
-  edge: it must snap back where it started, not sit in its new place. Same drag,
+  **outside the list** — on the header, on the toolbar's Claude button, past the
+  window edge: it must snap back where it started, not sit in its new place. Same drag,
   cancelled with **Escape** mid-drag: same. Both again in IN PROGRESS, which is
   where this was noticed. Then the confirmation that the snap-back is not
   overzealous: reorder a bucket properly and the row must STAY where it was
@@ -1650,8 +1687,9 @@ session had read the last one. The one gap it shipped with is closed:
 - **The batch-name row landed where that design said it would.** It is the
   second row of `#selection-bar` now, and `Api._selected_tasks` collapsed into
   `Api._tasks`. The id stayed `#handoff-name` rather than disappearing, because
-  the row still belongs to the hand-off rather than to the bar: both Spin up
-  Claude buttons read it through `handOffSelection` in `ui/tasks.js`.
+  the row still belongs to the hand-off rather than to the bar: both of the
+  standalone Claude buttons read it through `handOffSelection` in
+  `ui/tasks.js`.
 
 Design specs: `docs/superpowers/specs/2026-07-25-task-tracker-design.md`,
 `docs/superpowers/specs/2026-07-25-task-editor-design.md`,

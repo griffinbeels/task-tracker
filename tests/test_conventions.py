@@ -397,9 +397,111 @@ def test_both_spin_up_buttons_run_the_same_handler():
     )
 
     assert len(set(handlers.values())) == 1, (
-        "The toolbar's Spin up Claude and the selection bar's must call the "
+        "The toolbar's Claude button and the selection bar's must call the "
         "same function. They are one action with two positions, and two "
         f"handlers is two behaviours nobody is comparing: {handlers}"
+    )
+
+
+def _button_markup(text: str, element_id: str):
+    """`(attributes, inner html)` for `<button id="element_id" …>…</button>`."""
+    match = re.search(
+        rf'<button\b([^>]*\bid="{re.escape(element_id)}"[^>]*)>(.*?)</button>',
+        text, re.DOTALL)
+    return match.groups() if match else (None, None)
+
+
+def test_no_claude_button_carries_a_text_label():
+    """Four controls open a Claude session, and all four are the same glyph.
+
+    The toolbar's and the selection bar's used to read "Spin up Claude" while a
+    task row's and a group header's carried the icon, which is the shape a user
+    reads as two different features rather than one control in four places.
+    They are all `CLAUDE_ICON` now, and the only difference left is a CSS rule
+    about being inside a row.
+
+    The way that comes undone is a label creeping back into one of the two
+    markup buttons — they are empty in index.html precisely so the glyph has a
+    single definition, and an empty button is exactly what a careless edit
+    "fixes" by typing words into it. So this asserts emptiness, that each one
+    is a `.claude` like the other two, and that the glyph is defined once.
+
+    What it cannot see: whether the glyph is VISIBLE. `.actions button` outranks
+    a bare `.claude`, so the bar's button renders as a pill unless the override
+    beside it wins — a specificity fight no text search can referee. That half
+    is checked by rendering the real stylesheet and looking at it.
+    """
+    markup = (REPO / "ui" / "index.html").read_text(encoding="utf-8")
+
+    missing = [button for button in SPIN_UP_BUTTON_IDS
+               if _button_markup(markup, button) == (None, None)]
+    assert not missing, (
+        "These buttons are not in ui/index.html as plain <button id=…> "
+        "elements, so nothing here can check what is inside them: "
+        + ", ".join(missing)
+    )
+
+    labelled = {button: inner.strip()
+                for button in SPIN_UP_BUTTON_IDS
+                for _, inner in [_button_markup(markup, button)]
+                if inner.strip()}
+    assert not labelled, (
+        "A Claude button has text in it. Every control that opens a Claude "
+        "session is the Claude glyph and nothing else; these are empty in "
+        "index.html because ui/tasks.js puts CLAUDE_ICON in them, so text "
+        "here is either a label coming back or a second copy of the icon: "
+        f"{labelled}"
+    )
+
+    unclassed = [button for button in SPIN_UP_BUTTON_IDS
+                 if 'class="claude"' not in _button_markup(markup, button)[0]]
+    assert not unclassed, (
+        "These buttons do not carry class=\"claude\", so they get none of the "
+        "orange, the hover tint or the disabled state the other two Claude "
+        "buttons have — and with no label left they would draw as nothing at "
+        "all: " + ", ".join(unclassed)
+    )
+
+
+def test_the_claude_glyph_has_exactly_one_definition():
+    """One mark, one place it is written down.
+
+    A second copy is invisible until the two drift, and drawing a Claude button
+    is now the whole of what four controls do — so a hand-pasted <svg> in the
+    markup or a second CLAUDE_ICON in another script is how one of them quietly
+    stops matching the rest.
+    """
+    definitions = [script.name for script in UI_SCRIPTS
+                   if re.search(r"^const CLAUDE_ICON\s*=", script.read_text(encoding="utf-8"),
+                                re.MULTILINE)]
+    assert definitions == ["tasks.js"], (
+        "CLAUDE_ICON must be defined exactly once, in ui/tasks.js, and every "
+        f"Claude button must take the glyph from there. Found: {definitions}"
+    )
+
+    markup = (REPO / "ui" / "index.html").read_text(encoding="utf-8")
+    assert "<svg" not in markup, (
+        "ui/index.html holds an <svg>. Every icon in this app is a const in a "
+        "script, interpolated where it is needed, so that changing the mark "
+        "changes it everywhere at once."
+    )
+
+    # Each button the markup leaves empty has to be filled by something, or it
+    # is a control that draws nothing. Windowed rather than pinned to the exact
+    # statement so that unrolling the loop into one line per id still passes —
+    # what matters is that the id and the glyph are named together.
+    script = (REPO / "ui" / "tasks.js").read_text(encoding="utf-8")
+    filled = set()
+    for assignment in re.finditer(r"\.innerHTML\s*=\s*CLAUDE_ICON", script):
+        window = script[max(0, assignment.start() - 300):assignment.end() + 300]
+        filled.update(button for button in SPIN_UP_BUTTON_IDS
+                      if f"'{button}'" in window)
+
+    unfilled = sorted(set(SPIN_UP_BUTTON_IDS) - filled)
+    assert not unfilled, (
+        "These buttons are empty in index.html and nothing in ui/tasks.js puts "
+        "CLAUDE_ICON into them, so they render as a blank 28px gap in the "
+        "toolbar or the selection bar: " + ", ".join(unfilled)
     )
 
 
@@ -628,8 +730,8 @@ def test_only_the_selection_owns_completing_tasks():
 def test_only_one_call_site_hands_tasks_to_claude():
     """The symmetric half of the test above, for the other thing a row can do.
 
-    Two controls open a session on tasks — the header's Spin up and every task
-    row's Claude button — and four things have to come out the same either way:
+    Two controls open a session on tasks — the toolbar's Claude button and
+    every task row's — and four things have to come out the same either way:
     which tasks (aimedAt), whether the batch-name row is read, the refresh, and
     whether the ticks a refresh threw away are put back. All four live in
     handOff in ui/tasks.js, and one call site is what forces a third control

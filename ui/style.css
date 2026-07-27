@@ -25,9 +25,12 @@ body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0;
 header { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
 #toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
 /* min-width, because a bare `flex: 1` still refuses to shrink an input below
-   its default ~20-character intrinsic width — which pushed "Spin up Claude"
-   onto a second line and put a horizontal scrollbar under the whole app as
-   soon as the window was narrowed. Same reason #project-picker carries one. */
+   its default ~20-character intrinsic width — which pushed the toolbar's last
+   control onto a second line and put a horizontal scrollbar under the whole
+   app as soon as the window was narrowed. That control was a "Spin up Claude"
+   button when this was measured and is a 28px glyph now, so it costs far less
+   room; the input's refusal to shrink is unchanged, which is what this rule is
+   actually about. Same reason #project-picker carries one. */
 #search { flex: 1 1 auto; min-width: 80px; }
 
 /* One height for every text control, so the row lines up and the select's
@@ -146,24 +149,52 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    everything else open the editor. */
 .copy svg { pointer-events: none; display: block; }
 
-/* Hover-revealed on exactly the same terms as .copy above, opacity and not
-   display for the same reason: the button holds its box in the row at all
-   times, so the title cannot shift sideways as the pointer arrives.
-   The one deliberate difference is the colour. Every other control in a row
-   is drawn in the row's own text colour, because every other control acts on
-   the row; this one opens a window outside this app, and #d77757 is the
-   character's own orange, sampled from a real session rather than guessed.
-   It sits a little brighter at rest-on-hover than .copy's .6 — an orange
-   glyph at .6 against this background reads as disabled. */
-.claude { opacity: 0; display: flex; align-items: center; padding: 2px;
+/* A Claude button is a visible orange glyph. Inside a task row or a group
+   header it waits for that row's hover — and that is the ONLY difference
+   between the four places one appears (the toolbar, the selection bar, every
+   row, every group header). It is a rule about being inside a row, not about
+   the button, which is why it is written as a descendant selector below
+   rather than baked into .claude itself.
+
+   The colour is deliberate. Every other control in a row is drawn in the
+   row's own text colour, because every other control acts on the row; this
+   one opens a window outside this app, and #d77757 is the character's own
+   orange, sampled from a real session rather than guessed. It sits a little
+   brighter at rest than .copy's .6 — an orange glyph at .6 against this
+   background reads as disabled. */
+.claude { opacity: .75; display: flex; align-items: center;
+          justify-content: center; padding: 2px;
           color: #d77757; background: none; border: none; border-radius: 4px;
           cursor: pointer; }
+.claude:hover { opacity: 1; background: rgba(215, 119, 87, .18); }
+/* #spin-up is disabled until a project exists. Without this a bare glyph looks
+   identical enabled and disabled — there is no label left to grey out. */
+.claude:disabled { opacity: .3; background: none; cursor: default; }
+
+/* The row variant. Hover-revealed on exactly the same terms as .copy above,
+   opacity and not display for the same reason: the button holds its box in the
+   row at all times, so the title cannot shift sideways as the pointer arrives.
+
+   Listed AFTER .claude:hover, which it ties with on specificity (two classes
+   each) and therefore beats — a row's button must stay hidden until the row is
+   hovered. The bright state is the two-hover rule below, at four classes. */
+.task .claude, .group-header .claude { opacity: 0; }
 .task:hover .claude, .group-header:hover .claude { opacity: .75; }
 .task:hover .claude:hover, .group-header:hover .claude:hover {
   opacity: 1; background: rgba(215, 119, 87, .18); }
 /* Same reason as .copy svg: the click target must be the <button>, or
    taskRow's row-click handler opens the editor underneath it. */
 .claude svg { pointer-events: none; display: block; }
+
+/* The two standalone ones — the toolbar's and the selection bar's. They are
+   the same button as a row's; what differs is the company they keep. A row's
+   neighbours are 12px text and a 16px icon, so 2px of padding is the whole
+   control. These sit among 28px pills and a 28px input, so they take the same
+   28px square. The glyph inside is unchanged.
+
+   #toolbar button already supplies the height; the width is what makes it a
+   square rather than a 20px nub with a 28px box around it. */
+#spin-up { width: 28px; padding: 0; }
 
 /* Higher elevation than NOW: a Claude session is running against these right
    now. Boxed rather than merely first, so it reads as a different kind of
@@ -542,6 +573,18 @@ body.dragging { user-select: none; cursor: grabbing; }
                                border-color: rgba(229, 72, 77, .45); }
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
+/* The bar's Claude button is the one control in this row that is a glyph, so
+   it opts out of the pill the other three wear. Written at this specificity on
+   purpose and not left to .claude: `.actions button` is a class AND a type, so
+   it outranks a bare class and would keep every one of these — the button
+   would render as a grey pill with an orange glyph sitting in it, which reads
+   as deliberate rather than as a rule that lost. The hover needs the same
+   treatment for the same reason, or .actions button:hover paints grey over the
+   orange tint. Height stays the .actions 28px; the width makes it a square. */
+.actions button.claude { width: 28px; padding: 0; border: none;
+                         border-radius: 4px; color: #d77757;
+                         background: none; }
+.actions button.claude:hover { background: rgba(215, 119, 87, .18); }
 
 /* Where the keyboard is. Shift+Tab walks the editor from the body to the title
    to these buttons and Enter fires the one it lands on — and until this rule
