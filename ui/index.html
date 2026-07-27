@@ -122,6 +122,14 @@
          overlay to be visible while the editor is the thing being sized. -->
     <div id="zoom-badge" hidden></div>
 
+    <!-- The one thing a hand-off has to say out loud: the tasks never reached
+         the session, so the clipboard copy is the only one left. Last in the
+         body because it must paint over every overlay — a spin-up can fail
+         while Progress or the editor is open, and a notice nobody can see is
+         the failure it is reporting, twice. Click to dismiss; it does not
+         time out, because what it asks for is an action. -->
+    <div id="toast" hidden title="Click to dismiss"></div>
+
     <script src="vendor/toastui-editor-all.min.js"></script>
     <script src="state.js"></script>
     <script src="zoom.js"></script>

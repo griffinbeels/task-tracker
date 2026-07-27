@@ -41,8 +41,9 @@ class FakeSession:
         self.host = None
         self._record = record
 
-    def deliver(self, prompt="", commands=()):
-        self._record.update(pid=self.pid, text=prompt, commands=list(commands))
+    def deliver(self, prompt="", commands=(), on_finish=None):
+        self._record.update(pid=self.pid, text=prompt, commands=list(commands),
+                            on_finish=on_finish)
 
 
 @pytest.fixture
@@ -50,8 +51,8 @@ def spawned(monkeypatch):
     """Swallow the session open and record what would have been typed into it."""
     opened = {}
 
-    def fake_open_session(cwd, launch=None):
-        opened.update(cwd=cwd, launch=launch)
+    def fake_open_session(cwd, launch=None, name=""):
+        opened.update(cwd=cwd, launch=launch, name=name)
         return FakeSession(opened)
 
     monkeypatch.setattr(claude_console, "open_session", fake_open_session)
@@ -205,7 +206,7 @@ def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(
         tmp_path, monkeypatch):
     # claude_console raises from the spawn itself and gives up quietly on
     # everything after it, so this is the one failure the tracker ever sees.
-    def exploding_open(cwd, launch=None):
+    def exploding_open(cwd, launch=None, name=""):
         raise FileNotFoundError("claude is not on PATH")
 
     monkeypatch.setattr(claude_console, "open_session", exploding_open)
@@ -446,14 +447,19 @@ def test_nothing_selected_has_no_colour():
     assert launcher.session_color([]) is None
 
 
-def test_setup_commands_renames_then_colours():
+def test_the_only_thing_still_typed_is_the_colour():
+    """`/rename` is not in this list any more, and its absence is the fix.
+
+    A name rides on the launch (`claude -n …`), where nothing can lose it. It
+    used to be the first thing typed into the session — two screen round-trips
+    before the tasks could be pasted, on a window that had just opened, which
+    is precisely when a session is slowest to keep up. Colour has no launch
+    flag, so it stays typed.
+    """
     task = make_task(1, "Rename the spawned session", "FEATURE", "b",
                      color="purple")
 
-    assert launcher.setup_commands([task]) == [
-        "/rename FEATURE: Rename the spawned session",
-        "/color purple",
-    ]
+    assert launcher.setup_commands([task]) == ["/color purple"]
 
 
 def test_setup_commands_is_empty_with_nothing_selected():
@@ -478,7 +484,7 @@ def test_a_type_name_that_fills_the_whole_budget_still_yields_a_capped_name():
     assert name.startswith("TTT")
 
 
-def test_hand_off_renames_and_colours_the_session_it_opened(
+def test_hand_off_names_the_session_at_launch_and_colours_it_by_typing(
         tmp_path, monkeypatch, spawned):
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
     task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG",
@@ -486,8 +492,8 @@ def test_hand_off_renames_and_colours_the_session_it_opened(
 
     launcher.hand_off(tmp_path, [task])
 
-    assert spawned["commands"] == ["/rename BUG: Replay audio desync",
-                                   "/color purple"]
+    assert spawned["name"] == "BUG: Replay audio desync"
+    assert spawned["commands"] == ["/color purple"]
 
 
 def test_hand_off_uses_the_name_it_was_given(tmp_path, monkeypatch, spawned):
@@ -497,7 +503,9 @@ def test_hand_off_uses_the_name_it_was_given(tmp_path, monkeypatch, spawned):
 
     launcher.hand_off(tmp_path, [first, second], name="Editor polish")
 
-    assert spawned["commands"][0] == "/rename Editor polish"
+    assert spawned["name"] == "Editor polish"
+    # Whatever colour the first task defaulted to — the point here is the name.
+    assert spawned["commands"][0].startswith("/color ")
 
 
 def test_the_commands_are_handed_over_apart_from_the_prompt(
@@ -512,7 +520,7 @@ def test_the_commands_are_handed_over_apart_from_the_prompt(
 
     prompt = launcher.hand_off(tmp_path, [task])
 
-    assert spawned["commands"][0].startswith("/rename ")
+    assert spawned["commands"][0].startswith("/color ")
     assert spawned["text"] == prompt
 
 

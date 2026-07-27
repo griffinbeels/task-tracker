@@ -245,4 +245,24 @@ document.addEventListener('keydown', event => {
   }
 });
 
+// A notice that overlays the page instead of joining it, so nothing above or
+// below it moves — the same rule the selection bar is fixed for. Used by the
+// hand-off watch in tasks.js and by nothing else yet, which is why it lives
+// here rather than there: the next thing with something to say should find it
+// already built rather than grow a second one.
+//
+// It stays until it is clicked. What it says is an instruction — the text is
+// on your clipboard, press Ctrl+V — and a notice that takes its own advice
+// away after a few seconds is a notice you can miss by looking at the window
+// it is about, which is exactly where you are looking when it appears.
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.hidden = false;
+}
+
+document.getElementById('toast').onclick = event => {
+  event.currentTarget.hidden = true;
+};
+
 window.addEventListener('pywebviewready', refresh);

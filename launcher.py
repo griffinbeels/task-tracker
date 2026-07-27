@@ -12,12 +12,20 @@ form submission, it belongs in `claude_console`. If it mentions a task, a
 group, or a bucket, it belongs here.
 """
 
+import threading
 from pathlib import Path
 
 import claude_console
 import pyperclip
 
 import store
+
+# What a hand-off says when the text never reached the session. The clipboard
+# copy is the whole reason typing is allowed to fail quietly, and until this
+# existed nobody was ever told the fallback had become the only copy — an
+# empty prompt box looked exactly like a hand-off that worked.
+CLIPBOARD_NOTICE = ("Couldn't type the tasks into the Claude window — "
+                    "they're on your clipboard, press Ctrl+V.")
 
 
 def build_prompt(tasks: list[store.Task]) -> str:
@@ -157,58 +165,105 @@ def session_color(tasks: list[store.Task]) -> str | None:
     return tasks[0].color if tasks else None
 
 
-def setup_commands(tasks: list[store.Task], name: str | None = None) -> list[str]:
-    """The `/rename` and `/color` lines to submit after a session comes up.
+def setup_commands(tasks: list[store.Task]) -> list[str]:
+    """The `/color` line to submit after a session comes up, if there is one.
 
-    Rename first, then colour, matching the order a person doing this by hand
-    would type them. Either line is omitted when its value is empty, so a task
-    with no title still gets coloured, and an empty selection sends nothing.
+    `/rename` used to lead this list and no longer appears in it at all: a
+    session's name now travels on the launch itself, as `claude -n <name>`, so
+    it is applied by the process drawing the window instead of being typed in
+    afterwards. Nothing about naming can be lost to a slow start any more, and
+    the delivery is one command shorter — which matters, because every typed
+    command is two screen round-trips standing between a window opening and
+    the tasks arriving in it. `claude_console.open_session` takes the name; the
+    only thing left to type is the colour, which has no launch flag.
     """
-    commands = []
-
-    name_line = session_name(tasks, name)
-    if name_line:
-        commands.append(f"/rename {name_line}")
-
     color = session_color(tasks)
-    if color:
-        commands.append(f"/color {color}")
-
-    return commands
+    return [f"/color {color}"] if color else []
 
 
 def hand_off(project_path: Path, tasks: list[store.Task],
-             launch: list[str] | None = None, name: str | None = None) -> str:
-    """Open a session in the project, rename and colour it, and hand over the tasks.
+             launch: list[str] | None = None, name: str | None = None,
+             on_finish=None) -> str:
+    """Open a session in the project, name and colour it, and hand over the tasks.
 
-    Delivery order is commands first, prompt last and unsubmitted: a `/rename`
-    or `/color` that fails to submit costs only itself, because the prompt was
-    never made to depend on the commands succeeding, and it still arrives as
-    editable text rather than being sent for you.
+    `on_finish` is handed a `Delivery` when the typing is over, on the
+    delivery's own thread. It is the only way to learn that the prompt never
+    arrived — see `Deliveries`, which is what the tracker passes here.
+
+    The name goes on the launch and the colour is typed, which is the whole of
+    what changed on 2026-07-26: naming a window cannot fail any more, and the
+    one remaining command still costs only itself if it does. The prompt is
+    pasted regardless and left unsubmitted, so it arrives as editable text
+    rather than being sent for you.
 
     The clipboard copy is the backup for a session that took too long to come
-    up, and the reason typing is allowed to fail silently. `claude_console`
-    expects every consumer to provide one — this is the tracker's.
+    up, and the reason typing is allowed to fail quietly. `claude_console`
+    expects every consumer to provide one — this is the tracker's, and
+    `on_finish` is how the user finds out it is the only copy.
 
     With nothing selected this is simply "open Claude in this project" —
-    nothing is typed, and the clipboard is left alone. `deliver` is still
-    called: every session needs a console font its logo renders in and its own
-    icon on the taskbar, and both ride along with the delivery thread whether
-    or not there is anything to type.
-
-    The focus watchdog is not started here any more, and its absence is not an
-    omission. `claude_console.open_session` starts it before it returns, which
-    is the point of that call existing rather than a spawn/resolve/watch
-    sequence every consumer has to remember (invariant 10).
+    nothing is typed and the clipboard is left alone, so `deliver` has nothing
+    to do and reports a delivery with nothing in it.
     """
     prompt = build_prompt(tasks)
-    commands = setup_commands(tasks, name)
-    session = claude_console.open_session(project_path, launch)
+    session = claude_console.open_session(project_path, launch,
+                                          name=session_name(tasks, name))
     if prompt:
         pyperclip.copy(prompt)
-    session.deliver(prompt=prompt, commands=commands)
+    session.deliver(prompt=prompt, commands=setup_commands(tasks),
+                    on_finish=on_finish)
 
     for task in tasks:
         store.start_task(task)
 
     return prompt
+
+
+class Deliveries:
+    """What finished hand-offs still have to say, until the frontend asks.
+
+    Typing into a session happens on a daemon thread, sometimes a minute after
+    the call that started it returned — so when it fails there is nobody left
+    to tell. The text is on the clipboard, which is why failing quietly is
+    allowed at all, and until this existed nobody was ever told that the
+    fallback had become the only copy: an empty prompt box looks exactly like
+    a hand-off that worked, which is how "sometimes the prompt gets eaten"
+    went unreported for as long as it did.
+
+    Only a prompt that never arrived is worth saying out loud. A `/color` that
+    failed to submit costs the window its colour and nothing else, and a
+    dialog about it would be noise on every slow start.
+
+    Locked because `finished` runs on the delivery thread while `drain` runs
+    on whichever thread the bridge call arrives on.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._in_flight = 0
+        self._notices = []
+
+    def started(self) -> None:
+        with self._lock:
+            self._in_flight += 1
+
+    def abandoned(self) -> None:
+        """A hand-off that raised before anything could be delivered.
+
+        Without it the count never comes back down, and the frontend polls a
+        delivery that will never report for as long as the window is open.
+        """
+        with self._lock:
+            self._in_flight = max(0, self._in_flight - 1)
+
+    def finished(self, delivery) -> None:
+        with self._lock:
+            self._in_flight = max(0, self._in_flight - 1)
+            if delivery.had_prompt and not delivery.prompt_typed:
+                self._notices.append(CLIPBOARD_NOTICE)
+
+    def drain(self) -> dict:
+        """Anything to say, and whether it is worth asking again."""
+        with self._lock:
+            notices, self._notices = self._notices, []
+            return {"pending": self._in_flight > 0, "notices": notices}

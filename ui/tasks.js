@@ -356,10 +356,34 @@ document.getElementById('spin-up').onclick = async () => {
   // single-task session after a batch that was since abandoned.
   const name = nameRow.hidden ? '' : nameInput.value.trim();
   if (await callApi('hand_off', picked.project, picked.ids, name) === API_FAILED) return;
+  // Not awaited: the typing happens in the session over the next seconds to
+  // minutes, and the tracker has nothing to wait for.
+  watchDelivery();
   // Otherwise the next batch inherits this one's name.
   nameInput.value = '';
   await refresh();
 };
+
+// How long to keep asking whether the hand-off finished. Comfortably past
+// claude_console's own 180s wait for a prompt box plus its paste retries — the
+// loop stops the moment nothing is in flight, so this is only the backstop for
+// a delivery thread that never reports at all.
+const DELIVERY_POLL_MS = 2000;
+const DELIVERY_POLLS = 150;
+
+// The bridge is call-and-return, so a hand-off that fails minutes later has no
+// way to reach the page on its own — this is the frontend asking. It runs only
+// while a spin-up is in flight and stops as soon as one is not, so there is no
+// timer ticking the rest of the time.
+async function watchDelivery() {
+  for (let attempt = 0; attempt < DELIVERY_POLLS; attempt++) {
+    await new Promise(done => setTimeout(done, DELIVERY_POLL_MS));
+    const report = await callApi('delivery_report');
+    if (report === API_FAILED) return;
+    (report.notices || []).forEach(notice => showToast(notice));
+    if (!report.pending) return;
+  }
+}
 
 function matches(task, query) {
   const needle = query.toLowerCase();

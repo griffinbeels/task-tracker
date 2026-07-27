@@ -381,17 +381,36 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
 
 22. **Commands are submitted before the prompt is typed.**
     `claude_console.console_input.deliver`
-    calls `submit()` — which presses Enter — for every `/rename`/`/color` line
+    calls `submit()` — which presses Enter — for every `/color` line
     first, and only then `paste()`s the prompt, which never presses Enter. Get
     the order backwards and a command's Enter would land on top of the
     still-unsubmitted task text, submitting the user's prose as a chat message
     instead of leaving it editable — silently breaking invariant 2. Ordered
     this way instead, a command that fails to submit costs only itself: the
     remaining commands are abandoned, but the prompt is attempted regardless,
-    so a hand-off whose `/rename` was too slow to land still ends exactly
+    so a hand-off whose `/color` was too slow to land still ends exactly
     where a hand-off without this feature always has — task text sitting
     editable in the box. Invariant 24 is what makes each of those writes
     actually land as its own event.
+
+    **`/rename` is not one of those commands any more, as of 2026-07-26.** A
+    session's name goes on the launch — `claude -n <name>`, applied by the
+    process that draws the window — because a typed rename was two screen
+    round-trips standing between a window opening and the tasks arriving in
+    it, on the slowest part of a session's life. `launcher.hand_off` passes
+    `name=` to `open_session` and never builds the command; the typed form
+    survives inside `claude_console` for a caller that supplied its own argv,
+    which here means a project with a `launch` override.
+
+    **And the prompt is now proven to have landed rather than assumed.** It
+    was the one write in the whole protocol that was never checked — which is
+    what "sometimes the prompt gets eaten" was. `paste` writes, reads the box
+    back, and clears and writes again if its own text is not there; a prompt
+    that never arrives reaches `Deliveries` through `on_finish` and the page
+    says so. The measurements behind all of it are `claude_console`'s
+    invariants 13 and 14, and the delivery log
+    (`%LOCALAPPDATA%\claude_console\delivery.log`) is where a hand-off that
+    misbehaves explains itself.
 
 23. **`Task.color` is always one of the eight `CLAUDE_COLORS` — parsing repairs
     it, the bridge refuses to.** `Task.__post_init__` replaces a missing,
@@ -832,7 +851,25 @@ show two unrelated tasks under one id at different points in time.
   without the explicit call this depends on) and that `Clear` empties the
   header box along with every row's — a header left ticked with no members
   ticked reads as a broken render. Fold a group, tick the group's checkbox, and hit
-  Spin up: the folded members must still go to the session. Three for
+  Spin up: the folded members must still go to the session.
+
+  And four for the hand-off itself, which is the whole of what changed on
+  2026-07-26 and none of which a diff can show. Spin up a batch: the window
+  must open **already carrying its name** — in the title bar and above the
+  prompt box — with no `/rename` line in the transcript, and the tasks must
+  arrive in the box. Spin up into a project Claude has never been opened in:
+  the trust dialog appears, and answering it even a minute later must still
+  leave the tasks in the box, because the wait is now three minutes rather
+  than forty-five seconds. Spin up several batches at once — the gesture that
+  makes every window slow — and every one of them must end up with its tasks.
+  And the failure path, which is worth seeing once: with the tracker open,
+  spin up and then close the Claude window before it finishes starting; the
+  tracker must slide a notice down from the top saying the text is on the
+  clipboard, nothing on the page may move as it arrives, and clicking it must
+  slide it back up rather than blink it away. `%LOCALAPPDATA%\claude_console\delivery.log`
+  should then hold that hand-off's steps and the screen it gave up on.
+
+  Three for
   `completeWithSelection`, which makes every `done` in the app one control:
   tick four tasks and press the `done` on any one of those four rows — all
   four complete, with the same confirm the bar asks. Tick those four and press

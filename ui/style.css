@@ -461,6 +461,34 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
                                      visibility 0s 160ms; }
 #selection-count { font-size: 11px; opacity: .6; }
 
+/* The hand-off notice. Fixed and centred at the TOP, which is the one edge
+   nothing else owns: the selection bar is at the bottom, and a notice that
+   had to queue behind it would arrive under the thing it is warning about.
+
+   Overlaid rather than laid out, for the reason the selection bar was moved
+   out of the flow — an element that appears in the page pushes every row down
+   at the moment the cursor is aiming at one. Nothing here moves anything.
+
+   It slides in and out rather than blinking, so both directions are a
+   gesture. The `[hidden]` rule redeclares `transition` for exactly one
+   reason, the same one the selection bar's does: `visibility` has to be
+   delayed by the length of the slide on the way OUT so the slide finishes
+   first, and must not be delayed on the way in. The transform is written as
+   `translate(x, y)` in both states rather than `translateX` in one — the same
+   function in both is what interpolates cleanly. */
+#toast { position: fixed; left: 50%; top: 12px; transform: translate(-50%, 0);
+         max-width: min(520px, calc(100vw - 40px)); box-sizing: border-box;
+         padding: 8px 12px; border-radius: 6px; font-size: 12px;
+         cursor: pointer; background: #5a1a1a;
+         border: 1px solid rgba(127, 127, 127, .28);
+         box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+         transition: transform 160ms ease, opacity 160ms ease, visibility 0s; }
+#toast[hidden] { display: block; visibility: hidden; opacity: 0;
+                 pointer-events: none;
+                 transform: translate(-50%, calc(-100% - 12px));
+                 transition: transform 160ms ease, opacity 160ms ease,
+                             visibility 0s 160ms; }
+
 /* A screenshot at natural size is a wall in a 420px column — you lose the
    sentence it was pasted into, which is the whole point of pasting it there.
    Capped to a thumbnail, and clickable through to the real file at full size.

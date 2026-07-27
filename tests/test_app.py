@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
+import claude_console
 import pytest
 
 import app
 import groups
+import launcher
 import registry
 import restart
 import store
@@ -406,11 +408,86 @@ def test_hand_off_passes_the_name_it_was_given(tmp_path, monkeypatch):
     captured = {}
     monkeypatch.setattr(
         app.launcher, "hand_off",
-        lambda path, tasks, launch=None, name=None: captured.update(name=name) or "")
+        lambda path, tasks, launch=None, name=None, on_finish=None:
+        captured.update(name=name) or "")
 
     app.Api().hand_off("repo", [first.id, second.id], "Editor polish")
 
     assert captured["name"] == "Editor polish"
+
+
+def test_a_prompt_that_never_reached_the_session_is_reported_to_the_user(
+        tmp_path, monkeypatch):
+    """The hand-off is over, the text was never typed, and somebody has to say so.
+
+    Everything after the spawn fails quietly by design — the prompt is on the
+    clipboard, so a timeout costs one Ctrl+V. What it used to also cost was
+    knowing: an empty prompt box looks exactly like a hand-off that worked,
+    and the person who opened the window is looking at the window, not at the
+    tracker.
+    """
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    finishers = []
+    monkeypatch.setattr(
+        app.launcher, "hand_off",
+        lambda path, tasks, launch=None, name=None, on_finish=None:
+        finishers.append(on_finish) or "")
+    api = app.Api()
+
+    api.hand_off("repo", [task.id])
+    # Still typing: the frontend has a reason to ask again, and nothing to say.
+    assert api.delivery_report() == {"pending": True, "notices": []}
+
+    finishers[0](claude_console.console_input.Delivery(
+        commands_submitted=1, commands_total=1, had_prompt=True,
+        prompt_typed=False, seconds=1.0))
+    report = api.delivery_report()
+
+    assert report["pending"] is False
+    assert report["notices"] == [launcher.CLIPBOARD_NOTICE]
+    # Drained, not repeated: a notice shown once must not come back on the
+    # next poll.
+    assert api.delivery_report() == {"pending": False, "notices": []}
+
+
+def test_a_delivery_that_arrived_says_nothing_at_all(tmp_path, monkeypatch):
+    # A `/color` that failed costs the window its colour and nothing else.
+    # A dialog about that on every slow start would be noise, and noise is
+    # what gets a real warning ignored.
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    finishers = []
+    monkeypatch.setattr(
+        app.launcher, "hand_off",
+        lambda path, tasks, launch=None, name=None, on_finish=None:
+        finishers.append(on_finish) or "")
+    api = app.Api()
+
+    api.hand_off("repo", [task.id])
+    finishers[0](claude_console.console_input.Delivery(
+        commands_submitted=0, commands_total=1, had_prompt=True,
+        prompt_typed=True, seconds=1.0))
+
+    assert api.delivery_report() == {"pending": False, "notices": []}
+
+
+def test_a_hand_off_that_could_not_start_stops_the_frontend_waiting_for_it(
+        tmp_path, monkeypatch):
+    # Nothing else ever takes the count back down, so without this the page
+    # polls a delivery that will never report for as long as the window lives.
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    monkeypatch.setattr(
+        app.launcher, "hand_off",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            FileNotFoundError("claude is not on PATH")))
+    api = app.Api()
+
+    with pytest.raises(FileNotFoundError):
+        api.hand_off("repo", [task.id])
+
+    assert api.delivery_report()["pending"] is False
 
 
 def test_hand_off_without_a_name_passes_nothing(tmp_path, monkeypatch):
@@ -419,7 +496,8 @@ def test_hand_off_without_a_name_passes_nothing(tmp_path, monkeypatch):
     captured = {}
     monkeypatch.setattr(
         app.launcher, "hand_off",
-        lambda path, tasks, launch=None, name=None: captured.update(name=name) or "")
+        lambda path, tasks, launch=None, name=None, on_finish=None:
+        captured.update(name=name) or "")
 
     app.Api().hand_off("repo", [task.id])
 

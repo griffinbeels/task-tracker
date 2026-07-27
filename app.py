@@ -110,6 +110,22 @@ def _task_dict(task: store.Task, project_name: str) -> dict:
 
 
 class Api:
+    def __init__(self):
+        # Where a hand-off's outcome waits until the frontend asks. Typing
+        # into a session finishes on a daemon thread long after the bridge
+        # call that started it returned, so a prompt that never arrived has
+        # nowhere else to be reported — see launcher.Deliveries.
+        self._deliveries = launcher.Deliveries()
+
+    def delivery_report(self) -> dict:
+        """Anything a finished hand-off needs to say, and whether to ask again.
+
+        Polled by the frontend only while a spin-up is in flight, and it stops
+        as soon as `pending` goes false — there is no timer running the rest
+        of the time.
+        """
+        return self._deliveries.drain()
+
     def get_state(self) -> dict:
         projects = registry.load_projects()
         tasks, unreadable = [], []
@@ -546,8 +562,19 @@ class Api:
         # launch is the third positional on launcher.hand_off's own signature —
         # pass name as a keyword, or it lands in `launch` and spawns the wrong
         # process.
-        prompt = launcher.hand_off(Path(project.path), tasks, project.launch,
-                                   name=name)
+        #
+        # Counted as in flight BEFORE the call, so the frontend's poll cannot
+        # start between the delivery thread finishing and this returning and
+        # conclude there was nothing to wait for. A spawn that raises has to
+        # take the count back down itself; nothing else ever will.
+        self._deliveries.started()
+        try:
+            prompt = launcher.hand_off(Path(project.path), tasks, project.launch,
+                                       name=name,
+                                       on_finish=self._deliveries.finished)
+        except Exception:
+            self._deliveries.abandoned()
+            raise
         # After the hand-off, never before. launcher.hand_off saves the Task
         # objects above; grouping first would rewrite those same files and
         # leave these objects stale, so the save would silently discard the
