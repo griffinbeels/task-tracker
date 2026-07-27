@@ -102,12 +102,51 @@ one a per-card layout cannot give.
 Opening it is a human gesture, so it is allowed to take focus. Nothing in the
 build path opens a window: the rasteriser is headless.
 
-## Two rounds
+## Round 2 — Checkbox Bot's other eye
 
-Round 1 is these ten and a choice — favourites, not necessarily one. Round 2
-refines the winner (weight, palette, and a hand-simplified 16px frame if it
-needs one; Windows allows different artwork per size) and ships `ui/icon.ico`
-plus the one-line wiring.
+Checkbox Bot won round 1, with one question open: the right eye was an empty
+box, and an empty box is only one of the things that slot could say. Ten
+variants, everything else held identical — the left eye stays a ticked box in
+all ten, so the only variable is the one under judgement.
+
+| | | |
+|---|---|---|
+| **e1** Empty Box | the baseline | one done, one to go; the asymmetry is the statement |
+| **e2** Both Ticked | symmetry | a bot that has finished everything, and the most face-like |
+| **e3** Indeterminate | a dash | the partial state, and it reads as a squint |
+| **e4** Wink | an arc | the only one with a mood |
+| **e5** Spinner | a broken ring | in progress — a state this app has a whole section for |
+| **e6** Caret | a cursor on a dark screen | the thing a hand-off types into |
+| **e7** Sparkle | four points | not an eye at all, which may be the point |
+| **e8** Scanline | a sweeping bar | the most machine-like |
+| **e9** Plus | the next one, waiting | |
+| **e10** Pixel Eye | a 2×2 array, one cell lit | a sensor rather than a checkbox |
+
+Four points, five: a five-pointed star loses its points at 16px.
+
+**Both rounds render through one code path.** A set is a label prefix and a
+list of names; the card, the size strip, the faked taskbar and the faked title
+bar are the same functions for both. A second round drawn by second code could
+not be compared against the first, which is the only reason it exists.
+
+**Each variant repeats the whole bot rather than `<use>`-ing a shared base.**
+The winner is copied out to `ui/icon.svg` and rasterised as standalone markup,
+and a `<use>` pointing at a definition left behind in the gallery renders as
+nothing at all — silently, because a missing reference is not an error.
+Duplication buys "what you judged is what gets built".
+
+Two were revised on sight again. **Plus** drawn dark and full-width touched its
+box on all four sides and read as a four-pane window; it is now green and
+shorter. **Wink**'s arc was the thinnest mark of the twenty and gained weight.
+Contrast measurement passed both before and after — as with round 1, it cannot
+see this class of problem.
+
+## The rounds
+
+Round 1 was ten concepts. Round 2 is ten right eyes. Whichever lands, the last
+step refines the winner (weight, palette, and a hand-simplified 16px frame if
+it needs one; Windows allows different artwork per size) and ships
+`ui/icon.ico` plus the one-line wiring.
 
 Rejected candidates stay in the gallery rather than being deleted, so reopening
 one to see whether it *could* work costs nothing.
