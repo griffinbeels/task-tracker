@@ -10,22 +10,28 @@ dependency that `run.bat` would have installed is the realistic case — never
 sends the shutdown, so the existing window simply stays open.
 
 The environment is inherited rather than rebuilt, which is deliberately the
-opposite of `launcher.claude_environment()`. Invariant 8 rebuilds the
+opposite of `claude_console.claude_environment()`. Invariant 8 rebuilds the
 environment so that a spawned *Claude session* matches one opened by hand; a
 tracker replacing itself should instead match the tracker it replaces, venv
 `PATH` and all. Sessions the new tracker goes on to spawn are unaffected either
 way, because `spawn_claude` rebuilds through `login_environment()` regardless of
 what the tracker itself inherited.
+
+`unfocused_startup` comes from `claude_console` even though nothing here opens
+a console. It is the same rule for the same reason — invariant 10 covers every
+window this app opens, not only the hand-off's — and the shared module is where
+that rule now lives.
 """
 
 import subprocess
 import sys
 from pathlib import Path
 
-import launcher
+import claude_console
 
 # Read via getattr so this module still imports on a non-Windows machine, the
-# same way launcher.NEW_CONSOLE is. The flag only exists on Windows.
+# same way claude_console.session.NEW_CONSOLE is. The flag only exists on
+# Windows.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 APP_ROOT = Path(__file__).parent
@@ -64,5 +70,5 @@ def spawn_replacement() -> subprocess.Popen:
         [interpreter(), str(APP_ROOT / "app.py")],
         cwd=str(APP_ROOT),
         creationflags=NO_WINDOW,
-        startupinfo=launcher.unfocused_startup(),
+        startupinfo=claude_console.unfocused_startup(),
     )

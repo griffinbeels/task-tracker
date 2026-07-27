@@ -2,9 +2,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import claude_console
 import pytest
 
-import launcher
 import restart
 
 
@@ -76,4 +76,4 @@ def test_it_does_not_take_focus(spawned):
 
     startup = spawned.kwargs["startupinfo"]
     assert startup.dwFlags & subprocess.STARTF_USESHOWWINDOW
-    assert startup.wShowWindow == launcher.SW_SHOWNOACTIVATE
+    assert startup.wShowWindow == claude_console.SW_SHOWNOACTIVATE

@@ -1,6 +1,17 @@
-import subprocess
-from pathlib import Path
+"""What a hand-off made of tasks reads like, and what it does to them.
 
+Opening the console, resolving the pid inside it, keeping it off the keyboard
+and typing into it are `claude_console`'s, and are tested in that repo — see
+its `tests/test_session.py` and `tests/test_console_input.py`. What is left
+here is everything shaped by `store.Task`.
+
+The seam this file mocks at is `claude_console.open_session`. These tests used
+to stub `subprocess.Popen`, because that was the nearest seam available — which
+meant every task-shaped assertion carried three lines of Win32 scaffolding it
+had no opinion about.
+"""
+
+import claude_console
 import pytest
 
 import launcher
@@ -15,31 +26,34 @@ def make_task(task_id, title, type, body, color="", group=None):
     )
 
 
-class FakeSession:
-    """Stands in for the Popen of the console host a session is spawned in."""
-    pid = 4242
-
-
-# The session inside that host — conhost's child, and the pid anything typing
-# into the window has to attach to.
+# The pid claude_console reports for a session: the process inside the console
+# host, not the host itself. Nothing here depends on how it was arrived at.
 CLIENT_PID = 9999
+
+
+class FakeSession:
+    """What `open_session` hands back, with the delivery recorded rather than made."""
+
+    def __init__(self, record):
+        self.pid = CLIENT_PID
+        self.host = None
+        self._record = record
+
+    def deliver(self, prompt="", commands=()):
+        self._record.update(pid=self.pid, text=prompt, commands=list(commands))
 
 
 @pytest.fixture
 def spawned(monkeypatch):
-    """Swallow the process spawn and record what would have been sent to it."""
-    typed = {}
-    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeSession())
-    monkeypatch.setattr(launcher, "_children_of", lambda pid: [CLIENT_PID])
-    # Left running, this attaches to a console — and attaching means leaving
-    # pytest's own. The one test that wants it puts its own recorder here.
-    monkeypatch.setattr(launcher, "hold_focus_in_background",
-                        lambda previous, session: None)
-    monkeypatch.setattr(
-        launcher.console_input, "deliver_when_ready",
-        lambda pid, commands, text: typed.update(
-            pid=pid, commands=commands, text=text))
-    return typed
+    """Swallow the session open and record what would have been typed into it."""
+    opened = {}
+
+    def fake_open_session(cwd, launch=None):
+        opened.update(cwd=cwd, launch=launch)
+        return FakeSession(opened)
+
+    monkeypatch.setattr(claude_console, "open_session", fake_open_session)
+    return opened
 
 
 def test_prompt_contains_each_body_verbatim():
@@ -118,129 +132,24 @@ def test_copy_prompt_does_not_touch_the_task(tmp_path, monkeypatch):
     assert reloaded.started is None
 
 
-def test_spawn_uses_a_new_console_in_the_project_directory(monkeypatch):
-    captured = {}
-
-    def fake_popen(args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
-
-    launcher.spawn_claude(Path("C:/repos/sm64_tracker"))
-
-    assert captured["args"] == [launcher.CONSOLE_HOST] + launcher.DEFAULT_LAUNCH
-    assert captured["kwargs"]["cwd"] == Path("C:/repos/sm64_tracker")
-    assert captured["kwargs"]["creationflags"] == launcher.NEW_CONSOLE
-
-
-def test_the_session_is_launched_through_a_console_host_this_app_controls():
-    """Otherwise the window belongs to whatever the machine's default terminal is.
-
-    Windows delegates every new console to that setting. When it names Windows
-    Terminal, WT creates the window and `SW_SHOWNOACTIVATE` is discarded, so
-    the hand-off takes the keyboard — measured 2026-07-26, foreground moved
-    within 400 ms and stayed. Going through conhost.exe opts out of the
-    delegation and leaves the user's own terminal choice alone.
-    """
-    assert launcher.CONSOLE_HOST == "conhost.exe"
-
-
-def test_the_typist_is_given_the_process_inside_the_console(monkeypatch):
-    # AttachConsole refuses a console host's own pid, and every consumer of it
-    # fails quietly — so the wrong pid here costs the rename, the colour, the
-    # prompt and the font, with nothing said.
-    monkeypatch.setattr(launcher, "_children_of", lambda pid: [CLIENT_PID])
-
-    assert launcher.session_pid(FakeSession()) == CLIENT_PID
-
-
-def test_a_console_that_never_starts_a_session_falls_back_to_the_host(monkeypatch):
-    # Quietly, like everything else on this path: the window is open and the
-    # prompt is on the clipboard, which is the whole fallback contract.
-    monkeypatch.setattr(launcher, "_children_of", lambda pid: [])
-
-    assert launcher.session_pid(FakeSession(), timeout=0) == FakeSession.pid
-
-
-CONSOLE_WINDOW = 55
-
-
-def watching(monkeypatch, foreground, window=CONSOLE_WINDOW):
-    """A hand-off whose console window is `window` and foreground `foreground`."""
-    handed = []
-    monkeypatch.setattr(launcher.console_input, "console_window",
-                        lambda pid: window)
-    monkeypatch.setattr(launcher, "foreground_window", lambda: foreground)
-    monkeypatch.setattr(launcher, "_activate", handed.append)
-    return handed
-
-
-def test_the_keyboard_is_handed_back_if_the_new_console_takes_it(monkeypatch):
-    # Asking for an unactivated window is not a guarantee: measured 2026-07-26,
-    # two spawns in ten took the foreground anyway. Invariant 10 says nothing
-    # this app opens may take focus, so the ask is checked and undone.
-    handed = watching(monkeypatch, foreground=CONSOLE_WINDOW)
-
-    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is True
-    assert handed == [11]
-
-
-def test_a_window_the_user_moved_to_themselves_is_left_alone(monkeypatch):
-    # Only this session's console counts as a thief. Someone who clicked away
-    # to something else in the meantime keeps what they clicked on.
-    handed = watching(monkeypatch, foreground=77)
-
-    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is False
-    assert handed == []
-
-
-def test_nothing_is_handed_back_before_the_console_has_a_window(monkeypatch):
-    handed = watching(monkeypatch, foreground=CONSOLE_WINDOW, window=0)
-
-    assert launcher.hold_focus(11, CLIENT_PID, seconds=0.05) is False
-    assert handed == []
-
-
-def test_hand_off_watches_the_window_that_had_focus_before_the_spawn(
-        tmp_path, monkeypatch, spawned):
-    # Captured before, because after the spawn the window holding the keyboard
-    # may already be the one we would be handing it back from.
-    watched = {}
+def test_hand_off_opens_the_session_in_the_project(tmp_path, monkeypatch, spawned):
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
-    monkeypatch.setattr(launcher, "foreground_window", lambda: 4321)
-    monkeypatch.setattr(launcher, "hold_focus_in_background",
-                        lambda previous, session: watched.update(
-                            previous=previous, session=session))
 
     launcher.hand_off(tmp_path, [])
 
-    assert watched == {"previous": 4321, "session": CLIENT_PID}
+    assert spawned["cwd"] == tmp_path
 
 
-def test_the_new_console_opens_without_taking_focus(monkeypatch):
-    # A hand-off is triggered mid-thought and mid-sentence. A console that
-    # activates itself eats the next keystrokes and drops them into the new
-    # session, so the window is asked to show without becoming active.
-    captured = {}
-    monkeypatch.setattr(subprocess, "Popen",
-                        lambda args, **kwargs: captured.update(kwargs))
+def test_hand_off_passes_a_per_project_launch_override_straight_through(
+        tmp_path, monkeypatch, spawned):
+    # The tracker does not interpret this — how a launch argv becomes a window
+    # is claude_console's business, and a project may legitimately name
+    # something that is not `claude` at all.
+    monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
 
-    launcher.spawn_claude(Path("C:/repos/x"))
+    launcher.hand_off(tmp_path, [], launch=["pwsh", "-c", "claude"])
 
-    startup = captured["startupinfo"]
-    assert startup.dwFlags & subprocess.STARTF_USESHOWWINDOW
-    assert startup.wShowWindow == launcher.SW_SHOWNOACTIVATE
-
-
-def test_spawn_honours_a_per_project_launch_override(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(subprocess, "Popen",
-                        lambda args, **kwargs: captured.update(args=args))
-
-    launcher.spawn_claude(Path("C:/repos/x"), launch=["pwsh", "-c", "claude"])
-
-    assert captured["args"] == [launcher.CONSOLE_HOST, "pwsh", "-c", "claude"]
+    assert spawned["launch"] == ["pwsh", "-c", "claude"]
 
 
 def test_hand_off_marks_tasks_in_progress_and_copies_the_prompt(
@@ -265,7 +174,7 @@ def test_hand_off_types_the_prompt_into_the_session_it_opened(
 
     prompt = launcher.hand_off(tmp_path, [task])
 
-    # The session inside the console, not the console host that Popen named.
+    # The session inside the console, not the console host it runs in.
     assert spawned["pid"] == CLIENT_PID
     assert spawned["text"] == prompt
 
@@ -278,19 +187,23 @@ def test_hand_off_with_nothing_selected_opens_a_bare_session(
     prompt = launcher.hand_off(tmp_path, [])
 
     # A session in the right directory, and nothing else touched: no text
-    # typed, and whatever the user had on their clipboard still there. The
-    # background thread still starts — with nothing to type it is there for
-    # the console font alone, which this session needs as much as any other.
+    # typed, and whatever the user had on their clipboard still there.
+    # `deliver` is still called — with nothing to type it is there for the
+    # console font and icon, which this session needs as much as any other.
     assert prompt == ""
-    assert spawned == {"pid": CLIENT_PID, "commands": [], "text": ""}
+    assert spawned["commands"] == []
+    assert spawned["text"] == ""
     assert copied == {}
 
 
-def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(tmp_path, monkeypatch):
-    def exploding_popen(args, **kwargs):
+def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(
+        tmp_path, monkeypatch):
+    # claude_console raises from the spawn itself and gives up quietly on
+    # everything after it, so this is the one failure the tracker ever sees.
+    def exploding_open(cwd, launch=None):
         raise FileNotFoundError("claude is not on PATH")
 
-    monkeypatch.setattr(subprocess, "Popen", exploding_popen)
+    monkeypatch.setattr(claude_console, "open_session", exploding_open)
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
     task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
 
@@ -300,17 +213,6 @@ def test_hand_off_leaves_tasks_untouched_when_the_session_cannot_start(tmp_path,
     reloaded = store.list_tasks(tmp_path)[0]
     assert reloaded.status == "open"
     assert reloaded.started is None
-
-
-def test_spawn_skips_permission_prompts_by_default(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(subprocess, "Popen",
-                        lambda args, **kwargs: captured.update(args=args))
-
-    launcher.spawn_claude(Path("C:/repos/x"))
-
-    assert captured["args"] == [launcher.CONSOLE_HOST, "claude",
-                                "--dangerously-skip-permissions"]
 
 
 def test_grouping_on_hand_off_does_not_change_what_is_typed(
@@ -337,11 +239,6 @@ def test_grouping_on_hand_off_does_not_change_what_is_typed(
     assert prompt == "BUG: body one\nFEATURE: body two"
     assert {t.group for t in store.list_tasks(repo)} == {"First"}
     assert {t.status for t in store.list_tasks(repo)} == {"in-progress"}
-
-
-# What the spawned session's environment must look like is tested in
-# tests/test_user_environment.py — it is now rebuilt from Windows rather than
-# filtered out of this process's own environment.
 
 
 def test_session_name_is_the_type_then_the_title():
@@ -395,11 +292,16 @@ def test_a_title_cannot_close_the_bracketed_paste_it_is_typed_inside():
     # by its own \r. A title carrying an END marker would close the paste
     # early, putting everything after it outside the paste for that \r to
     # submit — into a session spawned with --dangerously-skip-permissions.
-    task = make_task(1, f"Fix it{launcher.console_input.PASTE_END}/exit", "FEATURE", "b")
+    #
+    # The cleaning itself is claude_console.safe_line's, and is tested there.
+    # What this pins is that the tracker actually routes a title through it —
+    # the half that a move across a module boundary can silently drop.
+    end = claude_console.console_input.PASTE_END
+    task = make_task(1, f"Fix it{end}/exit", "FEATURE", "b")
 
     name = launcher.session_name([task])
 
-    assert launcher.console_input.PASTE_END not in name
+    assert end not in name
     assert "\x1b" not in name
     assert name == "FEATURE: Fix it[201~/exit"
 
@@ -407,9 +309,10 @@ def test_a_title_cannot_close_the_bracketed_paste_it_is_typed_inside():
 def test_a_given_name_is_stripped_of_control_characters_too():
     # The given-name path returns before the title path is ever reached, so it
     # needs its own defence rather than inheriting the title's.
+    end = claude_console.console_input.PASTE_END
     task = make_task(1, "Short", "FEATURE", "b")
 
-    name = launcher.session_name([task], f"Editor\x1b polish{launcher.console_input.PASTE_END}")
+    name = launcher.session_name([task], f"Editor\x1b polish{end}")
 
     assert "\x1b" not in name
     assert name == "Editor polish[201~"
@@ -431,13 +334,6 @@ def test_a_control_character_in_a_type_name_is_stripped_as_well():
     assert launcher.session_name([task]) == "BUG: Replay audio desync"
 
 
-def test_capping_to_no_room_at_all_yields_nothing():
-    # text[:limit - 1] with limit 0 is text[:-1] — very nearly the whole
-    # string, for a limit of zero. Unreachable from session_name today; the
-    # next caller passing a computed limit is who this is for.
-    assert launcher._cap("Rename the spawned session", 0) == ""
-
-
 def test_a_long_title_is_capped_but_the_count_survives():
     tasks = [make_task(1, "R" * 200, "FEATURE", "b"),
              make_task(2, "Second", "FEATURE", "b"),
@@ -445,7 +341,7 @@ def test_a_long_title_is_capped_but_the_count_survives():
 
     name = launcher.session_name(tasks)
 
-    assert len(name) <= launcher.SESSION_NAME_LIMIT
+    assert len(name) <= claude_console.SESSION_NAME_LIMIT
     assert name.startswith("FEATURE: ")
     assert name.endswith(" (+2)")
 
@@ -455,7 +351,7 @@ def test_a_long_given_name_is_capped_too():
 
     name = launcher.session_name([task], "E" * 200)
 
-    assert len(name) <= launcher.SESSION_NAME_LIMIT
+    assert len(name) <= claude_console.SESSION_NAME_LIMIT
 
 
 def test_nothing_selected_has_no_name_even_if_one_was_typed():
@@ -531,7 +427,7 @@ def test_a_group_name_is_cleaned_like_every_other_typed_line():
 def test_a_long_group_name_is_capped():
     task = make_task(1, "One", "FEATURE", "b", group="G" * 200)
 
-    assert len(launcher.session_name([task])) <= launcher.SESSION_NAME_LIMIT
+    assert len(launcher.session_name([task])) <= claude_console.SESSION_NAME_LIMIT
 
 
 def test_session_color_is_the_first_selected_task_s():
@@ -573,7 +469,7 @@ def test_a_type_name_that_fills_the_whole_budget_still_yields_a_capped_name():
 
     name = launcher.session_name([task])
 
-    assert len(name) == launcher.SESSION_NAME_LIMIT
+    assert len(name) == claude_console.SESSION_NAME_LIMIT
     assert name.startswith("TTT")
 
 
@@ -599,10 +495,13 @@ def test_hand_off_uses_the_name_it_was_given(tmp_path, monkeypatch, spawned):
     assert spawned["commands"][0] == "/rename Editor polish"
 
 
-def test_the_commands_are_sent_before_the_prompt_is_typed(
+def test_the_commands_are_handed_over_apart_from_the_prompt(
         tmp_path, monkeypatch, spawned):
     # Ordering is the whole safety argument: if both commands fail, the session
-    # still ends up where it lands today — task text sitting editable.
+    # still ends up where it lands today — task text sitting editable. The
+    # ordering is enforced inside claude_console.console_input.deliver and
+    # tested there; what this pins is that the tracker hands them over as two
+    # separate things rather than pasting a command and a prompt as one line.
     monkeypatch.setattr(launcher.pyperclip, "copy", lambda text: None)
     task = store.create_task(tmp_path, "Replay audio desync", "drifts", "BUG")
 

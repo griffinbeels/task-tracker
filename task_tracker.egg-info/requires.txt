@@ -1,0 +1,4 @@
+pywebview
+pyperclip
+pyyaml
+claude-console

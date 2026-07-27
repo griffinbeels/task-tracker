@@ -1,135 +1,23 @@
-"""Hand selected tasks to a visible Claude Code session."""
+"""Hand selected tasks to a visible Claude Code session.
 
-import ctypes
-import re
-import subprocess
-import threading
-import time
-from ctypes import wintypes
+Everything about *opening* that session and typing into it lives in
+`claude_console`, a machine-level module shared with the other projects here.
+What is left in this file is the part shaped by `store.Task`: what a prompt
+made of tasks reads like, what a window full of them should be called, and the
+order a hand-off does things in.
+
+The division is worth stating, because the next person adding something here
+has to pick a side. If it would be true of a session opened on a git diff or a
+form submission, it belongs in `claude_console`. If it mentions a task, a
+group, or a bucket, it belongs here.
+"""
+
 from pathlib import Path
 
+import claude_console
 import pyperclip
 
-import console_input
 import store
-import user_environment
-
-NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-
-DEFAULT_LAUNCH = ["claude", "--dangerously-skip-permissions"]
-
-# Launch the session *through* conhost.exe, so the window the tracker opens is
-# a classic console it can actually control.
-#
-# Windows hands every new console to whatever is set as the default terminal
-# application. That setting is machine-wide, it belongs to the user rather than
-# to this app, and it has already changed underneath the tracker once. When it
-# names Windows Terminal, WT creates the window itself — the `SW_SHOWNOACTIVATE`
-# below never reaches it, and the hand-off takes the keyboard mid-sentence.
-# Measured 2026-07-26 from a console-less parent, default terminal set to
-# Windows Terminal: spawning the command directly moved the foreground to
-# `CASCADIA_HOSTING_WINDOW_CLASS` within 400 ms and kept it; spawning the same
-# command through `conhost.exe` left the foreground untouched for the whole run
-# and produced a `ConsoleWindowClass` window.
-#
-# This pins only the tracker's own window. Whatever the user has chosen for
-# every other console on the machine is none of this app's business, and stays.
-CONSOLE_HOST = "conhost.exe"
-
-# How long to wait for the console host to start the session inside it, and how
-# often to look. Measured well under a tenth of a second; this is the
-# "something is wrong" bound, not a normal wait.
-CLIENT_TIMEOUT = 5.0
-CLIENT_POLL = 0.02
-
-# How long to keep an eye on the foreground after a hand-off, and how often.
-# The theft, when it happens, is there inside three tenths of a second — the
-# rest is margin. Short on purpose: past this the window belongs to the user,
-# and clicking it is a thing they are allowed to do.
-FOREGROUND_WATCH = 1.5
-FOREGROUND_POLL = 0.05
-
-_TH32CS_SNAPPROCESS = 0x00000002
-
-_user32 = ctypes.WinDLL("user32", use_last_error=True)
-
-# Show the new console, but do not make it the active window (SW_SHOWNOACTIVATE
-# rather than the default SW_SHOWNORMAL). Hand-off is something you trigger and
-# then carry on with: a window that grabs focus swallows whatever you type next
-# and puts it into a session you were not looking at. Nothing here needs focus
-# — console_input writes to the console's input buffer, which does not require
-# the window to be active.
-SW_SHOWNOACTIVATE = 4
-
-
-def unfocused_startup() -> "subprocess.STARTUPINFO":
-    startup = subprocess.STARTUPINFO()
-    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startup.wShowWindow = SW_SHOWNOACTIVATE
-    return startup
-
-
-def foreground_window() -> int:
-    """Whatever window has the keyboard right now."""
-    return _user32.GetForegroundWindow()
-
-
-def _activate(window: int) -> None:
-    _user32.SetForegroundWindow(wintypes.HWND(window))
-
-
-def hold_focus(previous: int, session: int,
-               seconds: float = FOREGROUND_WATCH) -> bool:
-    """Give the keyboard back if the session's console takes it.
-
-    `unfocused_startup` *asks* for a window that does not activate, and going
-    through `conhost.exe` (invariant 10) is what makes the request reach the
-    right process — but the request is not always honoured. Measured
-    2026-07-26 over ten spawns: two took the foreground anyway, apparently
-    depending on how promptly whatever was in front was answering messages.
-    Two in ten is not a guarantee, and this is the invariant that says
-    "nothing this app opens may take focus", so asking is not enough: check,
-    and undo it.
-
-    Two things keep this from becoming a window that fights its user. It hands
-    back only when the thief is *this* session's console, so clicking away to
-    something else in the meantime is respected; and it does so at most once,
-    inside a window shorter than it takes to reach for the mouse. Deliberately
-    clicking the new session is a human gesture and earns the focus it asks
-    for — this only reverses focus nobody asked for.
-
-    Returns whether it had to hand anything back, which is the only way to
-    know from outside whether the spawn misbehaved this time.
-    """
-    window = console_input.console_window(session)
-    if not previous or not window:
-        return False
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if foreground_window() == window:
-            _activate(previous)
-            return True
-        time.sleep(FOREGROUND_POLL)
-    return False
-
-
-def hold_focus_in_background(previous: int, session: int) -> threading.Thread:
-    """Watch the foreground off the caller's thread, as the typing is watched."""
-    watcher = threading.Thread(target=hold_focus, args=(previous, session),
-                               daemon=True)
-    watcher.start()
-    return watcher
-
-
-def claude_environment() -> dict[str, str]:
-    """The environment a session you opened by hand would have.
-
-    Not this process's environment with the awkward parts removed — the
-    tracker is usually started from a Claude session, and inheriting from it
-    is the whole problem. See user_environment for why this is rebuilt rather
-    than filtered.
-    """
-    return user_environment.login_environment()
 
 
 def build_prompt(tasks: list[store.Task]) -> str:
@@ -163,103 +51,6 @@ def copy_prompt(tasks: list[store.Task]) -> str:
     return prompt
 
 
-def spawn_claude(project_path: Path,
-                 launch: list[str] | None = None) -> subprocess.Popen:
-    return subprocess.Popen(
-        [CONSOLE_HOST] + (launch or DEFAULT_LAUNCH),
-        cwd=Path(project_path),
-        creationflags=NEW_CONSOLE,
-        env=claude_environment(),
-        startupinfo=unfocused_startup(),
-    )
-
-
-class PROCESSENTRY32W(ctypes.Structure):
-    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
-                ("th32ProcessID", wintypes.DWORD),
-                ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
-                ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
-                ("th32ParentProcessID", wintypes.DWORD),
-                ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
-                ("szExeFile", wintypes.WCHAR * 260)]
-
-
-def _children_of(parent_pid: int) -> list[int]:
-    """The pids Windows currently reports as children of `parent_pid`."""
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    snapshot = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
-    entry = PROCESSENTRY32W()
-    entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
-    children = []
-    if kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
-        while True:
-            if entry.th32ParentProcessID == parent_pid:
-                children.append(entry.th32ProcessID)
-            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
-                break
-    kernel32.CloseHandle(snapshot)
-    return children
-
-
-def session_pid(host: subprocess.Popen, timeout: float = CLIENT_TIMEOUT) -> int:
-    """The pid to type into: the process *inside* the console, not its host.
-
-    `spawn_claude` starts conhost, and conhost starts the session — so the
-    Popen names the host, and `AttachConsole` refuses a host's pid (measured:
-    it returns false for conhost and true for its child). Handing the wrong
-    one on would silently cost the rename, the colour, the typed prompt and
-    the console font all at once, since every one of those fails quietly by
-    design.
-
-    The first child is the right one whatever `launch` was: a per-project
-    override like `pwsh -c claude` makes pwsh the child, and pwsh shares the
-    console it was given, so attaching to it reaches the same screen buffer.
-
-    Falls back to the host's own pid rather than raising. Everything
-    downstream already gives up quietly and leaves the clipboard copy, so a
-    session that somehow never appears still costs a window, not an error.
-    """
-    deadline = time.monotonic() + timeout
-    while True:
-        children = _children_of(host.pid)
-        if children:
-            return children[0]
-        if time.monotonic() >= deadline:
-            return host.pid
-        time.sleep(CLIENT_POLL)
-
-
-# A tab label longer than this is unreadable, and it doubles as what keeps
-# Claude Code inserting a pasted `/rename` argument literally rather than
-# collapsing it into a `[Pasted text]` placeholder — a short line pastes as
-# text, a long one pastes as an attachment.
-SESSION_NAME_LIMIT = 60
-
-# C0 and C1 control characters, including DEL. `str.split()` does not remove
-# these — see _one_line for why a `/rename` argument must not carry one.
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-
-
-def _one_line(text: str) -> str:
-    """Collapse whitespace and drop control characters, in that order.
-
-    Everything this returns ends up inside a line that `console_input.submit`
-    writes as `ESC[200~ … ESC[201~` and then presses Enter on, in a session
-    spawned with `--dangerously-skip-permissions`. Titles and names come from a
-    hand-editable YAML file, and a double-quoted scalar can express `\\e`
-    directly — so a title containing `ESC[201~` would close the bracketed paste
-    early, leaving whatever follows it outside the paste for that Enter to
-    submit as a command of its own.
-
-    Whitespace goes first because collapsing is what stops a raw newline
-    submitting the line early; controls go second because `str.split()` removes
-    `\\n`, `\\r` and `\\x1c`-`\\x1f` but leaves ESC, NUL, BEL and backspace
-    untouched. Stripping rather than rejecting: a task with a strange title
-    should still hand off, it just must not be able to submit a line.
-    """
-    return _CONTROL.sub("", " ".join(text.split()))
-
-
 def _shared_group(tasks: list[store.Task]) -> str | None:
     """The group every one of these tasks belongs to, or None.
 
@@ -283,7 +74,7 @@ def session_name(tasks: list[store.Task], name: str | None = None) -> str:
     Three sources, in order of how well each describes the window:
 
     1. A name typed into the batch row wins outright and carries no type
-       prefix. It is only "given" if something survives `_one_line`, so `None`,
+       prefix. It is only "given" if something survives `safe_line`, so `None`,
        blank strings and a string of nothing but control characters all fall
        through.
     2. A group shared by *every* selected task. Ticking a group's checkbox
@@ -299,57 +90,43 @@ def session_name(tasks: list[store.Task], name: str | None = None) -> str:
     selection may legitimately be a subset of it.
 
     Every piece of user text on this path — the name, the group, the title and
-    the type that prefixes them — goes through `_one_line`, since all of them
-    are typed into a line that then has Enter pressed on it. Composition is:
-    build the `TYPE: ` prefix and the suffix first, and only truncate the label
-    into whatever room is left between them — truncating the finished string
-    instead would risk eating the count, which is the most informative part of
-    it.
+    the type that prefixes them — goes through `claude_console.safe_line`,
+    since all of them are typed into a line that then has Enter pressed on it.
+    That lives in the shared module rather than here because it is a
+    precondition of `submit`, not a fact about tasks: any consumer building a
+    slash command out of text it did not author needs it, and one that
+    re-derives it gets it subtly wrong.
+
+    Composition is: build the `TYPE: ` prefix and the suffix first, and only
+    truncate the label into whatever room is left between them — truncating the
+    finished string instead would risk eating the count, which is the most
+    informative part of it.
     """
     if not tasks:
         return ""
 
     if name is not None:
-        given_name = _one_line(name)
+        given_name = claude_console.safe_line(name)
         if given_name:
-            return _cap(given_name)
+            return claude_console.cap(given_name)
 
-    prefix = f"{_one_line(tasks[0].type)}: "
+    prefix = f"{claude_console.safe_line(tasks[0].type)}: "
     group = _shared_group(tasks)
     suffix = "" if group else (f" (+{len(tasks) - 1})" if len(tasks) > 1 else "")
     # Cleaned before the room for it is measured, on every path, so nothing
     # removed later can shorten a line that was already capped to fit.
-    title = _one_line(group or tasks[0].title)
+    title = claude_console.safe_line(group or tasks[0].title)
     if not title:
         return ""
 
-    room = SESSION_NAME_LIMIT - len(prefix) - len(suffix)
+    room = claude_console.SESSION_NAME_LIMIT - len(prefix) - len(suffix)
     if room < 1:
         # The type name alone already fills the budget. There is no sane way
         # to fit any of the title in, so give up on the prefix/suffix split
         # and cap the whole composed string instead of producing a negative
         # slice.
-        return _cap(f"{prefix}{title}{suffix}")
-    return f"{prefix}{_cap(title, room)}{suffix}"
-
-
-def _cap(text: str, limit: int = SESSION_NAME_LIMIT) -> str:
-    """Truncate to `limit`, appending a single ellipsis so the result lands on it.
-
-    A single `…` rather than three dots, so a capped string is exactly `limit`
-    characters long instead of `limit + 2`.
-
-    A limit below 1 has no room even for the ellipsis, so it yields nothing at
-    all. Without that guard `limit == 0` reaches `text[:-1]` — dropping one
-    character and appending an ellipsis, i.e. returning very nearly the whole
-    string for a limit of zero. `session_name`'s own `room < 1` branch means no
-    caller reaches it today; the next one passing a computed limit would.
-    """
-    if limit < 1:
-        return ""
-    if len(text) <= limit:
-        return text
-    return text[:limit - 1] + "…"
+        return claude_console.cap(f"{prefix}{title}{suffix}")
+    return f"{prefix}{claude_console.cap(title, room)}{suffix}"
 
 
 def session_color(tasks: list[store.Task]) -> str | None:
@@ -389,27 +166,29 @@ def hand_off(project_path: Path, tasks: list[store.Task],
     Delivery order is commands first, prompt last and unsubmitted: a `/rename`
     or `/color` that fails to submit costs only itself, because the prompt was
     never made to depend on the commands succeeding, and it still arrives as
-    editable text rather than being sent for you. The clipboard copy is the
-    backup for a session that took too long to come up, and the reason typing
-    is allowed to fail silently.
+    editable text rather than being sent for you.
+
+    The clipboard copy is the backup for a session that took too long to come
+    up, and the reason typing is allowed to fail silently. `claude_console`
+    expects every consumer to provide one — this is the tracker's.
 
     With nothing selected this is simply "open Claude in this project" —
-    nothing is typed, and the clipboard is left alone. Both background threads
-    still start: every session needs a console font its logo renders in
-    (`console_input.use_font`), and every session's window has to be watched
-    in case it takes the keyboard (`hold_focus`).
+    nothing is typed, and the clipboard is left alone. `deliver` is still
+    called: every session needs a console font its logo renders in and its own
+    icon on the taskbar, and both ride along with the delivery thread whether
+    or not there is anything to type.
+
+    The focus watchdog is not started here any more, and its absence is not an
+    omission. `claude_console.open_session` starts it before it returns, which
+    is the point of that call existing rather than a spawn/resolve/watch
+    sequence every consumer has to remember (invariant 10).
     """
     prompt = build_prompt(tasks)
     commands = setup_commands(tasks, name)
-    # Captured before the spawn: after it, the window that had the keyboard
-    # may no longer be the one holding it.
-    previous_window = foreground_window()
-    session = spawn_claude(project_path, launch)
+    session = claude_console.open_session(project_path, launch)
     if prompt:
         pyperclip.copy(prompt)
-    pid = session_pid(session)
-    hold_focus_in_background(previous_window, pid)
-    console_input.deliver_when_ready(pid, commands, prompt)
+    session.deliver(prompt=prompt, commands=commands)
 
     for task in tasks:
         store.start_task(task)

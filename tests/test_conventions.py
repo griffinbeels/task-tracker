@@ -12,7 +12,13 @@ REPO = Path(__file__).resolve().parent.parent
 MODULES = sorted(REPO.glob("*.py"))
 UI_SCRIPTS = sorted((REPO / "ui").glob("*.js"))
 
-IGNORED_TREES = {".venv", ".git", "node_modules", ".tasks"}
+# `.claude` holds the feature worktrees (`.claude/worktrees/<slug>`), which are
+# whole other checkouts of this repo at other commits. Scanning them makes this
+# suite's result depend on what a *sibling* branch happens to contain — a branch
+# cut before a convention landed fails it, in a checkout that is itself clean.
+# That is not hypothetical: emptying the allowlist below turned every worktree
+# still carrying the old `launcher.py` into an offender.
+IGNORED_TREES = {".venv", ".git", "node_modules", ".tasks", ".claude"}
 PYTHON_SOURCES = sorted(
     path for path in REPO.rglob("*.py")
     if not IGNORED_TREES.intersection(path.parts)
@@ -156,15 +162,19 @@ def test_every_element_id_the_scripts_ask_for_exists():
     )
 
 
-# `launcher.py` spawns the handed-off session, and that console IS the feature;
-# `test_launcher.py` is where that one exception is asserted. Everything else in
-# this repo runs while someone is using the machine. This file names the flags in
-# order to find them, so it cannot scan itself.
-MAY_OPEN_A_CONSOLE_WINDOW = {"launcher.py", "test_launcher.py", Path(__file__).name}
+# Nothing in this repo may open a console window any more, and the empty
+# allowlist is the point. `launcher.py` and `test_launcher.py` used to be the
+# two exceptions, because `launcher.py` spawned the handed-off session and that
+# console IS the feature. Both moved to `claude_console`, which carries its own
+# copy of this guard — a guard left behind when the code it covers moves out
+# still passes, and covers nothing.
+#
+# This file names the flags in order to find them, so it cannot scan itself.
+MAY_OPEN_A_CONSOLE_WINDOW = {Path(__file__).name}
 
 # Every spelling that reaches CreateProcess asking for a new console: the
-# subprocess constant, and launcher's alias for it — which is the nearer of the
-# two, since anything wanting a console can already `import launcher`.
+# subprocess constant, and the alias `claude_console.session` gives it, since a
+# copied line is the likeliest way either comes back.
 CONSOLE_WINDOW_FLAGS = {"CREATE_NEW_CONSOLE", "NEW_CONSOLE"}
 
 
@@ -186,7 +196,7 @@ def _new_console_references(module: Path):
             yield node.lineno
 
 
-def test_nothing_but_the_hand_off_may_open_a_console_window():
+def test_nothing_in_this_repo_may_open_a_console_window():
     """A test that puts a window on screen is a bug in the test.
 
     Windows 11 delegates every *new* console to whatever is set as the default
@@ -202,9 +212,11 @@ def test_nothing_but_the_hand_off_may_open_a_console_window():
     AttachConsole, WriteConsoleInput and the screen buffer all work against it
     — so nothing that merely needs to reach a console needs to show one.
 
-    This lives in the conventions file, away from the code it guards, on
-    purpose: the pin in `tests/test_console_input.py` sits next to the probe
-    and a merge that reverted both would take the guard with it.
+    The allowlist is empty now that the hand-off's own console lives in
+    `claude_console`. That repo carries its own copy of this test rather than
+    relying on this one, because this one scans `REPO.rglob("*.py")` — the
+    moment the code moved out, it left this guard's reach entirely, and a guard
+    that covers nothing still passes.
     """
     offenders = [
         f"{module.relative_to(REPO).as_posix()}:{lineno}"
