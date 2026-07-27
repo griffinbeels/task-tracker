@@ -687,7 +687,7 @@ def main() -> None:
     singleton.serve(lock, window.destroy)
     # One .ico feeds both surfaces: WinForms' Form.Icon becomes ICON_SMALL, the
     # title-bar corner, and ICON_BIG, the taskbar button and Alt+Tab. Without
-    # it the backend falls back to ExtractIconW(sys.executable) - which is why
+    # it the backend falls back to ExtractIconW(sys.executable) — which is why
     # this app wore the Python logo, a default nobody chose rather than a
     # placeholder. Built from ui/icon.svg by tools/build_icon.py.
     webview.start(icon=str(Path(__file__).parent / "ui" / "icon.ico"))

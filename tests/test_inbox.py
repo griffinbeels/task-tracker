@@ -53,7 +53,7 @@ def test_file_note_rejects_an_unknown_note(tmp_path):
 
 def test_file_note_uses_the_edited_body_when_one_is_given(tmp_path):
     # Triage renders the note in an editor, so the prose that reaches the task
-    # must be what is on screen at File time, not what was captured earlier.
+    # must be what is on screen at Submit time, not what was captured earlier.
     repo = tmp_path / "repo"
     repo.mkdir()
     note = inbox.save_note("Audio drifts out of sync after ~2 minutes")

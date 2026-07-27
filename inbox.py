@@ -69,7 +69,7 @@ def file_note(note_id: str, project_path: Path, title: str, type: str,
     path = _note_path(note_id)
     if not path.exists():
         raise FileNotFoundError(f"unknown note: {note_id}")
-    # Triage renders the note in an editor, so by the time File is clicked the
+    # Triage renders the note in an editor, so by the time Submit is clicked the
     # box may hold prose the user has since corrected or extended. Only fall
     # back to the on-disk text when no edited body is given, so a caller that
     # just wants "file this note as-is" (and every existing call site) keeps

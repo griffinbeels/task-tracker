@@ -1,6 +1,6 @@
 // Triage — the deliberate act where project/type/bucket get chosen before a
 // note becomes a task. The shared editor overlay in editor.js renders the
-// note and drives File/Skip/Discard (see its editor-save/-skip/-discard
+// note and drives Submit/Skip/Discard (see its editor-save/-skip/-discard
 // handlers); this file answers only "which note in the queue am I on."
 
 let triageQueue = [];

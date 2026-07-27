@@ -364,12 +364,12 @@ function openEditor(context) {
   // Hide the whole field, label included — hiding only the chip row would
   // leave a "Project" label captioning nothing.
   document.getElementById('editor-project-field').hidden = editorContext.mode === 'edit';
-  // "File" is what you do to something that isn't a task yet. Editing one is a
-  // save, and a button that names the wrong action is wrong however correct
+  // "Submit" is what you do to something that isn't a task yet. Editing one is
+  // a save, and a button that names the wrong action is wrong however correct
   // the code behind it is. Set on every open so the label can't stick from
   // whichever mode ran last.
   document.getElementById('editor-save').textContent =
-    editorContext.mode === 'edit' ? 'Save' : 'File';
+    editorContext.mode === 'edit' ? 'Save' : 'Submit';
 
   if (editorContext.mode === 'capture') {
     showEditorActions(['editor-save', 'editor-later', 'editor-cancel']);
@@ -503,6 +503,19 @@ document.getElementById('editor-title').addEventListener('input', () => {
   if (editorContext && editorContext.mode === 'triage') {
     titleIsUsers.add(editorContext.noteId);
   }
+});
+
+// The title is a one-line box, so Enter has nothing to do in it — and the
+// gesture it reads as is "that's the name, take it". It clicks the primary
+// button rather than calling anything, so the empty-title alert, the
+// project/type check and all three modes come along for free and the two can
+// never drift. isComposing is the one Enter that is not a commit: an IME
+// candidate being accepted, which would otherwise file the task under a
+// half-typed name.
+document.getElementById('editor-title').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || event.isComposing) return;
+  event.preventDefault();
+  document.getElementById('editor-save').click();
 });
 
 document.getElementById('editor-save').onclick = async () => {
