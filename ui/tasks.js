@@ -570,7 +570,30 @@ function emptyHint(text) {
   return hint;
 }
 
+// Whether the LAST render drew the bucket view. Animating a redraw only makes
+// sense when both sides of it are the same screen showing a different
+// arrangement — see render() below.
+let listWasArranged = false;
+
+// The redraw, animated. `drawList` is what this function has always done; the
+// wrapper is what makes every caller of render() animate without knowing it —
+// the bucket picker, folding, completing, restoring, deleting, a drop's refresh.
+// One mechanism rather than one per surface (flipRender lives in ui/drag.js).
+//
+// Only in the bucket view, and only when the previous render was one too. Search
+// re-renders on every keystroke, so animating it would animate every row per
+// character; and the all-projects view is a different screen rather than a
+// different arrangement of this one, so sliding rows between the two would be
+// animating a navigation. Both sides are checked, or coming BACK from search
+// would animate while going to it did not.
 function render() {
+  const arranged = !document.getElementById('search').value.trim()
+    && !document.getElementById('all-projects').checked;
+  if (arranged && listWasArranged) flipRender(drawList); else drawList();
+  listWasArranged = arranged;
+}
+
+function drawList() {
   const list = document.getElementById('task-list');
   const query = document.getElementById('search').value.trim();
   if (!state.projects.length) {

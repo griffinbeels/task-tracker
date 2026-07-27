@@ -43,6 +43,100 @@ function inProgressOrderFromDom(section) {
   return entries;
 }
 
+// --- FLIP: the one animation every rearrangement goes through -------------
+//
+// How long a displaced block takes to get out of the way, and on what curve.
+// Firm out, no overshoot — chosen against the prototype. The settle borrows the
+// same easing, so a drop and the rows it displaces move as one gesture rather
+// than as two things happening near each other.
+const DISPLACE_MS = 200;
+const DISPLACE_EASE = 'cubic-bezier(.2, .9, .2, 1)';
+const FLIPPABLE = '.project-block, .group, .task';
+
+// First, Last, Invert, Play. Measure, let `mutate` rearrange things, measure
+// again, then animate each block from where it was to where it now is. The layout
+// is never fought: every block is already where it belongs and the transform is
+// pure decoration on top, which is why an interrupted one can simply be dropped.
+//
+// ONE function for two callers, with exactly one difference between them:
+// **how a block is recognised across the mutation.** A drag moves elements, so
+// they are their own identity. A render calls replaceChildren, so the elements are
+// destroyed and rebuilt and identity is a key (`keyOf`). Everything else — the
+// easing, the nesting rule, the cancel-before-measuring rule — is shared, because
+// two copies of it would be two things to keep in step.
+//
+// Three details, each measured in the prototype rather than reasoned about:
+//
+// `before` is read WITH any in-flight transform included, which is what makes a
+// direction change reverse the motion from where the block actually is rather than
+// finishing the old one and then coming back.
+//
+// Every in-flight animation is cancelled BEFORE the second measurement. A rect
+// read while a transform is running is a position nothing is at, so the deltas
+// would be computed against phantom layout. (The drop geometry is immune to this
+// by a different route — it reads boxes frozen at lift — but this has to know
+// where things really are.)
+//
+// A block whose ancestor is also animating is skipped, or the two transforms
+// compound and the inner one lands where neither intended. Document order
+// guarantees the ancestor is seen first.
+function flipBlocks(mutate, identify, exclude) {
+  const list = document.getElementById('task-list');
+  const before = new Map([...list.querySelectorAll(FLIPPABLE)]
+    .map(element => [identify(element), element.getBoundingClientRect()]));
+  mutate();
+  const settled = [...list.querySelectorAll(FLIPPABLE)];
+  for (const element of settled) {
+    element.getAnimations().forEach(animation => animation.cancel());
+  }
+  const animated = [];
+  for (const element of settled) {
+    if (element === exclude || (exclude && exclude.contains(element))) continue;
+    if (animated.some(done => done.contains(element))) continue;
+    const was = before.get(identify(element));
+    // Absent means the block is new. Nothing to animate FROM, so it simply
+    // appears; giving it an entrance is Phase 3's job.
+    if (!was) continue;
+    const now = element.getBoundingClientRect();
+    const dx = was.left - now.left, dy = was.top - now.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+    element.animate(
+      [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+      { duration: DISPLACE_MS, easing: DISPLACE_EASE });
+    animated.push(element);
+  }
+}
+
+// What a block IS across a render, when the element itself will not survive one.
+//
+// The discriminators are load-bearing: a group named "7" and task 7 in the same
+// project would otherwise collide on one key, and a group is a container while a
+// task is a row, so the wrong one would animate. NUL separates the parts for the
+// same reason `restoreTicks` uses it — a project name may contain anything.
+function keyOf(element) {
+  if (element.classList.contains('task')) {
+    return element.dataset.project + '\0t\0' + element.dataset.id;
+  }
+  if (element.classList.contains('group')) {
+    return element.dataset.project + '\0g\0' + element.dataset.group;
+  }
+  return element.dataset.project + '\0p';
+}
+
+// Animate a whole redraw: every block that existed before and after slides from
+// where it was to where the new render put it. This is what makes the bucket
+// picker, folding, completing, restoring and deleting animate without any of them
+// knowing anything about animation — they call render(), as they always did.
+//
+// No exclusion for a drop's settling row. It does not need one: the settle is
+// awaited before the write, so by the time this runs the card is gone and the row
+// is already in its final slot, which is a zero delta. The one case where it does
+// move is a pair — both rows gain a group container and step into its rail — and
+// that is a change worth seeing.
+function flipRender(mutate) {
+  flipBlocks(mutate, keyOf, null);
+}
+
 function wireDrag() {
   const list = document.getElementById('task-list');
   let dragged = null;
@@ -71,59 +165,6 @@ function wireDrag() {
   // from a claimed one. There is one ending function now and it is told which
   // kind it is, so the flag has nothing left to disambiguate.
 
-  // How long a displaced row takes to get out of the way, and on what curve.
-  // Firm out, no overshoot — chosen against the prototype.
-  const DISPLACE_MS = 200;
-  const DISPLACE_EASE = 'cubic-bezier(.2, .9, .2, 1)';
-  const FLIPPABLE = '.project-block, .group, .task';
-
-  // First, Last, Invert, Play. Measure, let `mutate` move things, measure again,
-  // then animate each block from where it was to where it now is. The layout is
-  // never fought: every block is already where it belongs and the transform is
-  // pure decoration on top, which is why an interrupted one can just be dropped.
-  //
-  // Three things here are not obvious and each was measured in the prototype:
-  //
-  // `before` is read WITH any in-flight transform included, which is what makes a
-  // direction change reverse the motion from where it actually is rather than
-  // finishing the old one and then coming back.
-  //
-  // Every in-flight animation is cancelled BEFORE the second measurement. A rect
-  // read while a transform is running is a position nothing is at, so the deltas
-  // would be computed against phantom layout. (The drop geometry is immune to this
-  // by a different route — it reads boxes frozen at lift — but this function has
-  // to know where things really are.)
-  //
-  // A block whose ancestor is also animating is skipped, or the two transforms
-  // compound and the inner one lands somewhere neither intended. Document order
-  // guarantees the ancestor is seen first.
-  function flip(mutate, exclude) {
-    const before = new Map([...list.querySelectorAll(FLIPPABLE)]
-      .map(element => [element, element.getBoundingClientRect()]));
-    mutate();
-    const settled = [...list.querySelectorAll(FLIPPABLE)];
-    for (const element of settled) {
-      element.getAnimations().forEach(animation => animation.cancel());
-    }
-    const animated = [];
-    for (const element of settled) {
-      // The dragged block is the gap, and the gap does not glide: it is the slot
-      // the card has claimed, so it belongs at the new index the instant the
-      // decision is made. The rows moving around it are the news.
-      if (element === exclude || (exclude && exclude.contains(element))) continue;
-      if (animated.some(done => done.contains(element))) continue;
-      const was = before.get(element);
-      if (!was) continue;
-      const now = element.getBoundingClientRect();
-      const dx = was.left - now.left, dy = was.top - now.top;
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-      element.animate(
-        [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
-        { duration: DISPLACE_MS, easing: DISPLACE_EASE });
-      animated.push(element);
-    }
-  }
-
   // Put the block back where the drag found it. Cheap to call twice: the first
   // call clears the record. Through `flip`, so an abandoned drag slides home
   // rather than jumping — the row was never written, and a jump reads exactly
@@ -133,8 +174,9 @@ function wireDrag() {
     const { element, parent, before } = startedAt;
     startedAt = null;
     if (!element.isConnected || !parent.isConnected) return;
-    flip(() => parent.insertBefore(
-      element, before && before.parentElement === parent ? before : null), element);
+    flipBlocks(() => parent.insertBefore(
+      element, before && before.parentElement === parent ? before : null),
+               each => each, element);
   }
 
   // A drag ends in a `click`, and the native API used to swallow it for us.
@@ -147,9 +189,18 @@ function wireDrag() {
   // on the next pointerdown as well as on use, because a pointerup outside the
   // document produces no click at all and a flag left standing would eat the next
   // legitimate one.
+  //
+  // `detail` is what stops it eating a click it did not cause. A click that came
+  // from a pointer carries its click count there; one synthesised by the keyboard
+  // — Enter or Space on a focused button, which the editor's focus ring made a
+  // supported way to work — or by `element.click()` carries 0. Without the check,
+  // cancelling a drag with Escape armed this flag and the NEXT keyboard activation
+  // anywhere in the window silently did nothing, because no pointerdown had come
+  // along to disarm it. Found by a harness clicking a fold caret programmatically
+  // and getting no fold.
   let swallowClick = false;
   window.addEventListener('click', event => {
-    if (!swallowClick) return;
+    if (!swallowClick || event.detail === 0) return;
     swallowClick = false;
     event.stopPropagation();
     event.preventDefault();
@@ -456,7 +507,8 @@ function wireDrag() {
       // insertBefore that changes nothing still invalidates layout for every
       // rect read on the next one.
       if (dragged.parentElement !== container || dragged.nextSibling !== before) {
-        flip(() => container.insertBefore(dragged, before), dragged);
+        flipBlocks(() => container.insertBefore(dragged, before),
+                   element => element, dragged);
       }
     }
     // ONE rule: draw the container this drop would move the task INTO, and
