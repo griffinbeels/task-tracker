@@ -191,10 +191,47 @@ function wireDrag() {
     });
   }
 
+  // Scrolling the window when the pointer reaches its edge. Native DnD did this
+  // for free; pointer events do not, and a list long enough to scroll is
+  // otherwise a list you cannot drag out of.
+  //
+  // The DOCUMENT scrolls — `body` carries the padding and there is no inner
+  // scroll container — so this is `window.scrollBy` against the viewport edges,
+  // ramped by how close the pointer is rather than switched on at a line.
+  //
+  // Driven by the POINTER, not by the probe: this is about reaching the edge of
+  // the window with your hand, which is a different question from where the drop
+  // lands. `fbox` corrects the frozen boxes for whatever this scrolls past.
+  const EDGE = 46, SPEED = 12;
+  let scrollTimer = null;
+  function autoscroll(pointerY) {
+    const height = document.documentElement.clientHeight;
+    const above = pointerY, below = height - pointerY;
+    const delta = above < EDGE ? -SPEED * (1 - Math.max(above, 0) / EDGE)
+                : below < EDGE ? SPEED * (1 - Math.max(below, 0) / EDGE) : 0;
+    clearInterval(scrollTimer);
+    scrollTimer = null;
+    if (!delta) return;
+    scrollTimer = setInterval(() => {
+      window.scrollBy(0, delta);
+      // Re-aim from the SAME pointer position. Holding still at the edge fires no
+      // pointermove, so without this the list slides past underneath while the
+      // preview stays where the last real event left it — the row lands wherever
+      // it was aimed several hundred pixels ago. The card itself does not move,
+      // and must not: the hand has not moved.
+      if (card) move(card.lastPointer);
+    }, 16);
+  }
+
   // Every ending, told which one it is. This is `dragend` and `drop` collapsed
   // into one function, which is why `wrote` is gone: the caller knows.
   async function finish(cancelled) {
     swallowClick = true;
+    // Unconditionally, and before anything that can throw or await: a scroll timer
+    // left running keeps scrolling the page after the drag is over, which reads as
+    // the window having taken over.
+    clearInterval(scrollTimer);
+    scrollTimer = null;
     const settled = intent;
     const row = dragged;
     const wasInGroup = draggedGroup;
@@ -237,6 +274,8 @@ function wireDrag() {
 
   function move(event) {
     const { held, origin, scale, grabX, grabY, startX, size } = card;
+    // Kept so the autoscroll tick can re-aim without a pointer event of its own.
+    card.lastPointer = { clientX: event.clientX, clientY: event.clientY };
     // Rail-locked: the card tracks vertically and never sideways, so it stays
     // over the column it came from and reads as the row itself lifted out of the
     // list rather than as a thing flying around near it.
@@ -259,6 +298,7 @@ function wireDrag() {
     // user can see.
     const probe = { x: cardX + size.w / 2, y: cardY + size.h / 2 };
 
+    autoscroll(event.clientY);
     clearDropAffordance(list);
     intent = dropIntent(probe, dragged, draggedIsGroup);
     if (!intent) return;

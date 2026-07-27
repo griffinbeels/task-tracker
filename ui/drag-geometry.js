@@ -176,9 +176,21 @@ const GROUP_STICKY = 8;
 // both measure those wrappers. Leaving it out would freeze every box except the
 // two that decide which project's list a running row belongs to.
 let frozen = null;
+// Where the page was scrolled to when it froze. A frozen box is in VIEWPORT
+// coordinates, and the probe is built from `event.clientY` which is too — so the
+// moment the page scrolls under the gesture, every cached box is stale by exactly
+// the scroll delta and every threshold is that far out of place. Autoscroll makes
+// that happen on purpose, several times a second.
+//
+// Re-freezing on scroll would be the other answer and it is the wrong one: it
+// would hand each block a new threshold mid-gesture, which is the instability the
+// freeze exists to remove. One number, corrected on read, keeps a single
+// threshold per block for the whole drag no matter how far the list travels.
+let frozenAtScrollY = 0;
 
 function freeze() {
   frozen = new Map();
+  frozenAtScrollY = window.scrollY;
   for (const element of document.querySelectorAll(
       '#task-list section, #task-list .project-block, #task-list .group, #task-list .task')) {
     frozen.set(element, element.getBoundingClientRect());
@@ -194,7 +206,11 @@ function clearFrozen() {
 // that today) has no frozen box, and answering with its live one is better than
 // answering with undefined.
 function fbox(element) {
-  return (frozen && frozen.get(element)) || element.getBoundingClientRect();
+  const cached = frozen && frozen.get(element);
+  if (!cached) return element.getBoundingClientRect();
+  const drift = window.scrollY - frozenAtScrollY;
+  if (!drift) return cached;
+  return new DOMRect(cached.x, cached.y - drift, cached.width, cached.height);
 }
 
 // The section the probe is in. A section owns exactly its own rectangle, and
