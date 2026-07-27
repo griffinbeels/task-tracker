@@ -296,3 +296,28 @@ def test_every_class_the_ui_toggles_is_styled():
                     f"{script.name} adds the class '{name}', which ui/style.css "
                     f"never styles. It will silently do nothing."
                 )
+
+
+def test_every_ui_script_is_loaded_by_the_page():
+    """A new .js file with no <script> tag is dead code that looks alive.
+
+    There is no bundler and no module graph — the eight scripts share one
+    global scope purely because index.html lists them, so a file nobody lists
+    simply never runs. Every symbol it defines is then undefined at the call
+    site, which throws inside whichever handler reaches for it first: the same
+    silent, mid-render failure `test_every_element_id_the_scripts_ask_for_exists`
+    exists for, arrived at from the other direction.
+
+    "Add its `<script>` tag only if you create a new file" is a documented step
+    in CLAUDE.md, which is exactly the kind of step that gets missed.
+    """
+    markup = (REPO / "ui" / "index.html").read_text(encoding="utf-8")
+    loaded = set(re.findall(r'<script src="([^"]+)"', markup))
+
+    unloaded = sorted(script.name for script in UI_SCRIPTS
+                      if script.name not in loaded)
+
+    assert not unloaded, (
+        "These files are in ui/ and never loaded by index.html, so nothing "
+        "they define exists at runtime: " + ", ".join(unloaded)
+    )

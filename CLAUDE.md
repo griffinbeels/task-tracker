@@ -9,7 +9,7 @@ shipping the bug first.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 323 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 358 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
@@ -66,7 +66,7 @@ task, a group or a bucket, it belongs over there instead.
 
 ## Architecture
 
-Ten small Python modules and eight plain `<script>` files, plus one vendored
+Ten small Python modules and nine plain `<script>` files, plus one vendored
 library and one shared machine-level package. No framework, no HTTP server, no
 bundler.
 
@@ -84,6 +84,7 @@ bundler.
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `rememberProject()`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary (`CLAUDE_COLORS`) and `suggestColor`, `localDate` (the one place a date-only string is turned into a Date), and the Escape key that closes the topmost overlay |
+| `ui/zoom.js` | Text size, per region: which elements each of the two scopes owns, the 100–200% ladder, the Ctrl keys, and the pill that reports the result. `zoomAssignments()` is the single place a region is defined |
 | `ui/tasks.js` | Task rows, buckets, search, cross-project, handoff, copy-as-prompt, the batch-name row |
 | `ui/groups.js` | The group block and header, rename-in-place, select-the-group, and `wireDrag` — one delegated drag controller for the whole list, which resolves every drop to a destination |
 | `ui/inprogress.js` | The IN PROGRESS section — drawn even when empty, because it is a drop target — its per-project split, folding, and the reset actions |
@@ -93,10 +94,14 @@ bundler.
 | `ui/settings.js` | Progress view — a completed task opens in the editor from here — type editor, git-tracking toggle |
 | `ui/vendor/` | Toast UI Editor 3.2.2, committed on purpose — see below |
 
-The seven scripts **share one global scope** and load in the order
-`state.js`, `tasks.js`, `groups.js`, `inprogress.js`, `selection.js`,
+The nine scripts **share one global scope** and load in the order
+`state.js`, `zoom.js`, `tasks.js`, `groups.js`, `inprogress.js`, `selection.js`,
 `editor.js`, `triage.js`, `settings.js` (see `ui/index.html`, where the
-vendored library loads first). Functions defined in one are callable from
+vendored library loads first). A file with no `<script>` tag never runs and
+every symbol it defines is undefined at the first call site that reaches for
+it, which is silent and mid-render —
+`test_every_ui_script_is_loaded_by_the_page` fails the build on one.
+Functions defined in one are callable from
 another at runtime — `triage.js` calls into `editor.js`, `editor.js` reads
 `triage.js`'s queue, `state.js` calls `inprogress.js`'s
 `inProgressGroupKeys()` despite loading three files earlier, and `tasks.js`'s
@@ -670,13 +675,64 @@ since. Numbering is kept as-is because things elsewhere cite these by number.
     rather than as a bug, because the elevated section looked deliberate.
     A new drag behaviour lands in both or in neither.
 
+29. **Zoom is a table of which elements each region owns, and every element is
+    assigned on every apply — in or out.** `zoomAssignments()` in `ui/zoom.js`
+    is the whole definition of a region. An element the current settings put
+    *outside* a region must have its `zoom` **cleared**, not merely skipped:
+    skipping is why turning "scale the header too" back off would otherwise
+    leave the header stranded at whatever it was last scaled to, looking like
+    a setting that only works in one direction.
+
+    Which region a key press hits is one question — is the editor open — the
+    same rule Escape uses to pick an overlay. There is no mode.
+
+    **CSS `zoom`, because it is the only mechanism that reflows.** A transform
+    scales a box laid out for the old size; a font-size scale misses padding,
+    borders and images. Three things about it were measured (2026-07-26) and
+    none are knowable by reasoning:
+
+    - A `position: fixed; inset: 0` overlay under `zoom` keeps its own
+      viewport size while its contents scale — Chromium divides a zoomed
+      element's containing block by the zoom. So the overlays need no wrapper,
+      and the document never grows a horizontal scrollbar.
+    - `getBoundingClientRect()` returns **post-zoom** pixels, and
+      `event.clientX/Y` are in that same space — which is the entire reason
+      invariant 28's drag geometry needed no change. A future measurement that
+      mixes a zoomed rect with an unzoomed length is the way to break it.
+    - `getComputedStyle().fontSize` reports the **unzoomed** value. Anything
+      wanting the effective size must measure a box, never ask for a length.
+
+    The level is view state and lives in `session.json`; the header/toolbar
+    toggle is a preference and lives on `Settings`. A level stored on
+    `Settings` would be wiped by every settings save, exactly as
+    `last_project` would have been (invariant 17's reasoning, one file over).
+
+30. **Cancel and Escape are one action, and it asks before it discards.**
+    `cancelEditor()` is that action; `closeEditor()` is the unconditional
+    close and belongs only to the save paths. A new exit that reaches for
+    `closeEditor` gets the old behaviour — silently throwing away whatever was
+    typed — and nothing will report it.
+
+    "Would this discard something" is measured against **what the overlay was
+    showing when the open finished** (`openedWith`), not against the task on
+    disk. The two differ on purpose in triage, where a title the user has
+    already typed is deliberately carried across a Skip (invariant 11) and is
+    that visit's starting point rather than an edit made during it. The body
+    is compared against `normalisedBody` for invariant 13's reason: comparing
+    against the file marks every hand-written task as edited, which would put
+    a dialog in front of every cancel of a task nobody touched.
+
+    Chip changes count. A discarded colour pick is a discarded decision.
+
 ## Data on disk
 
 ```
 ~/.task-tracker/projects.json   name -> path, tracked flag, launch override
-~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types
+~/.task-tracker/settings.json   group_limit (5), stale_days (90), task types,
+                                zoom_whole_window (off)
 ~/.task-tracker/session.json    last_project, which groups/projects are folded,
-                                and the order of the IN PROGRESS list
+                                the order of the IN PROGRESS list, and how far
+                                each of the two regions is zoomed
 ~/.task-tracker/inbox/          untriaged raw notes
 ~/.task-tracker/session.json    last_project — restored on every launch
 ~/.task-tracker/window.json     window geometry
@@ -914,6 +970,51 @@ show two unrelated tasks under one id at different points in time.
   top of the box. And drag a row over another row's *edge* rather than its
   centre — it must reorder, never group; grouping must need the middle third.
 
+  And fifteen for zoom and keyboard reach, which are entirely keyboard and so
+  cannot be read out of a diff at all. The ladder and the ends were driven in a
+  headless browser against the real scripts and the real vendored editor, so
+  what is left here is what only a real window can answer — rendering, caret
+  placement, and whether the layout survives.
+
+  **Zoom.** Ctrl+`+` on the list: the rows grow, the header does not (the
+  default). Ctrl+`-` back down, then once more at 100%: nothing moves and the
+  pill says `100% · smallest` rather than nothing at all. Ctrl+`0` from 180%:
+  straight back. Open Capture and Ctrl+`+`: the editor grows and the list
+  behind it does not; close it and the list is still its own size. Press ↻:
+  both sizes come back. Tick "Scale the header and toolbar too", Ctrl+`+` to
+  200%, and narrow the window: the header must still be **one row** and the
+  page must not grow a horizontal scrollbar — this is the case the setting
+  exists for, and the reason it is off by default. Untick it: the header must
+  return to its own size rather than staying big. Zoom the list to 200%, then
+  drag a task between buckets and into a group: it must land where it is
+  drawn, since the whole geometry (invariant 28) is now being measured at a
+  different scale. Zoom the editor and click into the middle of a paragraph:
+  the caret must land where clicked — ProseMirror positions from
+  `elementFromPoint`, and that is the one thing about `zoom` no measurement
+  outside a real window settles. Paste a screenshot into a zoomed editor and
+  click it: the full-size viewer still opens.
+
+  **Keyboard.** In Capture, type a body and press Shift+Tab: focus lands in the
+  title box **and you can see that it did** — an invisible ring is the same
+  defect as no ring. Shift+Tab again to File, again to Later, again to Cancel,
+  again to wrap back into the body with the caret in it. Enter on each button
+  must fire it. In triage the ring must include Skip and Discard; on a done
+  task opened from Progress it must include Restore. And in the body, indenting
+  a list item with Tab must still work — only Shift+Tab was taken.
+
+  **The editor toolbar.** Narrow the window, or zoom the editor, until the `…`
+  overflow button appears: there must be **no stray light line just right of
+  it**. It is not a divider and not an element at all — it is the icon sprite
+  sheet bleeding its next cell, and `ui/style.css` clips 2px off `more` for it.
+  Hover `…` as well: the highlight must not look cut off on that side.
+
+  **Cancel.** Capture, type one character, Escape: it asks. Capture, type
+  nothing, Escape: it closes. Open an existing task and Escape immediately: it
+  closes with no question. Open one, change only its colour, Escape: it asks.
+  Open one, change nothing, press Save: it must still save with **no body
+  diff** in a tracked project — the invariant 13 check, repeated because this
+  feature reads the same baseline.
+
 ## Parallel features (worktrees)
 
 `main` is the only long-lived branch and the **primary checkout stays on it**.
@@ -1010,6 +1111,19 @@ the tracker, select this project, and they are the backlog. Highlights:
   that opens a console and types into it.
 - Done tasks keep their `group`, but nothing renders it: the progress view
   still lists completed tasks flat.
+- **Shift+Tab no longer outdents a list item in the editor body.** That is the
+  price of the focus ring (invariant 30's neighbour in `ui/editor.js`): Tab
+  belongs to Toast UI's list indent, so the only key left that can escape the
+  body is Shift+Tab, and a capture-phase listener takes it before ProseMirror
+  sees it. Backspace at the start of the item still outdents.
+- **The chips are still mouse-only**, now with a visible focus ring if plain
+  Tab reaches them. The Shift+Tab ring deliberately skips them — three
+  projects, three types, three buckets and eight colours is about twenty stops
+  between the title and Cancel. If they are ever wanted from the keyboard the
+  shape is one stop per chip *row* with ←/→ inside it, which is a second
+  interaction idiom and a decision nobody has made.
+- **Zoom is per-machine and invisible to git**, like the IN PROGRESS order and
+  for the same reason: it is view state in `session.json`.
 
 Session identity (naming and colouring a handed-off window, see
 `docs/superpowers/specs/2026-07-25-session-identity-design.md`) **was verified

@@ -6,7 +6,10 @@
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
-    <header>
+    <!-- id, because zoom.js addresses every scalable region by one — the
+         header only scales when the setting says so, and clearing its zoom
+         again is what puts it back. -->
+    <header id="app-header">
       <select id="project-picker"></select>
       <button id="add-project">+</button>
       <button id="capture-button">Capture</button>
@@ -98,6 +101,10 @@
       <label>Group limit <input id="group-limit" type="number" min="1"></label>
       <p class="setting-hint">Tasks handed to one Claude session count as one group.</p>
       <label>Stale after (days) <input id="stale-days" type="number" min="1"></label>
+      <label><input type="checkbox" id="zoom-whole-window">
+        Scale the header and toolbar too</label>
+      <p class="setting-hint">Ctrl + and Ctrl − resize the task list, Progress and
+        Settings. Tick this and the top two rows grow with them.</p>
       <div id="type-editor"></div>
       <button id="add-type">Add type</button>
       <div id="tracked-editor"></div>
@@ -105,8 +112,15 @@
         <button id="settings-close">Close</button></div>
     </div>
 
+    <!-- What the last Ctrl+/- did. Outside every zoom region on purpose: a
+         readout that scaled with the thing it is reporting on could not report
+         the size it had just been given, and it has to sit above the editor
+         overlay to be visible while the editor is the thing being sized. -->
+    <div id="zoom-badge" hidden></div>
+
     <script src="vendor/toastui-editor-all.min.js"></script>
     <script src="state.js"></script>
+    <script src="zoom.js"></script>
     <script src="tasks.js"></script>
     <script src="groups.js"></script>
     <script src="inprogress.js"></script>

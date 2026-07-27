@@ -395,6 +395,22 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 .actions button.quiet { border-color: transparent; opacity: .5; }
 .actions button.quiet:hover { opacity: 1; background: rgba(127, 127, 127, .12); }
 
+/* Where the keyboard is. Shift+Tab walks the editor from the body to the title
+   to these buttons and Enter fires the one it lands on — and until this rule
+   existed nothing on screen said which one that was, which is the same defect
+   as the ring not working. White rather than the drag's green: green means
+   "a drop lands here" everywhere else in this window, and focus is not that.
+   :focus-visible, not :focus, so a mouse click on a button does not leave a
+   ring sitting behind the click.
+   The chips are included because they are focusable too — plain Tab still
+   reaches them, and a focus you cannot see there is the same problem one row
+   up. .quiet drops to .5 opacity, so it gets its opacity back while focused
+   for the same reason it does on hover: the outline would otherwise be the
+   brightest part of a control you can barely read. */
+.actions button:focus-visible, .chip:focus-visible, .swatch:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, .75); outline-offset: 1px; }
+.actions button.quiet:focus-visible { opacity: 1; }
+
 /* The bar floats over the bottom of the window; it is not a row in the flow.
    In the flow it was a block that appeared and disappeared above the list, so
    ticking one box pushed every task down by its height and unticking pulled
@@ -462,6 +478,34 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
                             border-radius: 6px; }
 .toastui-editor-toolbar { border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
+/* The stray line off the end of the toolbar is the icon sprite sheet bleeding,
+   and not an element at all — which is what made it so hard to find. Every
+   toolbar icon is one 466x146 sheet placed by background-position-x. `more` is
+   the 32px cell at -412px, and **the next icon begins at 444px with no gutter
+   between them**. Scaled to a fractional number of device pixels, the sampler
+   blends that neighbour's first texels into the button's own right-hand
+   columns: a thin bright line that reads exactly like a stranded group
+   divider, which is what it was mistaken for three times running.
+
+   Only `more` shows it. Every other icon bleeds identically, but each is
+   followed immediately by another button, so the sliver lands in a row of ink
+   rather than against empty toolbar.
+
+   Found by elimination in the end, not by theory: with all dividers forced
+   off the line stayed, and with `background-image: none` on the icons it went.
+   Before that, a dump of the real window's DOM (Ctrl+Shift+D, since Claude
+   cannot run this app and ~50 headless configurations never reproduced the
+   state) proved there was no element there at all — everything past the
+   button was w=0 h=0 display:none.
+
+   clip-path rather than background-clip, and 2px rather than 1px, because
+   both weaker forms were measured and both failed: the blend happens while
+   sampling the source image, so the polluted device pixels land INSIDE the
+   button's box and clipping the background's destination at 31px is too late.
+   At dpr 1.5 with the editor at 1.8 the bleed spreads about 1.5 CSS pixels.
+   The dots occupy 418-437 of a 412-444 cell, so 2px costs nothing. */
+.toastui-editor-toolbar-icons.more { clip-path: inset(0 2px 0 0); }
+
 /* The 6px belongs to the scroll container, never to the rows inside it. A row
    that hangs past its own overflow: auto parent is scrollable overflow, and
    `.entry { margin: 0 -6px }` is what gave this list a horizontal scrollbar
@@ -492,3 +536,19 @@ section.drop-zone { outline: 1px solid rgba(48, 164, 108, .5); outline-offset: -
 #settings { overflow: auto; }
 .type-row, .tracked-row { display: flex; align-items: center; gap: 6px; }
 .type-name { flex: 1; }
+
+/* What the last Ctrl+/- produced, for the second it takes to read it. It earns
+   its place at the ends of the ladder: at 100% the key changes nothing, and a
+   key that silently does nothing reads as broken rather than as a floor.
+   z-index above #editor's 1, because the editor is one of the two regions it
+   reports on and would otherwise paint over it.
+   pointer-events: none is load-bearing, not tidiness — this floats over the
+   task list, and the drop handler asks event.target what it landed on
+   (invariant 28's one hit-test). A badge that could be the answer would eat a
+   drop in the bottom-right corner of the window. */
+#zoom-badge { position: fixed; right: 12px; bottom: 12px; z-index: 2;
+              font-size: 11px; padding: 3px 9px; border-radius: 11px;
+              color: #ddd; background: rgba(18, 18, 18, .93);
+              border: 1px solid rgba(127, 127, 127, .3);
+              pointer-events: none; }
+#zoom-badge[hidden] { display: none; }

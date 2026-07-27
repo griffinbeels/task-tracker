@@ -229,6 +229,11 @@ document.getElementById('add-type').onclick = () => {
 document.getElementById('settings-button').onclick = () => {
   document.getElementById('group-limit').value = state.settings.group_limit;
   document.getElementById('stale-days').value = state.settings.stale_days;
+  // Read from state on every open, like the two numbers above — so Close
+  // discards a tick the same way it discards a typed limit, and there is no
+  // pending state to keep in sync.
+  document.getElementById('zoom-whole-window').checked =
+    !!state.settings.zoom_whole_window;
   renderTypeEditor();
   renderTrackedEditor();
   document.getElementById('settings').hidden = false;
@@ -276,6 +281,11 @@ document.getElementById('settings-save').onclick = async () => {
     if (result === API_FAILED) return;
     reportSkipped(result);
   }
+
+  // refresh() below is what applies this: syncZoom re-reads the setting on
+  // every refresh, so ticking the box scales the header without settings.js
+  // knowing anything about how zoom works.
+  settings.zoom_whole_window = document.getElementById('zoom-whole-window').checked;
 
   if (await callApi('save_settings', { ...settings, types }) === API_FAILED) return;
   pendingTypes = [];
