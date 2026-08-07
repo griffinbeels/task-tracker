@@ -248,6 +248,27 @@ def test_the_launcher_supplies_every_dependency_pyproject_cannot_resolve():
         f"editable, or a fresh venv cannot resolve it:\n  " + "\n  ".join(install))
 
 
+def test_the_readme_setup_supplies_the_checkout_pyproject_cannot_resolve():
+    """The README's direct-run install is the one command a stranger types on a
+    machine that is not this one. pyproject.toml names claude-console but
+    deliberately gives no path to it, so an install line that stops at `-e .`
+    is unsatisfiable — uv hunts the index for claude-console and reports the
+    whole requirement set unresolvable. run.bat has this guard above; the
+    README went stale in exactly this way when the path moved out of
+    pyproject.toml, and stayed stale because nothing read it.
+
+    Either folder spelling passes — the GitHub repo is claude_console, this
+    machine's checkout is claude-console, and both are real.
+    """
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    install = [line for line in readme.splitlines() if "uv pip install" in line]
+    assert install, "the README no longer shows an install command"
+    for line in install:
+        assert re.search(r"-e\s+\S*claude[-_]console", line), (
+            "the README's install must pass the claude-console checkout as its "
+            f"own editable, or a fresh venv cannot resolve it:\n  {line}")
+
+
 def test_the_launcher_still_opens_the_tracker_when_the_index_is_unreachable():
     """Being offline is not a reason to refuse to open a tracker that already
     runs. The index is where UPDATES come from here, not a precondition.

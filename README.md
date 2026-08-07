@@ -8,7 +8,16 @@ files inside each project's own repo; the app is a view over them.
     run.bat
 
 That is the whole thing. It creates the venv and installs dependencies on first
-run, so a fresh clone needs nothing on PATH but [uv](https://docs.astral.sh/uv/).
+run, so a fresh clone needs nothing on PATH but [uv](https://docs.astral.sh/uv/)
+— plus one sibling checkout. `claude-console`, the shared module that opens and
+drives the handed-off Claude session, is installed from a checkout rather than
+an index, so clone it next to this repo first (either folder name works, or set
+`CLAUDE_CONSOLE_PATH` to wherever you put it):
+
+    git clone https://github.com/griffinbeels/claude_console.git
+
+Windows only: the always-on-top window, the single-instance handover and the
+terminal hand-off are all built on Windows behaviour.
 
 Running it again while a window is already open shuts that one down — saving its
 size and position — and takes over, so you always end up with exactly one window
@@ -23,13 +32,14 @@ tracker says so and refuses to start rather than opening a second window.
 To run it directly instead:
 
     uv venv --python 3.12 .venv
-    uv pip install --python ".venv\Scripts\python.exe" -e .
+    uv pip install --python ".venv\Scripts\python.exe" -e ..\claude_console -e .
     & ".venv\Scripts\python.exe" app.py
 
-`-e .` rather than a list of package names: the dependencies live in
-`pyproject.toml`, and one of them — `claude-console`, the shared module that
-opens and drives the handed-off Claude session — is a local path rather than
-something on an index, so naming packages by hand cannot install it.
+The checkout is passed as its own editable because `pyproject.toml` names
+`claude-console` as a dependency but deliberately gives no path to it — an
+absolute path would publish one machine's layout in a public repo, and a
+relative one cannot serve both this checkout and a worktree checked out four
+levels under it. `-e .` then pulls the rest from `pyproject.toml`.
 
 ## Writing a task
 

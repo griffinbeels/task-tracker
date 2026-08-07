@@ -47,15 +47,24 @@ REM  the live-edit property the shared module exists for. So the path is supplie
 REM  at install time, here, and the convention is that the two repos sit side by
 REM  side. Set CLAUDE_CONSOLE_PATH to override that.
 REM
+REM  Both folder spellings are searched because the GitHub repo is named
+REM  claude_console -- a plain `git clone` lands the checkout under that name,
+REM  and a launcher that only knows the hyphen refuses a machine that did
+REM  everything its own error message asked for.
+REM
 REM  Without this the install fails outright -- uv looks for claude-console on an
 REM  index, does not find it, and reports the whole requirement set unsatisfiable.
 set "CONSOLE=%CLAUDE_CONSOLE_PATH%"
 if not defined CONSOLE if exist "%~dp0..\claude-console\pyproject.toml" set "CONSOLE=%~dp0..\claude-console"
+if not defined CONSOLE if exist "%~dp0..\claude_console\pyproject.toml" set "CONSOLE=%~dp0..\claude_console"
 if not defined CONSOLE if exist "%~dp0..\..\..\..\claude-console\pyproject.toml" set "CONSOLE=%~dp0..\..\..\..\claude-console"
+if not defined CONSOLE if exist "%~dp0..\..\..\..\claude_console\pyproject.toml" set "CONSOLE=%~dp0..\..\..\..\claude_console"
 if not defined CONSOLE (
   echo ERROR: could not find the claude-console checkout.
-  echo It is a required dependency and is installed from a checkout, not an index.
-  echo Clone it beside this repo, or point CLAUDE_CONSOLE_PATH at it.
+  echo It is a required dependency, installed from a checkout rather than an index.
+  echo Clone it beside this repo -- either folder name works:
+  echo     git clone https://github.com/griffinbeels/claude_console.git
+  echo or point CLAUDE_CONSOLE_PATH at an existing checkout.
   echo.
   pause
   exit /b 1
