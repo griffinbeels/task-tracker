@@ -29,6 +29,13 @@ __pycache__/
 docs/superpowers/
 .planning/
 
+# Iteration round ledgers and their lineage chains. Same reasoning, and more so:
+# these files exist to hold his words VERBATIM, plus what was rejected and why.
+# That is the whole value and it is also exactly what should not be published.
+# Listed here rather than left merely untracked, because untracked survives only
+# until someone stages a directory.
+.iteration/
+
 # This machine's own paths — the claude-console checkout the setup command wants.
 # Personal, per-checkout, and the reason pyproject.toml no longer names one.
 CLAUDE.local.md
