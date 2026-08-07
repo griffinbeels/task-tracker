@@ -67,13 +67,51 @@ REM  line above true. It used to list `pywebview pyperclip pyyaml` by hand, and
 REM  the moment `claude-console` joined the dependencies that hand-written list
 REM  went stale silently: the venv came up without it and the app died on
 REM  `import claude_console` before drawing anything.
+REM
+REM  An unreachable index is NOT a reason to refuse to launch. On 2026-08-03 a
+REM  stale DNS answer sent pypi.org to the router, which served its own
+REM  certificate, and this step failed on a machine whose venv already had
+REM  every dependency installed and working. Offline should launch too.
 uv pip install --quiet --python ".venv\Scripts\python.exe" -e "%CONSOLE%" -e .
+if not errorlevel 1 goto :dependencies_ready
+
+REM  The index was unreachable, so ask a different question: is the venv ALREADY
+REM  coherent? `uv pip check` reads the installed task-tracker's own metadata --
+REM  which came from pyproject.toml, so this still hardcodes no package list, for
+REM  the reason above -- and names any dependency that is missing. Measured
+REM  2026-08-03: exit 0 in 1ms with the index pointed at a dead host, so it
+REM  touches no network; exit 1 naming pyperclip once pyperclip was uninstalled.
+REM
+REM  `uv pip install --offline` was tried here first and is worse: an editable
+REM  install REBUILDS both packages, so it needs hatchling from uv's cache and
+REM  fails on a cold one even when the venv is perfectly fine.
+REM
+REM  What this cannot see is a dependency added to pyproject.toml since the last
+REM  successful install -- the installed metadata predates it. That case still
+REM  launches, and app.py's import guard catches it in a message box.
+echo.
+echo WARNING: could not reach the package index -- checking what is installed.
+uv pip check --python ".venv\Scripts\python.exe"
 if errorlevel 1 (
   echo.
-  echo ERROR: could not install dependencies.
+  echo ERROR: the index is unreachable AND a dependency is missing, so there
+  echo is nothing here to run. Reconnect and run this again.
+  echo.
+  echo If you believe you ARE online, a stale DNS answer looks exactly like
+  echo this -- run this in PowerShell, then try again:
+  echo     Clear-DnsClientCache
+  echo.
   pause
   exit /b 1
 )
+echo Launching with the dependencies already installed.
+
+REM  This file must stay CRLF. cmd seeks a label by BYTE OFFSET assuming CRLF,
+REM  so the `goto` above resumes mid-line in an LF copy and runs garbage. The
+REM  flat shape is deliberate too: nesting the retry inside the first failure
+REM  block instead swallows `exit /b 1`, and the launcher reports success on
+REM  the one path where nothing can run. Both measured 2026-08-03.
+:dependencies_ready
 
 REM --- launch ---
 REM  pythonw.exe, so the tracker opens as a window with no console

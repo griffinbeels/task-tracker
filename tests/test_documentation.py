@@ -238,11 +238,65 @@ def test_the_launcher_supplies_every_dependency_pyproject_cannot_resolve():
     assert "claude-console" in launcher, (
         "run.bat must locate the claude-console checkout, since pyproject.toml "
         "no longer names one")
-    install = [line for line in launcher.splitlines() if "uv pip install" in line]
+    # Comments are not commands, and the same trap as above applies: a comment
+    # explaining why an install form was rejected has to quote that form.
+    install = [line for line in launcher.splitlines()
+               if "uv pip install" in line and not line.strip().startswith("REM")]
     assert install, "run.bat no longer installs anything"
     assert all("-e \"%CONSOLE%\"" in line for line in install), (
         "run.bat's install must pass the claude-console checkout as its own "
         f"editable, or a fresh venv cannot resolve it:\n  " + "\n  ".join(install))
+
+
+def test_the_launcher_still_opens_the_tracker_when_the_index_is_unreachable():
+    """Being offline is not a reason to refuse to open a tracker that already
+    runs. The index is where UPDATES come from here, not a precondition.
+
+    On 2026-08-03 a stale DNS answer sent pypi.org to the router, which served
+    its own certificate; the install step failed, and run.bat exited rather
+    than launching a venv that had every dependency installed and working.
+
+    So the install's failure branch must ask whether the venv is already
+    coherent — `uv pip check`, which needs no network and no build, measured at
+    exit 0 in 1ms with the index pointed at a dead host — and may give up only
+    when that check itself names something missing.
+    """
+    # Commands only. Every comment here quotes the command it explains, and
+    # reading those back made an earlier version of this test vacuous: deleting
+    # the readiness check left the sentence describing it, and the guard passed.
+    lines = [line if not line.strip().startswith("REM") else ""
+             for line in (REPO / "run.bat").read_text(encoding="utf-8").splitlines()]
+
+    install = next(i for i, line in enumerate(lines) if "uv pip install" in line)
+    readiness = next((i for i, line in enumerate(lines[install:], install)
+                      if "uv pip check" in line), None)
+    assert readiness is not None, (
+        "run.bat's install step has no offline fallback, so an unreachable "
+        "index strands a venv that could have run")
+
+    give_up = next(i for i, line in enumerate(lines[install:], install)
+                   if "exit /b" in line)
+    assert readiness < give_up, (
+        "run.bat gives up on an unreachable index before asking whether the "
+        f"venv can already run — readiness check at line {readiness + 1}, "
+        f"exit at line {give_up + 1}")
+
+
+def test_the_launcher_keeps_its_crlf_line_endings():
+    """run.bat jumps past that fallback with `goto`, and cmd seeks a label by
+    BYTE OFFSET assuming CRLF — in an LF copy it resumes mid-line and runs
+    garbage ("'tlocal' is not recognized"). Nothing about the file looks wrong
+    when this breaks, and .gitattributes pins it so a clone cannot undo it.
+
+    The flat shape the `goto` buys is load-bearing too: nesting the fallback
+    inside the failure block instead swallows `exit /b 1`, so the launcher
+    reports success on the one path where nothing can run (measured 2026-08-03).
+    """
+    raw = (REPO / "run.bat").read_bytes()
+    bare_lf = raw.count(b"\n") - raw.count(b"\r\n")
+    assert bare_lf == 0, (
+        f"run.bat has {bare_lf} LF-only line endings; cmd needs CRLF to land "
+        "its `goto` on a line boundary")
 
 
 def test_the_root_map_stays_a_map():

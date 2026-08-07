@@ -1,0 +1,5 @@
+# run.bat uses `goto` to jump past its offline fallback, and cmd seeks a label
+# by BYTE OFFSET assuming CRLF -- in an LF checkout it resumes mid-line and runs
+# garbage, with nothing about the file looking wrong. Pin the endings so a clone
+# on a machine with core.autocrlf=input cannot quietly break the launcher.
+*.bat text eol=crlf
