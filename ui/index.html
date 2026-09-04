@@ -15,6 +15,7 @@
       <button id="capture-button">Capture</button>
       <button id="inbox-button" hidden></button>
       <button id="progress-button">Progress</button>
+      <button id="learnings-button">Learnings</button>
       <button id="restart-button" class="icon" title="Restart Task Tracker">↻</button>
       <button id="settings-button" class="icon" title="Settings">⚙</button>
     </header>
@@ -120,6 +121,20 @@
       <div class="actions"><button id="progress-close">Close</button></div>
     </div>
 
+    <!-- A read-only reader over ~/.claude/knowledge (see ui/learnings.js and
+         knowledge.py) -- the cross-project record of how to build things
+         well, one Escape away from whatever task list you were looking at.
+         Never a second copy of it and never editable from here: this app
+         only ever reads a page and follows the relative links inside it. -->
+    <div id="learnings" class="overlay" hidden>
+      <div id="learnings-body"></div>
+      <div class="actions">
+        <button id="learnings-back" class="quiet" hidden>&larr; Back</button>
+        <span class="spacer"></span>
+        <button id="learnings-close">Close</button>
+      </div>
+    </div>
+
     <div id="settings" class="overlay" hidden>
       <label>Group limit <input id="group-limit" type="number" min="1"></label>
       <p class="setting-hint">Tasks handed to one Claude session count as one group.</p>
@@ -165,5 +180,6 @@
     <script src="editor.js"></script>
     <script src="triage.js"></script>
     <script src="settings.js"></script>
+    <script src="learnings.js"></script>
   </body>
 </html>
