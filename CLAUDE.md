@@ -42,7 +42,7 @@ and where the two disagree, these win.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 387 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q # 422 tests
 ```
 
 - **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
