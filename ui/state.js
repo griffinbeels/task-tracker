@@ -239,7 +239,7 @@ document.addEventListener('keydown', event => {
   if (event.key !== 'Escape' || event.defaultPrevented) return;
   const editor = document.getElementById('editor');
   if (!editor.hidden) { cancelEditor(); return; }
-  for (const id of ['settings', 'progress']) {
+  for (const id of ['settings', 'progress', 'learnings']) {
     const overlay = document.getElementById(id);
     if (!overlay.hidden) { overlay.hidden = true; return; }
   }

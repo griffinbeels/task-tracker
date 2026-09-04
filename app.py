@@ -31,8 +31,10 @@ import webview
 
 import groups
 import inbox
+import knowledge
 import launcher
 import migrate
+import pipeline
 import registry
 import restart
 import singleton
@@ -131,7 +133,13 @@ class Api:
         tasks, unreadable = [], []
         for project in projects:
             found, bad = store.read_tasks(Path(project.path))
-            tasks.extend(_task_dict(t, project.name) for t in found)
+            for task in found:
+                payload = _task_dict(task, project.name)
+                # A separate system, not this app, owns pipeline.md — see
+                # pipeline.lookup. None for the (usual) task that was never
+                # part of a tracked feature; the row simply draws no chip.
+                payload["pipeline"] = pipeline.lookup(Path(project.path), task.id)
+                tasks.append(payload)
             unreadable.extend(bad)
         return {
             "projects": [asdict(p) for p in projects],
@@ -388,6 +396,42 @@ class Api:
         """
         project = _project(project_name)
         os.startfile(store.resolve_attachment(Path(project.path), reference))
+
+    def open_retrospective(self, project_name, task_id):
+        """Hand a task's retrospective.html to whatever opens HTML files.
+
+        The path is re-derived here from pipeline.lookup rather than trusted
+        from whatever the frontend last cached — the same discipline
+        open_attachment applies to a body's image reference, and for the same
+        reason: a path handed back across the bridge is a path this method
+        would otherwise pass straight to the OS.
+        """
+        project = _project(project_name)
+        found = pipeline.lookup(Path(project.path), int(task_id))
+        if not found or "retrospective" not in found:
+            raise ValueError(f"no retrospective for task {task_id}")
+        os.startfile(found["retrospective"])
+
+    def read_knowledge_page(self, relative_path):
+        """One markdown page from the knowledge base, for the Learnings overlay.
+
+        knowledge.read_page does the actual path containment check; this is
+        just the crossing.
+        """
+        return knowledge.read_page(_text(relative_path, "relative_path"))
+
+    def open_external_url(self, url):
+        """Hand an http(s) link out of the Learnings overlay to the OS.
+
+        Restricted to the two web schemes rather than passed to os.startfile
+        unchecked — that call is a general-purpose "ask Windows to open this",
+        and a page inside ~/.claude/knowledge is Claude's own prose, not
+        something this method should trust to name a local file or a program.
+        """
+        url = _text(url, "url")
+        if not (url.startswith("http://") or url.startswith("https://")):
+            raise ValueError(f"not a web link: {url}")
+        os.startfile(url)
 
     def restore_task(self, project_name, task_id):
         """Undo a completion — see store.restore_task for where it lands.

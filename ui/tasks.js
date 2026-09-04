@@ -13,6 +13,17 @@ const COPIED_ICON = `
        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="20 6 9 17 4 12"></polyline>
   </svg>`;
+// A page-with-text glyph for the retrospective link -- static markup with no
+// user-authored text, same as the two icons above, so innerHTML is safe here
+// (invariant 5).
+const RETRO_ICON = `
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+    <polyline points="14 2 14 8 20 8"></polyline>
+    <line x1="8" y1="13" x2="16" y2="13"></line>
+    <line x1="8" y1="17" x2="12" y2="17"></line>
+  </svg>`;
 // The Claude character, measured off the source art rather than traced by eye:
 // a 16x16 pixel grid, so at a 16px render every unit is exactly one CSS pixel
 // and no edge lands mid-pixel. The silhouette is one closed outline — body,
@@ -77,6 +88,22 @@ function taskRow(task, options = {}) {
   const typeTag = row.querySelector('.type');
   typeTag.style.background = typeColor(task.type);
   typeTag.textContent = task.type;
+  // task.pipeline comes from a system outside this app (pipeline.py only
+  // ever reads it) and is null for the ordinary task that was never part of
+  // a tracked feature -- most of them. stage is unvalidated text from that
+  // file's own frontmatter, same trust level as task.type, so it gets the
+  // same textContent treatment rather than going anywhere near innerHTML.
+  if (task.pipeline) {
+    const stageChip = document.createElement('span');
+    stageChip.className = 'stage-chip';
+    if (task.pipeline.stage === 'done' || task.pipeline.stage === 'dropped') {
+      stageChip.classList.add('dimmed');
+    }
+    stageChip.textContent = task.pipeline.stage;
+    stageChip.title = task.pipeline.lane
+      ? `pipeline stage · ${task.pipeline.lane}` : 'pipeline stage';
+    typeTag.after(stageChip);
+  }
   const titleElement = row.querySelector('.title');
   titleElement.textContent = task.title;
   titleElement.title = 'Double-click to rename';
@@ -160,6 +187,19 @@ function taskRow(task, options = {}) {
       await refresh();
     };
     row.querySelector('.done').before(reset);
+  }
+
+  // Only drawn when pipeline.py found a retrospective.html beside this
+  // task's pipeline.md -- most tasks have neither. task.project, not
+  // currentProject, for the same invariant-6 reason every other id-bearing
+  // call in this row does: a row here can belong to any project.
+  if (task.pipeline && task.pipeline.retrospective) {
+    const retroButton = document.createElement('button');
+    retroButton.className = 'retro';
+    retroButton.title = 'Open the retrospective';
+    retroButton.innerHTML = RETRO_ICON;
+    retroButton.onclick = () => callApi('open_retrospective', task.project, task.id);
+    row.querySelector('.copy').before(retroButton);
   }
 
   // Where the task lives: exactly what "Spin up Claude" would send, built by

@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 
 import claude_console
@@ -5,6 +6,7 @@ import pytest
 
 import app
 import groups
+import knowledge
 import launcher
 import registry
 import restart
@@ -177,6 +179,99 @@ def test_save_attachment_returns_a_file_url_the_editor_can_render(tmp_path):
     assert returned.startswith("file:///")
     assert "\\" not in returned
     assert Path(url2pathname(urlparse(returned).path)).read_bytes() == b"pixels"
+
+
+def test_get_state_carries_pipeline_info_for_a_task_in_the_pipeline(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    feature_dir = repo / ".tasks" / "features" / f"{task.id:04d}-a"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "pipeline.md").write_text(
+        "---\nstage: build\nlane: prototype\n---\n", encoding="utf-8", newline="\n")
+
+    state = app.Api().get_state()
+
+    [payload] = [t for t in state["tasks"] if t["id"] == task.id]
+    assert payload["pipeline"] == {"stage": "build", "lane": "prototype"}
+
+
+def test_get_state_carries_none_for_a_task_outside_the_pipeline(tmp_path):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+
+    state = app.Api().get_state()
+
+    [payload] = [t for t in state["tasks"] if t["id"] == task.id]
+    assert payload["pipeline"] is None
+
+
+def test_open_retrospective_hands_the_real_path_to_the_os(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    feature_dir = repo / ".tasks" / "features" / f"{task.id:04d}-a"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "pipeline.md").write_text(
+        "---\nstage: done\n---\n", encoding="utf-8", newline="\n")
+    (feature_dir / "retrospective.html").write_text("<html></html>", encoding="utf-8")
+    opened = []
+    monkeypatch.setattr(os, "startfile", lambda path: opened.append(path))
+
+    app.Api().open_retrospective("repo", task.id)
+
+    assert opened == [str(feature_dir / "retrospective.html")]
+
+
+def test_open_retrospective_raises_when_there_is_none(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    task = store.create_task(repo, "A", "body", "BUG")
+    # A real os.startfile call from a test is a window opening on the user's
+    # screen -- this must never be reached on the refusal path.
+    monkeypatch.setattr(os, "startfile", lambda path: pytest.fail("must not be called"))
+
+    with pytest.raises(ValueError):
+        app.Api().open_retrospective("repo", task.id)
+
+
+def test_read_knowledge_page_reads_a_page_under_the_root(tmp_path, monkeypatch):
+    root = tmp_path / "knowledge"
+    root.mkdir()
+    (root / "index.md").write_text("# Index", encoding="utf-8")
+    monkeypatch.setattr(knowledge, "knowledge_root", lambda: root)
+
+    assert app.Api().read_knowledge_page("index.md") == "# Index"
+
+
+def test_read_knowledge_page_refuses_a_path_outside_the_root(tmp_path, monkeypatch):
+    root = tmp_path / "knowledge"
+    root.mkdir()
+    monkeypatch.setattr(knowledge, "knowledge_root", lambda: root)
+
+    with pytest.raises(ValueError):
+        app.Api().read_knowledge_page("../outside.md")
+
+
+def test_read_knowledge_page_rejects_a_non_string():
+    with pytest.raises(ValueError):
+        app.Api().read_knowledge_page(5)
+
+
+def test_open_external_url_opens_an_http_link(monkeypatch):
+    opened = []
+    monkeypatch.setattr(os, "startfile", lambda url: opened.append(url))
+
+    app.Api().open_external_url("https://example.com/page")
+
+    assert opened == ["https://example.com/page"]
+
+
+def test_open_external_url_refuses_a_non_web_scheme(monkeypatch):
+    # Guarded the same way open_attachment is: os.startfile is a general
+    # "ask Windows to open this", and this method must never become a way to
+    # launch an arbitrary local file or program from a knowledge-base link.
+    monkeypatch.setattr(os, "startfile", lambda url: pytest.fail("must not be called"))
+
+    with pytest.raises(ValueError):
+        app.Api().open_external_url("file:///C:/Windows/System32/cmd.exe")
 
 
 def test_a_bucket_change_on_one_member_moves_the_whole_group(tmp_path):

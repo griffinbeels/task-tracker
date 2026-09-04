@@ -86,6 +86,18 @@ input[type="checkbox"] { margin: 0; flex: none; }
 #unreadable-warning[hidden] { display: none; }
 .age { font-size: 10px; opacity: .35; }
 .archived .title { opacity: .45; text-decoration: line-through; }
+/* A read-only pill naming a task's stage in the external product pipeline
+   (see pipeline.py, which this app only ever reads from). Weighted and sized
+   like .type rather than shaped like .chip: .chip is what this app's own
+   pickers use for a choice the user makes, and a pill that looked clickable
+   here would be a control that does nothing. */
+.stage-chip { font-size: 9px; font-weight: 700; padding: 1px 6px;
+              border-radius: 8px; color: inherit; opacity: .65;
+              border: 1px solid rgba(127, 127, 127, .35); white-space: nowrap; }
+/* A task at `done` or `dropped` is no longer moving through the pipeline --
+   dimmed the same way .archived dims a completed task's own title, so a
+   finished stage reads as settled instead of as live as `build` or `round`. */
+.stage-chip.dimmed { opacity: .3; }
 h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* One gutter to the left of everything, reserved for a fold caret whether or
    not this row has one. Without it a group header's own triangle sits in the
@@ -185,6 +197,18 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 /* Same reason as .copy svg: the click target must be the <button>, or
    taskRow's row-click handler opens the editor underneath it. */
 .claude svg { pointer-events: none; display: block; }
+
+/* Hover-revealed exactly like .copy, and for the same reason: the button
+   keeps its box in the row at all times, so revealing it cannot shove the
+   title sideways. Sits between .claude and .copy in the row's action
+   cluster (see taskRow), which is also its DOM order. Only drawn at all
+   when a task has a retrospective.html beside its pipeline.md. */
+.retro { opacity: 0; display: flex; align-items: center; padding: 2px;
+         color: inherit; background: none; border: none; border-radius: 4px;
+         cursor: pointer; }
+.task:hover .retro { opacity: .6; }
+.task:hover .retro:hover { opacity: 1; background: rgba(127, 127, 127, .18); }
+.retro svg { pointer-events: none; display: block; }
 
 /* The two standalone ones — the toolbar's and the selection bar's. They are
    the same button as a row's; what differs is the company they keep. A row's
@@ -776,6 +800,30 @@ body.dragging { user-select: none; cursor: grabbing; }
 #settings { overflow: auto; }
 .type-row, .tracked-row { display: flex; align-items: center; gap: 6px; }
 .type-name { flex: 1; }
+
+/* Same scroll-container split as #progress-body, and the same reason: only
+   this div scrolls, so the Close (and Back) button stays reachable at the
+   bottom of the overlay instead of scrolling away with a long page. */
+#learnings-body { flex: 1; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+/* Named .md-h1/.md-h2 rather than left as bare h1/h2: this file already
+   gives h2 a global rule for the bucket headings (10px, letter-spacing,
+   half opacity), and a rendered knowledge page reusing that tag would
+   inherit a rule meant for NOW/NEXT/SOMEDAY instead of getting its own. */
+.md-h1 { font-size: 15px; font-weight: 700; margin: 16px 0 6px; }
+.md-h1:first-child { margin-top: 0; }
+.md-h2 { font-size: 12px; font-weight: 700; opacity: .7; margin: 14px 0 4px; }
+.md-bullets { margin: 0 0 8px; padding-left: 20px; }
+.md-bullets li { margin: 3px 0; line-height: 1.55; }
+#learnings-body p { margin: 0 0 8px; line-height: 1.55; }
+#learnings-body code { font-family: Consolas, monospace; font-size: 12px;
+                        background: rgba(127, 127, 127, .18); padding: 1px 4px;
+                        border-radius: 3px; }
+/* A link this overlay cannot follow -- neither http(s) nor a relative .md
+   page, e.g. one hand-typed some other way in the knowledge base's own prose.
+   Left in place and readable rather than stripped out, so the sentence
+   around it still reads; just not styled as something to click. */
+.md-link-inert { color: inherit; opacity: .6; cursor: default;
+                 text-decoration: none; }
 
 /* What the last Ctrl+/- produced, for the second it takes to read it. It earns
    its place at the ends of the ladder: at 100% the key changes nothing, and a
