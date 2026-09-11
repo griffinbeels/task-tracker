@@ -20,6 +20,9 @@ fi
 export TASK_TRACKER_UV="$UV"
 
 if ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))' 2>/dev/null; then
+  for argument in "$@"; do
+    [ "$argument" != --check-only ] || fail 'Python 3.12 is not ready. Run run.command without --check-only to set up.'
+  done
   "$UV" venv --python 3.12 --clear .venv || fail 'Could not create Python 3.12. Reconnect and run.command again.'
 fi
 .venv/bin/python tools/bootstrap.py --mac-app "$@" || fail 'Setup failed. The details above explain what needs repair.'

@@ -163,3 +163,14 @@ def test_windows_bootstrap_suppresses_background_ui_with_python312_flags(monkeyp
     assert captured[0]["creationflags"] == 0x08000000
     assert captured[0]["startupinfo"].dwFlags & 0x80
     assert captured[0]["startupinfo"].wShowWindow == 0
+
+
+def test_mac_check_only_does_not_build_install_or_launch(monkeypatch):
+    from tools import bootstrap
+    calls = []
+    monkeypatch.setattr(bootstrap, "ensure_environment", lambda *args, **kwargs: calls.append(kwargs) or bootstrap.REPO)
+    # Build/install imports happen only on the mutation path. With those imports
+    # unavailable this call still succeeds without invoking any subprocess.
+    monkeypatch.setattr(bootstrap, "run", lambda *args, **kwargs: pytest.fail("check-only launched a process"))
+    assert bootstrap.main(["--mac-app", "--check-only", "--install"]) == 0
+    assert calls == [{"check_only": True}]

@@ -189,6 +189,8 @@ def main(argv=None) -> int:
             probe(REPO, args.probe)
             return 0
         console = ensure_environment(REPO, check_only=args.check_only)
+        if args.check_only:
+            return 0
         if args.mac_app:
             from build_macos_app import build
             bundle = build(REPO, console)
