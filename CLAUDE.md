@@ -27,6 +27,7 @@ knowing before you go looking for something:
 | `.claude/rules/ui-surfaces.md` | any `ui/*.js`, `ui/style.css`, `ui/index.html` | Invariant 29, the stacking ladder, the CSS comment trap, how to measure anything animated, the vendored editor |
 | `.claude/rules/ui-checks.md` | any `ui/*.js`, `ui/style.css`, `ui/index.html` | The by-hand checks — hand them to the user when a UI task lands |
 | `.claude/rules/tests.md` | `tests/*.py` | What is covered, and what is deliberately not |
+| `.claude/rules/chain-app-source.md` | Mac bootstrap, bundle, installation and restart | How the installed app keeps following the primary checkout |
 | `.claude/rules/worktrees.md` | always | Parallel features |
 | `docs/known-gaps.md` | on demand | Spec behaviours that were never built, and why. Read before proposing a feature |
 
