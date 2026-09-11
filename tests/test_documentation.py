@@ -66,6 +66,9 @@ def test_no_tracked_file_carries_a_home_directory_path():
 # Repositories this one may legitimately name: its own, and the shared module it
 # depends on, which is published as a dependency anyway.
 NAMEABLE = {"task_tracker", "task-tracker", "claude-console", "claude_console"}
+# Public module names and the ordinary word for a test driver are vocabulary,
+# even when a developer happens to keep an eponymous repository nearby.
+PUBLIC_TERMS = {path.stem for path in REPO.glob("*.py")} | {"harness"}
 
 
 def _sibling_projects() -> set[str]:
@@ -81,8 +84,9 @@ def _sibling_projects() -> set[str]:
     checkout, and matching on any folder name would fail every file that says
     `docs` the moment a folder called docs appeared next door.
     """
+    from tools.bootstrap import primary_checkout
     try:
-        neighbours = list(REPO.parent.iterdir())
+        neighbours = list(primary_checkout(REPO).parent.iterdir())
     except OSError:
         return set()
     return {
@@ -91,6 +95,7 @@ def _sibling_projects() -> set[str]:
         if directory.is_dir()
         and (directory / ".git").exists()
         and directory.name not in NAMEABLE
+        and directory.name not in PUBLIC_TERMS
         and len(directory.name) >= 4
     }
 
@@ -217,7 +222,8 @@ def test_every_invariant_number_lives_in_exactly_one_rule():
 
 def test_the_launcher_supplies_every_dependency_pyproject_cannot_resolve():
     """pyproject.toml names claude-console but gives no path to it, so whoever
-    installs has to supply one. run.bat is the only installer a user touches.
+    installs has to supply one. Both launchers delegate to the shared bootstrap,
+    whose install and offline-failure behavior is exercised in test_bootstrap.py.
 
     This coupling broke the moment [tool.uv.sources] came out: `uv pip install
     -e .` on a fresh venv reports the entire requirement set unsatisfiable,
@@ -234,18 +240,11 @@ def test_the_launcher_supplies_every_dependency_pyproject_cannot_resolve():
         "a [tool.uv.sources] entry is back; it can only name a path, and every "
         "form of that is wrong here — see the comment in pyproject.toml")
 
-    launcher = (REPO / "run.bat").read_text(encoding="utf-8")
-    assert "claude-console" in launcher, (
-        "run.bat must locate the claude-console checkout, since pyproject.toml "
-        "no longer names one")
-    # Comments are not commands, and the same trap as above applies: a comment
-    # explaining why an install form was rejected has to quote that form.
-    install = [line for line in launcher.splitlines()
-               if "uv pip install" in line and not line.strip().startswith("REM")]
-    assert install, "run.bat no longer installs anything"
-    assert all("-e \"%CONSOLE%\"" in line for line in install), (
-        "run.bat's install must pass the claude-console checkout as its own "
-        f"editable, or a fresh venv cannot resolve it:\n  " + "\n  ".join(install))
+    for filename in ("run.bat", "run.command"):
+        commands = [line for line in (REPO / filename).read_text(encoding="utf-8").splitlines()
+                    if not line.lstrip().startswith(("REM", "#"))]
+        assert any("tools/bootstrap.py" in line.replace(chr(92), "/") for line in commands), (
+            f"{filename} must use the shared bootstrap, which supplies the editable checkout")
 
 
 def test_the_readme_setup_supplies_the_checkout_pyproject_cannot_resolve():
@@ -267,40 +266,6 @@ def test_the_readme_setup_supplies_the_checkout_pyproject_cannot_resolve():
         assert re.search(r"-e\s+\S*claude[-_]console", line), (
             "the README's install must pass the claude-console checkout as its "
             f"own editable, or a fresh venv cannot resolve it:\n  {line}")
-
-
-def test_the_launcher_still_opens_the_tracker_when_the_index_is_unreachable():
-    """Being offline is not a reason to refuse to open a tracker that already
-    runs. The index is where UPDATES come from here, not a precondition.
-
-    On 2026-08-03 a stale DNS answer sent pypi.org to the router, which served
-    its own certificate; the install step failed, and run.bat exited rather
-    than launching a venv that had every dependency installed and working.
-
-    So the install's failure branch must ask whether the venv is already
-    coherent — `uv pip check`, which needs no network and no build, measured at
-    exit 0 in 1ms with the index pointed at a dead host — and may give up only
-    when that check itself names something missing.
-    """
-    # Commands only. Every comment here quotes the command it explains, and
-    # reading those back made an earlier version of this test vacuous: deleting
-    # the readiness check left the sentence describing it, and the guard passed.
-    lines = [line if not line.strip().startswith("REM") else ""
-             for line in (REPO / "run.bat").read_text(encoding="utf-8").splitlines()]
-
-    install = next(i for i, line in enumerate(lines) if "uv pip install" in line)
-    readiness = next((i for i, line in enumerate(lines[install:], install)
-                      if "uv pip check" in line), None)
-    assert readiness is not None, (
-        "run.bat's install step has no offline fallback, so an unreachable "
-        "index strands a venv that could have run")
-
-    give_up = next(i for i, line in enumerate(lines[install:], install)
-                   if "exit /b" in line)
-    assert readiness < give_up, (
-        "run.bat gives up on an unreachable index before asking whether the "
-        f"venv can already run — readiness check at line {readiness + 1}, "
-        f"exit at line {give_up + 1}")
 
 
 def test_the_launcher_keeps_its_crlf_line_endings():

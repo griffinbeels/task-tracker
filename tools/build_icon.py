@@ -20,13 +20,17 @@ System.Drawing.Icon still loads, but asking that loader for 256 hands back 128
 from __future__ import annotations
 
 import base64
+import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -44,7 +48,29 @@ STAMP = REPO / "ui" / "icon.build.json"
 # as headroom for Alt+Tab and Explorer's larger views.
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128)
 
-CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+MAC_TARGET = REPO / "ui" / "icon.icns"
+MAC_STAMP = REPO / "ui" / "icon.icns.build.json"
+MAC_SIZES = (16, 32, 64, 128, 256, 512, 1024)
+
+
+def find_chrome() -> Path:
+    """Use an installed headless browser without assuming one operating system."""
+    configured = os.environ.get("CHROME_PATH")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend([
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("LOCALAPPDATA", ".")) / "Google/Chrome/Application/chrome.exe",
+    ])
+    for name in ("google-chrome", "chromium", "chromium-browser", "chrome", "msedge"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise SystemExit("Chrome is the icon rasteriser. Install Chrome or set CHROME_PATH to its executable.")
 
 _HARNESS = """<meta charset="utf-8">
 <pre id="out">EMPTY</pre>
@@ -85,8 +111,7 @@ def rasterise(svg: str, sizes=SIZES) -> dict[int, bytes]:
     nothing in the artwork — a quote, a `</script>`, a stray backslash — can
     break out of the page that measures it.
     """
-    if not CHROME.is_file():
-        raise SystemExit(f"Chrome is the rasteriser and it is not at {CHROME}")
+    chrome = find_chrome()
 
     encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     page = _HARNESS % (list(sizes), encoded)
@@ -94,19 +119,27 @@ def rasterise(svg: str, sizes=SIZES) -> dict[int, bytes]:
     with tempfile.TemporaryDirectory() as scratch:
         harness = Path(scratch) / "harness.html"
         harness.write_text(page, encoding="utf-8", newline="\n")
-        finished = subprocess.run(
-            [str(CHROME), "--headless=new", "--disable-gpu", "--no-first-run",
-             f"--user-data-dir={Path(scratch) / 'profile'}",
-             "--virtual-time-budget=8000", "--dump-dom", harness.as_uri()],
-            capture_output=True, text=True,
-            # Nothing this app runs for its own purposes may put a window on
-            # screen. --headless=new is the guarantee; this is the belt.
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
+        # On Mac the updater can inherit Chrome's output pipes and keep them
+        # open after the render exits. Files make completion follow Chrome's
+        # process, and avoid communicate() waiting on an unrelated updater.
+        output = Path(scratch) / "output.html"
+        errors = Path(scratch) / "errors.log"
+        with output.open("wb") as stdout, errors.open("wb") as stderr:
+            finished = subprocess.run(
+                [str(chrome), "--headless=new", "--disable-gpu", "--no-first-run",
+                 "--disable-background-networking", "--disable-component-update",
+                 f"--user-data-dir={Path(scratch) / 'profile'}",
+                 "--virtual-time-budget=8000", "--dump-dom", harness.as_uri()],
+                stdout=stdout, stderr=stderr,
+                **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
+                timeout=60,
+            )
+        dump = output.read_text(encoding="utf-8")
+        diagnostic = errors.read_text(encoding="utf-8", errors="replace")
     if finished.returncode != 0:
-        raise SystemExit(f"chrome failed ({finished.returncode}):\n{finished.stderr}")
+        raise SystemExit(f"chrome failed ({finished.returncode}):\n{diagnostic}")
 
-    frames = frames_from_dump(finished.stdout)
+    frames = frames_from_dump(dump)
     missing = set(sizes) - set(frames)
     if missing:
         raise SystemExit(f"chrome returned no pixels for {sorted(missing)}")
@@ -189,23 +222,60 @@ def pack_ico(frames: dict[int, bytes]) -> bytes:
             + b"".join(blob for _, blob in images))
 
 
-def main() -> int:
+def pack_png(rgba: bytes, size: int) -> bytes:
+    """Lossless RGBA PNG for iconutil, using the standard PNG chunk format."""
+    if len(rgba) != size * size * 4:
+        raise ValueError(f"the {size}px frame is not {size}x{size} RGBA")
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    scanlines = b"".join(b"\0" + rgba[row * size * 4:(row + 1) * size * 4] for row in range(size))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(scanlines)) + chunk(b"IEND", b""))
+
+
+def build_icns(frames: dict[int, bytes], destination: Path) -> None:
+    """Let macOS's iconutil assemble the standard point/retina iconset."""
+    if sys.platform != "darwin":
+        raise SystemExit("Build the .icns asset on macOS; .ico generation works on either OS.")
+    with tempfile.TemporaryDirectory() as temporary:
+        iconset = Path(temporary) / "TaskTracker.iconset"
+        iconset.mkdir()
+        for size in (16, 32, 128, 256, 512):
+            for scale in (1, 2):
+                pixels = size * scale
+                suffix = "@2x" if scale == 2 else ""
+                (iconset / f"icon_{size}x{size}{suffix}.png").write_bytes(pack_png(frames[pixels], pixels))
+        subprocess.run(["/usr/bin/iconutil", "-c", "icns", "-o", str(destination), str(iconset)], check=True)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--format", choices=("ico", "icns", "all"), default="ico")
+    args = parser.parse_args(argv)
     if not SOURCE.is_file():
         print(f"no artwork at {SOURCE.relative_to(REPO)} — pick a candidate from "
               f"tools/icon-gallery.html first", file=sys.stderr)
         return 1
 
     artwork = SOURCE.read_bytes()
-    frames = rasterise(artwork.decode("utf-8"))
-    TARGET.write_bytes(pack_ico(frames))
-    STAMP.write_text(
-        json.dumps({"source": SOURCE.name,
-                    "sha256": hashlib.sha256(artwork).hexdigest(),
-                    "sizes": list(SIZES)}, indent=2) + "\n",
-        encoding="utf-8", newline="\n")
-    print(f"{TARGET.relative_to(REPO)}: {len(SIZES)} frames "
-          f"({', '.join(str(size) for size in SIZES)}), "
-          f"{TARGET.stat().st_size:,} bytes")
+    sizes = sorted(set(SIZES if args.format in ("ico", "all") else ())
+                   | set(MAC_SIZES if args.format in ("icns", "all") else ()))
+    frames = rasterise(artwork.decode("utf-8"), sizes)
+    for kind, destination, stamp, ladder in (("ico", TARGET, STAMP, SIZES),
+                                              ("icns", MAC_TARGET, MAC_STAMP, MAC_SIZES)):
+        if args.format not in (kind, "all"):
+            continue
+        if kind == "ico":
+            destination.write_bytes(pack_ico({size: frames[size] for size in ladder}))
+        else:
+            build_icns(frames, destination)
+        record = {"source": SOURCE.name, "sha256": hashlib.sha256(artwork).hexdigest(), "sizes": list(ladder)}
+        if kind == "icns":
+            record["output_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
+        stamp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
+        print(f"{destination.relative_to(REPO)}: {len(ladder)} sizes, {destination.stat().st_size:,} bytes")
     return 0
 
 

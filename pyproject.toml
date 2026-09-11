@@ -2,7 +2,13 @@
 name = "task-tracker"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pywebview", "pyperclip", "pyyaml", "claude-console"]
+# packaging lets startup compare current dependency requirements with installed
+# metadata without maintaining a second parser for Python requirement syntax.
+dependencies = ["pywebview", "pyperclip", "pyyaml", "claude-console", "packaging>=24"]
+
+[project.optional-dependencies]
+# Alias bundles use local source. Packaging tools are unnecessary at runtime.
+mac-app = ["py2app>=0.28.8,<0.29; sys_platform == 'darwin'"]
 
 # claude-console is a machine-level module shared with the other projects here,
 # installed EDITABLE from one source tree rather than copied. That is what makes
