@@ -129,12 +129,12 @@ function setZoomSteps(scope, wanted) {
   if (!refused) callApi('set_zoom', scope, zoomFactor(scope));
 }
 
-// `+` needs Shift on a US layout, so Shift is permitted; Alt and Meta are not,
-// so nothing here shadows a system chord. Both the character and the physical
+// `+` needs Shift on a US layout, so Shift is permitted; Alt and the other
+// platform's modifier are not. Both the character and the physical
 // key are accepted: `event.key` is what a layout produces, `event.code` is
 // what the numpad sends whatever the layout.
 function zoomIntent(event) {
-  if (!event.ctrlKey || event.altKey || event.metaKey) return null;
+  if (!primaryKeyPressed(event) || event.altKey) return null;
   if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') return 'in';
   if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') return 'out';
   if (event.key === '0' || event.code === 'Numpad0') return 'reset';

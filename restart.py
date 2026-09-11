@@ -25,9 +25,11 @@ that rule now lives.
 
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 import claude_console
+from tools.bootstrap import ensure_environment
 
 # Read via getattr so this module still imports on a non-Windows machine, the
 # same way claude_console.session.NEW_CONSOLE is. The flag only exists on
@@ -56,6 +58,8 @@ def interpreter() -> str:
     anything the process list says. One launch is also two processes, the
     trampoline and its child; the child is the one that binds the lock port.
     """
+    if sys.platform != "win32":
+        return sys.executable
     windowless = Path(sys.executable).with_name("pythonw.exe")
     return str(windowless) if windowless.exists() else sys.executable
 
@@ -66,9 +70,24 @@ def spawn_replacement() -> subprocess.Popen:
     Paths come from `__file__`, not the working directory: the tracker is
     launched from wherever the user happened to be.
     """
-    return subprocess.Popen(
-        [interpreter(), str(APP_ROOT / "app.py")],
-        cwd=str(APP_ROOT),
-        creationflags=NO_WINDOW,
-        startupinfo=claude_console.unfocused_startup(),
-    )
+    # Report broken dependencies through the existing bridge before launching
+    # anything. Setup/repair stays with the source launcher.
+    ensure_environment(APP_ROOT, check_only=True)
+    command = [interpreter(), str(APP_ROOT / "app.py")]
+    options = {"cwd": str(APP_ROOT)}
+    if sys.platform == "win32":
+        options.update(creationflags=NO_WINDOW,
+                       startupinfo=claude_console.unfocused_startup())
+    else:
+        options.update(start_new_session=True, stdin=subprocess.DEVNULL)
+        bundle = os.environ.get("TASK_TRACKER_APP_BUNDLE")
+        if sys.platform == "darwin" and bundle:
+            if not Path(bundle).is_dir():
+                raise OSError("The Mac app launcher moved. Run run.command again to rebuild it.")
+            command = ["/usr/bin/open", "-n", bundle]
+            # LaunchServices launches the application, not open's child. Pass
+            # preview overrides explicitly instead of trusting inheritance.
+            for key in ("TASK_TRACKER_CONFIG_DIR", "TASK_TRACKER_PORT", "CLAUDE_CONSOLE_PATH"):
+                if key in os.environ:
+                    command.extend(["--env", f"{key}={os.environ[key]}"])
+    return subprocess.Popen(command, **options)

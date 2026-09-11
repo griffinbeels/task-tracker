@@ -103,14 +103,14 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    not this row has one. Without it a group header's own triangle sits in the
    checkbox column and shoves its checkbox one notch right of every loose row's
    — the header and the rows below it then read as two different columns. */
-:root { --caret-gutter: 15px; }
+:root { --caret-gutter: 15px; --row-gap: 4px; }
 
 /* ONE transition declaration, naming box-shadow only — the pairing preview's rail
    fades in rather than snapping on, and nothing below may add a second
    `transition` here or this one is replaced wholesale while that state is active.
    Position is never transitioned on a row: the FLIP owns movement, and a
    transition on `margin` would race it. */
-.task { display: flex; align-items: center; gap: 6px; padding: 5px 6px;
+.task { display: flex; align-items: center; gap: var(--row-gap); padding: 5px 6px;
         padding-left: calc(6px + var(--caret-gutter));
         border-radius: 5px; cursor: grab;
         transition: box-shadow 160ms cubic-bezier(.4, 0, .2, 1); }
@@ -136,9 +136,23 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
 .title-input { flex: 1; font: inherit; min-width: 0; background: #1b1b1b;
                color: inherit; border: 1px solid #3a3a3a; border-radius: 3px;
                padding: 1px 4px; }
-.bucket { font-size: 10px; opacity: .5; }
+/* Native select/button chrome took 118px on Mac versus 101px in Chromium,
+   squeezing short task titles onto two lines at a 410px window width.
+   Size the shared controls explicitly; opacity still reserves their boxes
+   so revealing actions on hover cannot move or rewrap the title. */
+.bucket, .done {
+  appearance: none; box-sizing: border-box; flex: none;
+  height: 20px; font-family: inherit; font-size: 10px; line-height: normal;
+  padding: 1px 3px; color: inherit;
+  border: 1px solid rgba(127, 127, 127, .3); border-radius: 4px;
+  background: rgba(127, 127, 127, .08);
+}
+.bucket { width: 60px; padding-right: 10px; opacity: .5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4' viewBox='0 0 6 4'%3E%3Cpath d='m1 1 2 2 2-2' fill='none' stroke='%23aaa'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 3px center;
+}
 .task:hover .bucket { opacity: 1; }
-.done { opacity: 0; font-size: 10px; }
+.done { opacity: 0; }
 .task:hover .done, .group-header:hover .done { opacity: .6; }
 
 /* Hover-revealed the same way .done is, and for the same reason it uses
@@ -347,7 +361,7 @@ h2 { font-size: 10px; letter-spacing: .1em; opacity: .5; margin: 14px 0 4px; }
    right of its group header's — the same rhythm as the gutter above it, and
    the thing that says these rows belong to that header. */
 .group > .task { margin-left: var(--caret-gutter); }
-.group-header { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+.group-header { display: flex; align-items: center; gap: var(--row-gap); padding: 4px 6px;
                 padding-left: calc(6px + var(--caret-gutter));
                 position: relative; cursor: grab; }
 .group-header:hover { background: rgba(127, 127, 127, .08); }

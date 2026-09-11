@@ -18,6 +18,7 @@ from pathlib import Path
 import claude_console
 import pyperclip
 
+import desktop
 import store
 
 # What a hand-off says when the text never reached the session. The clipboard
@@ -25,7 +26,7 @@ import store
 # existed nobody was ever told the fallback had become the only copy — an
 # empty prompt box looked exactly like a hand-off that worked.
 CLIPBOARD_NOTICE = ("Couldn't type the tasks into the Claude window — "
-                    "they're on your clipboard, press Ctrl+V.")
+                    f"they're on your clipboard, press {desktop.shortcuts()['label']}+V.")
 
 
 def build_prompt(tasks: list[store.Task]) -> str:

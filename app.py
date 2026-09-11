@@ -1,45 +1,30 @@
 """pywebview window and the JS bridge. This module is wiring only."""
 
-import os
 from dataclasses import asdict
 from pathlib import Path
 
-# claude_console is the one dependency that lives OUTSIDE this repo, and a
-# missing one fails harder than the others: it raises at import time, before
-# main() and therefore before _report_fatal exists on any reachable path, and
-# run.bat launches through pythonw.exe — so the whole app becomes a launcher
-# that does nothing at all. No window, no console, no error, nothing to read.
-#
-# run.bat installs it (`uv pip install -e .`, which resolves the path source in
-# pyproject.toml), so the realistic way to reach this is a worktree whose venv
-# was built by hand without `-e .`.
+import desktop
+
+# Startup diagnostics must exist before any external dependency is imported.
+# A Finder/Dock or pythonw launch has no terminal to display an import error.
 try:
-    import claude_console  # noqa: F401
+    import webview
+    import groups
+    import inbox
+    import knowledge
+    import launcher
+    import migrate
+    import pipeline
+    import registry
+    import restart
+    import singleton
+    import store
+    import window_state
 except ImportError as missing:
-    import ctypes
-
-    ctypes.windll.user32.MessageBoxW(
-        0,
-        f"{missing}\n\n"
-        f"The shared claude_console module is not installed in this "
-        f"environment. From the checkout you launched:\n\n"
-        f'    uv pip install --python ".venv\\Scripts\\python.exe" -e .',
-        "Task Tracker", 0x10)
+    entry = "run.command" if desktop.sys.platform == "darwin" else "run.bat"
+    desktop.report_fatal(f"{missing}\n\nRun {entry} from this checkout to repair "
+                         "the tracker environment and its shared launcher.")
     raise
-
-import webview
-
-import groups
-import inbox
-import knowledge
-import launcher
-import migrate
-import pipeline
-import registry
-import restart
-import singleton
-import store
-import window_state
 
 
 def _project(name: str) -> registry.Project:
@@ -151,6 +136,7 @@ class Api:
             "collapsed": registry.collapsed_view(),
             "in_progress_order": registry.in_progress_order(),
             "zoom": registry.zoom_view(),
+            "shortcuts": desktop.shortcuts(),
         }
 
     def set_zoom(self, scope, factor):
@@ -395,7 +381,7 @@ class Api:
         hand-editable task body.
         """
         project = _project(project_name)
-        os.startfile(store.resolve_attachment(Path(project.path), reference))
+        desktop.open_target(store.resolve_attachment(Path(project.path), reference))
 
     def open_retrospective(self, project_name, task_id):
         """Hand a task's retrospective.html to whatever opens HTML files.
@@ -410,7 +396,7 @@ class Api:
         found = pipeline.lookup(Path(project.path), int(task_id))
         if not found or "retrospective" not in found:
             raise ValueError(f"no retrospective for task {task_id}")
-        os.startfile(found["retrospective"])
+        desktop.open_target(found["retrospective"])
 
     def read_knowledge_page(self, relative_path):
         """One markdown page from the knowledge base, for the Learnings overlay.
@@ -423,15 +409,15 @@ class Api:
     def open_external_url(self, url):
         """Hand an http(s) link out of the Learnings overlay to the OS.
 
-        Restricted to the two web schemes rather than passed to os.startfile
-        unchecked — that call is a general-purpose "ask Windows to open this",
+        Restricted to the two web schemes rather than passed to the native opener
+        unchecked — that call is a general-purpose "ask the OS to open this",
         and a page inside ~/.claude/knowledge is Claude's own prose, not
         something this method should trust to name a local file or a program.
         """
         url = _text(url, "url")
         if not (url.startswith("http://") or url.startswith("https://")):
             raise ValueError(f"not a web link: {url}")
-        os.startfile(url)
+        desktop.open_target(url)
 
     def restore_task(self, project_name, task_id):
         """Undo a completion — see store.restore_task for where it lands.
@@ -680,23 +666,21 @@ class Api:
 
 
 def _report_fatal(message: str) -> None:
-    """Surface a startup failure even when launched without a console.
-
-    run.bat uses pythonw.exe so the tracker opens without a console window,
-    which means a bare print() on the failure path would go nowhere.
-    """
-    print(message)
-    try:
-        import ctypes
-
-        ctypes.windll.user32.MessageBoxW(0, message, "Task Tracker", 0x10)
-    except (AttributeError, OSError):
-        pass
+    """Surface a startup failure even when launched without a console."""
+    desktop.report_fatal(message)
 
 
 def main() -> None:
-    # Taking the lock shuts down any window already open, so launching always
-    # leaves exactly one, running the current code.
+    # webview.screens initialises the GUI backend on first access, so it is
+    # readable here, before there is a window to place. It is read again at
+    # closing rather than reused: a monitor can be attached or unplugged while
+    # the window is open, and what counts as a reachable position moves with it.
+    screens = webview.screens
+    reference = desktop.reference_screen(screens)
+    on_top = registry.load_settings().always_on_top
+    # Imports, GUI backend and settings are ready before asking the old
+    # instance to close. Geometry must be read AFTER handover: closing the
+    # old window writes its latest position, which may differ from startup.
     lock = singleton.acquire()
     if lock is None:
         _report_fatal(
@@ -705,36 +689,32 @@ def main() -> None:
             f"Free that port and try again."
         )
         return
+    try:
+        geometry = window_state.load(desktop.geometry_screens(screens))
+        window = webview.create_window(
+            "Tasks",
+            str(Path(__file__).parent / "ui" / "index.html"),
+            js_api=Api(),
+            width=geometry["width"], height=geometry["height"],
+            x=geometry["x"], y=geometry["y"],
+            on_top=on_top,
+            screen=reference,
+        )
 
-    # webview.screens initialises the GUI backend on first access, so it is
-    # readable here, before there is a window to place. It is read again at
-    # closing rather than reused: a monitor can be attached or unplugged while
-    # the window is open, and what counts as a reachable position moves with it.
-    geometry = window_state.load(webview.screens)
-    window = webview.create_window(
-        "Tasks",
-        str(Path(__file__).parent / "ui" / "index.html"),
-        js_api=Api(),
-        width=geometry["width"], height=geometry["height"],
-        x=geometry["x"], y=geometry["y"],
-        # A preference rather than geometry, so it comes from settings.json —
-        # where the checkbox that flips it writes it — and not from window.json.
-        on_top=registry.load_settings().always_on_top,
-    )
-    window.events.closing += lambda: window_state.save({
-        "width": window.width, "height": window.height,
-        "x": window.x, "y": window.y,
-    }, webview.screens)
-    # destroy() closes the window, which fires `closing` on the UI thread and
-    # saves geometry there — the socket thread must not read window.x/width
-    # itself, those properties are only safe to touch on the UI thread.
-    singleton.serve(lock, window.destroy)
-    # One .ico feeds both surfaces: WinForms' Form.Icon becomes ICON_SMALL, the
-    # title-bar corner, and ICON_BIG, the taskbar button and Alt+Tab. Without
-    # it the backend falls back to ExtractIconW(sys.executable) — which is why
-    # this app wore the Python logo, a default nobody chose rather than a
-    # placeholder. Built from ui/icon.svg by tools/build_icon.py.
-    webview.start(icon=str(Path(__file__).parent / "ui" / "icon.ico"))
+        def save_geometry():
+            current_screens = webview.screens
+            window_state.save(desktop.saved_geometry(window, reference, current_screens),
+                              desktop.geometry_screens(current_screens))
+
+        window.events.closing += save_geometry
+        # The native close path saves geometry; the socket thread must not
+        # read window properties itself.
+        singleton.serve(lock, window.destroy)
+        extension = "icns" if desktop.sys.platform == "darwin" else "ico"
+        icon = Path(__file__).parent / "ui" / f"icon.{extension}"
+        webview.start(icon=str(icon) if icon.exists() else None)
+    finally:
+        lock.close()
 
 
 if __name__ == "__main__":

@@ -18,11 +18,28 @@ UI_SCRIPTS = sorted((REPO / "ui").glob("*.js"))
 # cut before a convention landed fails it, in a checkout that is itself clean.
 # That is not hypothetical: emptying the allowlist below turned every worktree
 # still carrying the old `launcher.py` into an offender.
-IGNORED_TREES = {".venv", ".git", "node_modules", ".tasks", ".claude"}
-PYTHON_SOURCES = sorted(
-    path for path in REPO.rglob("*.py")
-    if not IGNORED_TREES.intersection(path.parts)
-)
+IGNORED_TREES = {".venv", ".git", "node_modules", ".tasks", ".claude", ".codex"}
+
+
+def python_sources(root):
+    # Relative parts matter: the checkout itself may live inside .codex or
+    # .claude, and excluding its ancestors would make every guard vacuous.
+    return sorted(path for path in root.rglob("*.py")
+                  if not IGNORED_TREES.intersection(path.relative_to(root).parts))
+
+
+PYTHON_SOURCES = python_sources(REPO)
+
+
+def test_source_inventory_keeps_this_worktree_and_excludes_children(tmp_path):
+    root = tmp_path / ".codex" / "feature"
+    root.mkdir(parents=True)
+    owned = root / "app.py"
+    owned.write_bytes(b"pass\n")
+    child = root / ".codex" / "worker"
+    child.mkdir(parents=True)
+    (child / "app.py").write_bytes(b"pass\n")
+    assert python_sources(root) == [owned]
 
 
 def _write_text_calls(module: Path):
