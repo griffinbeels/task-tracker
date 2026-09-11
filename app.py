@@ -676,6 +676,7 @@ def main() -> None:
     # closing rather than reused: a monitor can be attached or unplugged while
     # the window is open, and what counts as a reachable position moves with it.
     screens = webview.screens
+    reference = desktop.reference_screen(screens)
     on_top = registry.load_settings().always_on_top
     # Imports, GUI backend and settings are ready before asking the old
     # instance to close. Geometry must be read AFTER handover: closing the
@@ -689,7 +690,7 @@ def main() -> None:
         )
         return
     try:
-        geometry = window_state.load(screens)
+        geometry = window_state.load(desktop.geometry_screens(screens))
         window = webview.create_window(
             "Tasks",
             str(Path(__file__).parent / "ui" / "index.html"),
@@ -697,11 +698,15 @@ def main() -> None:
             width=geometry["width"], height=geometry["height"],
             x=geometry["x"], y=geometry["y"],
             on_top=on_top,
+            screen=reference,
         )
-        window.events.closing += lambda: window_state.save({
-            "width": window.width, "height": window.height,
-            "x": window.x, "y": window.y,
-        }, webview.screens)
+
+        def save_geometry():
+            current_screens = webview.screens
+            window_state.save(desktop.saved_geometry(window, reference, current_screens),
+                              desktop.geometry_screens(current_screens))
+
+        window.events.closing += save_geometry
         # The native close path saves geometry; the socket thread must not
         # read window properties itself.
         singleton.serve(lock, window.destroy)

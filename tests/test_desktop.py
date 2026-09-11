@@ -12,7 +12,8 @@ def test_native_boundary_can_load_without_gui_dependencies():
     """Missing optional GUI packages must not hide startup diagnostics."""
     result = subprocess.run([sys.executable, "-S", "-c", "import desktop"],
                             cwd=Path(__file__).resolve().parent.parent,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     assert result.returncode == 0, result.stderr
 
 
@@ -90,3 +91,41 @@ def test_error_falls_back_to_stderr_if_native_dialog_fails(monkeypatch, capsys):
     desktop.report_fatal("Missing dependency")
 
     assert "Missing dependency" in capsys.readouterr().err
+
+
+def test_mac_geometry_uses_primary_origin_with_side_and_upper_displays(monkeypatch):
+    from types import SimpleNamespace
+    import desktop
+    import window_state
+
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    primary = SimpleNamespace(x=0, y=0, width=1440, height=900)
+    side = SimpleNamespace(x=1440, y=0, width=1440, height=900)
+    upper = SimpleNamespace(x=0, y=900, width=1440, height=900)
+    screens = [primary, side, upper]
+    assert desktop.reference_screen(screens) is primary
+    normalized = desktop.geometry_screens(screens)
+    assert window_state.on_screen(dict(x=1540, y=100, width=420, height=600), normalized)
+    assert window_state.on_screen(dict(x=100, y=-700, width=420, height=600), normalized)
+    assert not window_state.on_screen(dict(x=2980, y=100, width=420, height=600), normalized)
+
+
+def test_mac_saved_geometry_accounts_for_changed_primary_height(monkeypatch):
+    from types import SimpleNamespace
+    import desktop
+
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    initial = SimpleNamespace(height=900)
+    current = SimpleNamespace(x=0, y=0, width=1440, height=1000)
+    window = SimpleNamespace(x=100, y=100, width=420, height=600)
+    assert desktop.saved_geometry(window, initial, [current])["y"] == 200
+
+
+def test_windows_geometry_keeps_native_coordinates(monkeypatch):
+    from types import SimpleNamespace
+    import desktop
+
+    monkeypatch.setattr(desktop.sys, "platform", "win32")
+    screens = [SimpleNamespace(x=0, y=-900, width=1440, height=900)]
+    assert desktop.reference_screen(screens) is None
+    assert desktop.geometry_screens(screens) is screens

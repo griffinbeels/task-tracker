@@ -27,14 +27,18 @@ def bundle_settings(source: Path) -> dict:
                 "identifier": "local.tasktracker" + (f".preview.{suffix}" if preview else "")}
     if preview:
         settings["config_dir"] = str(source / ".preview-data")
-        settings["port"] = 18000 + int(suffix, 16) % 20000
+        # singleton.py derives the port from CONFIG_DIR for every entry point.
+        # A separate bundle-specific hash would allow two apps on the same data.
     return settings
 
 
 def setup_source(source: Path, settings: dict) -> str:
     plist = {"CFBundleName": settings["name"], "CFBundleDisplayName": settings["name"],
              "CFBundleIdentifier": settings["identifier"], "CFBundleShortVersionString": "0.1.0",
-             "NSHighResolutionCapable": True}
+             "NSHighResolutionCapable": True,
+             "NSAppleEventsUsageDescription":
+                 "Task Tracker opens the Claude terminal you request and checks "
+                 "that your task paths arrive unsent."}
     options = {"alias": True, "argv_emulation": False,
                "iconfile": str(source / "ui/icon.icns"), "plist": plist}
     return ("from setuptools import setup\n"

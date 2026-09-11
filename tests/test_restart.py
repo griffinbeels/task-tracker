@@ -26,6 +26,7 @@ def spawned(monkeypatch):
     fake = FakeSpawn()
     monkeypatch.setattr(subprocess, "Popen", fake)
     monkeypatch.delenv("TASK_TRACKER_APP_BUNDLE", raising=False)
+    monkeypatch.setattr(restart, "ensure_environment", lambda *args, **kwargs: None)
     return fake
 
 
@@ -123,3 +124,22 @@ def test_windows_restart_keeps_its_windowless_process_flags(spawned, monkeypatch
     assert spawned.kwargs["creationflags"] == 0x08000000
     assert spawned.kwargs["startupinfo"] is startup
     assert "start_new_session" not in spawned.kwargs
+
+
+def test_failed_preflight_does_not_spawn_a_replacement(spawned, monkeypatch):
+    def unavailable(source, *, check_only):
+        assert source == restart.APP_ROOT and check_only is True
+        raise RuntimeError("dependency missing")
+
+    monkeypatch.setattr(restart, "ensure_environment", unavailable)
+    with pytest.raises(RuntimeError, match="dependency missing"):
+        restart.spawn_replacement()
+    assert spawned.args is None
+
+
+def test_missing_mac_bundle_reports_repair_without_spawning(spawned, monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("TASK_TRACKER_APP_BUNDLE", str(tmp_path / "missing.app"))
+    with pytest.raises(OSError, match="run.command"):
+        restart.spawn_replacement()
+    assert spawned.args is None

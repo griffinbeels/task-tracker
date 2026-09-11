@@ -8,6 +8,31 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+
+def reference_screen(screens):
+    """Give Cocoa a stable global origin, independent of the focused display."""
+    return screens[0] if sys.platform == "darwin" and screens else None
+
+
+def geometry_screens(screens):
+    """Map Cocoa's bottom-up screen rectangles to pywebview window positions."""
+    reference = reference_screen(screens)
+    if reference is None:
+        return screens
+    return [SimpleNamespace(x=s.x, y=reference.height - s.y - s.height,
+                            width=s.width, height=s.height) for s in screens]
+
+
+def saved_geometry(window, initial_screen, screens) -> dict:
+    geometry = dict(width=window.width, height=window.height, x=window.x, y=window.y)
+    current = reference_screen(screens)
+    if current is not None and initial_screen is not None and geometry["y"] is not None:
+        # Cocoa get_position uses the screen frame captured at construction.
+        # Persist against today's primary height if a display changed meanwhile.
+        geometry["y"] += current.height - initial_screen.height
+    return geometry
 
 
 def shortcuts() -> dict[str, str]:

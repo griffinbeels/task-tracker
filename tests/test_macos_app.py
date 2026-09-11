@@ -24,7 +24,12 @@ def test_linked_worktree_keeps_preview_identity_even_without_git(tmp_path, monke
     monkeypatch.setattr(build_macos_app, "primary_checkout", lambda path: path)
     settings = build_macos_app.bundle_settings(tmp_path)
     assert "Preview" in settings["name"]
-    assert settings["port"] != 8090
+    # App and direct source launch use one config-derived lock identity.
+    assert "port" not in settings
+    import singleton
+    monkeypatch.delenv("TASK_TRACKER_PORT", raising=False)
+    monkeypatch.setenv("TASK_TRACKER_CONFIG_DIR", settings["config_dir"])
+    assert singleton.configured_port() != 8090
     assert Path(settings["config_dir"]).is_relative_to(tmp_path)
 
 
@@ -61,6 +66,7 @@ def test_packager_uses_alias_mode_and_local_venv(tmp_path):
     assert "argv_emulation" in setup and "False" in setup
     assert str(tmp_path / "tools" / "macos_entry.py") in setup
     assert "LSUIElement" not in setup
+    assert "NSAppleEventsUsageDescription" in setup
 
 
 def test_bundle_preflight_only_cannot_reach_native_errors_or_app_code(tmp_path, monkeypatch, capsys):

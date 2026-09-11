@@ -10,7 +10,7 @@ Platform-specific code belongs at a native boundary, not in separate task flows.
 |---|---|
 | Task storage, grouping, inbox, settings and progress | Existing Python modules |
 | Task interface and editor | Shared files under `ui/` |
-| Native file/URL opening, startup dialogs and shortcut names | `desktop.py` |
+| Native file/URL opening, screen coordinates, startup dialogs and shortcut names | `desktop.py` |
 | Tracker replacement process | `restart.py` |
 | Runtime/dependency discovery and readiness | `tools/bootstrap.py` |
 | Mac source-backed application bundle | `tools/build_macos_app.py` |
