@@ -14,22 +14,43 @@ after editing it.
 import socket
 import threading
 import time
+import hashlib
+import os
+from pathlib import Path
+
+
+def configured_port() -> int:
+    """Use a distinct lock for a preview's data, never the daily app's lock."""
+    explicit = os.environ.get("TASK_TRACKER_PORT")
+    if explicit is not None:
+        try:
+            port = int(explicit)
+        except ValueError as error:
+            raise ValueError("TASK_TRACKER_PORT must be a port from 1 to 65535") from error
+        if not 1 <= port <= 65535:
+            raise ValueError("TASK_TRACKER_PORT must be a port from 1 to 65535")
+        return port
+    config = os.environ.get("TASK_TRACKER_CONFIG_DIR")
+    if config:
+        identity = str(Path(config).expanduser().resolve()).encode("utf-8")
+        return 20000 + int.from_bytes(hashlib.sha256(identity).digest()[:4], "big") % 30000
+    return 8090
 
 LOCK_HOST = "127.0.0.1"
-LOCK_PORT = 8090
+LOCK_PORT = configured_port()
 SHUTDOWN = b"SHUTDOWN"
 HANDOVER_TIMEOUT = 10.0
 
 
 def _bind() -> socket.socket | None:
-    lock = socket.socket()
     try:
-        lock.bind((LOCK_HOST, LOCK_PORT))
-        lock.listen(1)
+        # The stdlib enables SO_REUSEADDR on POSIX only, so a closed handover
+        # connection's TIME_WAIT does not block the replacement on macOS.
+        # It leaves Windows options unchanged and never enables SO_REUSEPORT:
+        # another live listener must still prevent acquiring the lock.
+        return socket.create_server((LOCK_HOST, LOCK_PORT), backlog=1)
     except OSError:
-        lock.close()
         return None
-    return lock
 
 
 def _ask_running_instance_to_quit() -> None:

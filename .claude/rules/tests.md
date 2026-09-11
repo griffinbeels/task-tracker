@@ -22,9 +22,10 @@ Including the rule that no test here may put anything on screen.
   called — moved to `claude-console` along with its windowless probe and the
   guard that keeps it windowless. The suite runs while someone else is at the
   keyboard: **no test may put anything on screen.**
-- **Deliberately untested:** `main()`, window geometry persistence, and the
-  `import claude_console` guard at the top of `app.py`. Driving a native window
-  under pytest is not worth the machinery; this is a decision, not an oversight.
-  The import guard is the same call in a different disguise — exercising it
-  means letting a `MessageBoxW` reach the screen, which is the one thing the
-  suite may never do.
+- **Native windows remain a human check.** Startup ordering and error handling
+  can be tested with a fake webview and mocked `desktop.report_fatal`; no test
+  may let a real `MessageBoxW`, AppleScript dialog or webview reach the screen.
+  Headless page checks do not prove native geometry, clipboard or focus.
+- **Both platforms:** run the shared suite on Windows and macOS; use native-only
+  skips solely for native structures and retain shared contract coverage.
+  See `docs/platform-support.md` for the boundaries and acceptance checklist.

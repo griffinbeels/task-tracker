@@ -214,7 +214,7 @@ def test_open_retrospective_hands_the_real_path_to_the_os(tmp_path, monkeypatch)
         "---\nstage: done\n---\n", encoding="utf-8", newline="\n")
     (feature_dir / "retrospective.html").write_text("<html></html>", encoding="utf-8")
     opened = []
-    monkeypatch.setattr(os, "startfile", lambda path: opened.append(path))
+    monkeypatch.setattr(app.desktop, "open_target", lambda path: opened.append(path))
 
     app.Api().open_retrospective("repo", task.id)
 
@@ -224,9 +224,9 @@ def test_open_retrospective_hands_the_real_path_to_the_os(tmp_path, monkeypatch)
 def test_open_retrospective_raises_when_there_is_none(tmp_path, monkeypatch):
     repo = make_repo(tmp_path)
     task = store.create_task(repo, "A", "body", "BUG")
-    # A real os.startfile call from a test is a window opening on the user's
+    # A real native open from a test is a window opening on the user's
     # screen -- this must never be reached on the refusal path.
-    monkeypatch.setattr(os, "startfile", lambda path: pytest.fail("must not be called"))
+    monkeypatch.setattr(app.desktop, "open_target", lambda path: pytest.fail("must not be called"))
 
     with pytest.raises(ValueError):
         app.Api().open_retrospective("repo", task.id)
@@ -257,7 +257,7 @@ def test_read_knowledge_page_rejects_a_non_string():
 
 def test_open_external_url_opens_an_http_link(monkeypatch):
     opened = []
-    monkeypatch.setattr(os, "startfile", lambda url: opened.append(url))
+    monkeypatch.setattr(app.desktop, "open_target", lambda url: opened.append(url))
 
     app.Api().open_external_url("https://example.com/page")
 
@@ -265,10 +265,10 @@ def test_open_external_url_opens_an_http_link(monkeypatch):
 
 
 def test_open_external_url_refuses_a_non_web_scheme(monkeypatch):
-    # Guarded the same way open_attachment is: os.startfile is a general
-    # "ask Windows to open this", and this method must never become a way to
+    # Guarded the same way open_attachment is: native opening is a general
+    # "ask the OS to open this", and this method must never become a way to
     # launch an arbitrary local file or program from a knowledge-base link.
-    monkeypatch.setattr(os, "startfile", lambda url: pytest.fail("must not be called"))
+    monkeypatch.setattr(app.desktop, "open_target", lambda url: pytest.fail("must not be called"))
 
     with pytest.raises(ValueError):
         app.Api().open_external_url("file:///C:/Windows/System32/cmd.exe")

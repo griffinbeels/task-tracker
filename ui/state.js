@@ -10,6 +10,15 @@ const BUCKETS = ['now', 'next', 'someday'];
 let state = { projects: [], settings: { types: [] }, tasks: [], notes: [], unreadable: [] };
 let currentProject = null;
 
+function primaryShortcut() {
+  return state.shortcuts || { modifier: 'ctrl', label: 'Ctrl' };
+}
+
+function primaryKeyPressed(event) {
+  const mac = primaryShortcut().modifier === 'meta';
+  return Boolean(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey);
+}
+
 function typeColor(name) {
   const found = (state.settings.types || []).find(t => t.name === name);
   return found ? found.color : '#8e8e8e';
@@ -166,6 +175,9 @@ async function refresh() {
   } catch (error) {
     alert(`Could not load your tasks:\n\n${error}`);
     return;
+  }
+  for (const label of document.querySelectorAll('[data-primary-shortcut]')) {
+    label.textContent = primaryShortcut().label;
   }
   // Restore the project the last window was left on, so restarting — by this
   // app's own button or by run.bat — comes back to what you were doing. The

@@ -5,19 +5,30 @@ files inside each project's own repo; the app is a view over them.
 
 ## Run
 
-    run.bat
+Use **run.bat** on Windows. On Mac, double-click **run.command** once to set
+up Python and build **dist/Task Tracker.app**, then open that app from Finder
+or keep it in the Dock. The app runs this checkout's current source, so ordinary
+code edits need only a restart. Re-run `run.command` after moving the checkout
+or changing packaging settings. The generated app depends on this checkout
+and its local environment; it is not a standalone app to copy to another Mac.
 
-That is the whole thing. It creates the venv and installs dependencies on first
-run, so a fresh clone needs nothing on PATH but [uv](https://docs.astral.sh/uv/)
-— plus one sibling checkout. `claude-console`, the shared module that opens and
+Both launchers create a Python 3.12 environment and install dependencies on first
+run. A fresh clone needs [uv](https://docs.astral.sh/uv/)
+plus one sibling checkout. `claude-console`, the shared module that opens and
 drives the handed-off Claude session, is installed from a checkout rather than
 an index, so clone it next to this repo first (either folder name works, or set
 `CLAUDE_CONSOLE_PATH` to wherever you put it):
 
     git clone https://github.com/griffinbeels/claude_console.git
 
-Windows only: the always-on-top window, the single-instance handover and the
-terminal hand-off are all built on Windows behaviour.
+The same task files and interface serve Windows and macOS. The first Mac port
+is a preview; native launch, focus and terminal hand-off still need acceptance
+on both desktops. See [platform support](docs/platform-support.md).
+
+From a Git worktree, the Mac launcher creates **Task Tracker Preview.app** and
+uses `.preview-data/` for its local settings with a separate instance port.
+Add a temporary project to try it: task edits still write to whichever project
+you select. Preview data stays local and is not automatically migrated.
 
 Running it again while a window is already open shuts that one down — saving its
 size and position — and takes over, so you always end up with exactly one window
@@ -35,6 +46,9 @@ To run it directly instead:
     uv pip install --python ".venv\Scripts\python.exe" -e ..\claude_console -e .
     & ".venv\Scripts\python.exe" app.py
 
+On Mac, the equivalent interpreter is `.venv/bin/python` and the editable
+console path can be written as `../claude_console`.
+
 The checkout is passed as its own editable because `pyproject.toml` names
 `claude-console` as a dependency but deliberately gives no path to it — an
 absolute path would publish one machine's layout in a public repo, and a
@@ -50,7 +64,7 @@ project, type and bucket.
 
 The body is a real editor: bullets, numbered lists, checkboxes, bold, italic,
 quotes and code, formatted as you type rather than as markdown you have to
-read. It is still markdown on disk. **Ctrl+V pastes a screenshot straight in at
+read. It is still markdown on disk. **Command+V on Mac or Ctrl+V on Windows pastes a screenshot at
 the cursor**, exactly where you put it — the image is written into the
 project's `.tasks/attachments/` and the note keeps a link to it, so a session
 you hand the task to can open the picture you were describing.
@@ -88,11 +102,14 @@ started from a Claude session, and Claude Code sets a batch of variables for
 the processes it spawns; passing those on made the new session differ from one
 you opened yourself in ways that were all silent — it rendered monochrome, its
 git could not open an editor or ask for credentials, and it kept no transcript.
-Windows is asked for the environment it would give a freshly launched process,
-so the session is indistinguishable from one you started by hand in a terminal.
+Windows rebuilds the login environment; Mac uses a login shell in Terminal.app
+and removes the inherited Claude session variables. Mac may ask you to allow
+automation of Terminal. Delivery waits for the prompt and checks the result;
+permission, trust or readiness failures leave a visible clipboard fallback.
+Trust dialogs remain for you to answer.
 
-It also opens without taking focus. Hand-off happens mid-sentence, and a window
-that activates itself swallows whatever you type next.
+A deliberate hand-off may bring the new session forward. Background checks and
+tracker restarts must not open stray consoles or type into the active window.
 
 Override the command per project with a `launch` array in `projects.json` — for
 example a project that needs a wrapper script or a different flag set.
@@ -116,3 +133,9 @@ the app works with no network.
 ## Tests
 
     & ".venv\Scripts\python.exe" -m pytest -v
+
+On Mac: `.venv/bin/python -m pytest -v`. On either platform, run
+`node --test tests/test_shortcuts.js` and `node tools/check_js.cjs` as well.
+The CI matrix runs the shared contracts on both systems. New features follow
+the native boundaries and acceptance requirements in
+[platform support](docs/platform-support.md).

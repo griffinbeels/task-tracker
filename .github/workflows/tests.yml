@@ -1,0 +1,61 @@
+name: Platform parity
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      console_ref:
+        description: Shared launcher revision for a paired change
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: tracker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tracker
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: griffinbeels/claude_console
+          ref: ${{ inputs.console_ref || 'main' }}
+          path: claude-console
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.11.16'
+          enable-cache: false
+      - name: Install real platform dependencies
+        run: uv pip install --system -e ../claude-console -e . pytest
+      - name: Record paired source revisions
+        run: |
+          git rev-parse HEAD
+          git -C ../claude-console rev-parse HEAD
+      - name: Import application without opening windows
+        run: python -c "import app, claude_console; print('Application imports successfully')"
+      - name: Shared contracts and native boundary tests
+        run: python -m pytest tests/ -q
+      - name: Keyboard behavior and JavaScript syntax
+        run: |
+          node --test tests/test_shortcuts.js
+          node tools/check_js.cjs
+      - name: Shared launcher contracts
+        working-directory: claude-console
+        run: python -m pytest tests/ -q

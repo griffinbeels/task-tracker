@@ -42,12 +42,14 @@ and where the two disagree, these win.
 
 ```powershell
 run.bat                                          # launch (creates venv on first run)
-& ".venv\Scripts\python.exe" -m pytest tests/ -q # 422 tests
+& ".venv\Scripts\python.exe" -m pytest tests/ -q
 ```
 
-- **PowerShell, not Bash.** The Bash tool on this machine cannot resolve
-  `.venv\Scripts\python.exe`. PowerShell 5.1 has no `&&`/`||` — chain with `;`
-  or `if ($?) { }`.
+- **Mac:** `./run.command` sets up a source-backed app in `dist/`; run tests
+  with `.venv/bin/python -m pytest tests/ -q`. Worktree apps use isolated
+  `.preview-data/` and an independent instance port.
+- **Use the host's paths and shell.** Windows uses `.venv\Scripts\python.exe`;
+  Mac uses `.venv/bin/python`. PowerShell 5.1 has no `&&`/`||`.
 - **Python 3.12**, created by `uv venv --python 3.12 .venv`. System Python is
   3.14 and breaks these packages. The venv has **no pip** — install with
   `uv pip install --python ".venv\Scripts\python.exe" <pkg>`.
@@ -106,6 +108,9 @@ bundler.
 | `claude_console` (shared) | Not in this repo. Spawning the session into this machine's default terminal, the pid to type into, typing into the console's input buffer, the rebuilt environment, and `safe_line`/`cap` |
 | `singleton.py` | Single-instance lock on `127.0.0.1:8090`, with handover |
 | `restart.py` | Spawning a replacement instance. Closes nothing itself — the replacement's `singleton.acquire()` does that, which is what saves the geometry |
+| `desktop.py` | Native file/URL opening, startup errors and primary keyboard modifier; task logic stays shared |
+| `tools/bootstrap.py` | Shared dependency and checkout preflight for Windows and Mac launchers |
+| `tools/build_macos_app.py` | Source-backed Mac app packaging; no task behavior |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it. **Geometry and nothing else** |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary, `localDate`, `asShown`, the Escape key that closes the topmost overlay, and `showToast` |
@@ -167,6 +172,10 @@ CLAUDE.md carries the full measurements plus five more it learned since.
 
 ## Adding a feature
 
+- **Windows and Mac together.** Read `docs/platform-support.md`; keep one
+  feature implementation and place OS differences in the named boundaries.
+  Run both CI jobs and record native evidence for touched integrations.
+  Mock desktop side effects; no tests may open native dialogs or terminals.
 - **New bridge method** → `.claude/rules/bridge.md`.
 - **New UI surface** → put it in whichever script owns that concern; add its
   `<script>` tag only if you create a new file. `.claude/rules/ui-surfaces.md`

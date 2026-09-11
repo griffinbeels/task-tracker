@@ -1,12 +1,14 @@
 """Global config: registered projects and app settings."""
 
 import json
+import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import store
 
-CONFIG_DIR = Path.home() / ".task-tracker"
+CONFIG_DIR = Path(os.environ.get("TASK_TRACKER_CONFIG_DIR") or
+                  Path.home() / ".task-tracker").expanduser().resolve()
 
 
 @dataclass
