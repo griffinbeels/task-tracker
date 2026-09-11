@@ -111,6 +111,7 @@ bundler.
 | `desktop.py` | Native file/URL opening, startup errors and primary keyboard modifier; task logic stays shared |
 | `tools/bootstrap.py` | Shared dependency and checkout preflight for Windows and Mac launchers |
 | `tools/build_macos_app.py` | Source-backed Mac app packaging; no task behavior |
+| `tools/install_macos_app.py` | Applications link to the primary bundle; future updates become live on restart |
 | `window_state.py` | `window.json`, and the rule that geometry is only worth keeping if a monitor can show it. **Geometry and nothing else** |
 | `app.py` | pywebview window + the `Api` bridge class. **Wiring only** |
 | `ui/state.js` | `state`, `currentProject`, `refresh()`, `callApi()`, `API_FAILED`, the colour vocabulary, `localDate`, `asShown`, the Escape key that closes the topmost overlay, and `showToast` |
@@ -176,6 +177,10 @@ CLAUDE.md carries the full measurements plus five more it learned since.
   feature implementation and place OS differences in the named boundaries.
   Run both CI jobs and record native evidence for touched integrations.
   Mock desktop side effects; no tests may open native dialogs or terminals.
+- **Installed Mac app follows main.** Merge approved work into the primary
+  checkout, then restart the Applications app. Rebuild with `run.command` when
+  packaging changes; the Applications link follows the rebuilt bundle. Never
+  point an installed app at a feature worktree or remove its primary checkout.
 - **New bridge method** → `.claude/rules/bridge.md`.
 - **New UI surface** → put it in whichever script owns that concern; add its
   `<script>` tag only if you create a new file. `.claude/rules/ui-surfaces.md`

@@ -6,10 +6,12 @@ files inside each project's own repo; the app is a view over them.
 ## Run
 
 Use **run.bat** on Windows. On Mac, double-click **run.command** once to set
-up Python and build **dist/Task Tracker.app**, then open that app from Finder
-or keep it in the Dock. The app runs this checkout's current source, so ordinary
-code edits need only a restart. Re-run `run.command` after moving the checkout
-or changing packaging settings. The generated app depends on this checkout
+up Python and build **dist/Task Tracker.app**. To install it in Applications,
+run `./run.command --install` from the primary checkout. Then open **Task Tracker**
+from Applications or keep it in the Dock. The installed app links to this
+checkout's current source: code updates appear on restart, and rebuilding with
+`run.command` updates the same Applications app automatically. Keep the checkout
+at its installed location. The generated app depends on this checkout
 and its local environment; it is not a standalone app to copy to another Mac.
 
 Both launchers create a Python 3.12 environment and install dependencies on first
@@ -21,9 +23,16 @@ an index, so clone it next to this repo first (either folder name works, or set
 
     git clone https://github.com/griffinbeels/claude_console.git
 
-The same task files and interface serve Windows and macOS. The first Mac port
-is a preview; native launch, focus and terminal hand-off still need acceptance
-on both desktops. See [platform support](docs/platform-support.md).
+The same task files and interface serve Windows and macOS. Mac launch, task-row
+spacing and Claude handoff have received native user acceptance. Windows native
+regression and hosted CI execution remain unverified for this port.
+See [platform support](docs/platform-support.md).
+
+Installation never replaces an unrelated app. After building, preview the link
+without changing Applications with
+`.venv/bin/python tools/install_macos_app.py --dry-run`.
+Future features must be merged into the primary checkout to reach the daily app;
+temporary worktree builds remain isolated previews.
 
 From a Git worktree, the Mac launcher creates **Task Tracker Preview.app** and
 uses `.preview-data/` for its local settings with a separate instance port.

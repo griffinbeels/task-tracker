@@ -14,6 +14,7 @@ Platform-specific code belongs at a native boundary, not in separate task flows.
 | Tracker replacement process | `restart.py` |
 | Runtime/dependency discovery and readiness | `tools/bootstrap.py` |
 | Mac source-backed application bundle | `tools/build_macos_app.py` |
+| Applications link to the primary bundle | `tools/install_macos_app.py` |
 | Opening and delivering to Claude sessions | Shared `claude-console` package |
 
 Keep `app.py` as wiring. Do not add Win32 calls, AppleScript or terminal typing
@@ -71,8 +72,13 @@ Preserve any preview data the user creates before removing its checkout.
 
 ## Verification status of the first Mac port
 
-This branch is a prototype. Local Mac unit tests, isolated terminal relay
-tests and browser evidence are recorded with its private feature notes.
-Actual Terminal.app/Claude delivery, Finder/Dock behavior and Windows native
-regression checks remain separate acceptance steps. Do not turn a passing mock
-or the existence of a CI file into a claim that those steps have run.
+The user has accepted native Mac launch, Claude handoff and the revised task-row
+spacing. Local Mac unit tests, isolated terminal relay tests and browser evidence
+are recorded with the private feature notes. Windows native regression and hosted
+CI execution remain unverified. Do not turn a passing mock or the existence of
+a CI file into a claim that those steps have run.
+
+The Applications entry links to the primary checkout's bundle. Source updates
+become active on restart; rebuilding packaging replaces that same bundle and the
+Applications entry follows it. Worktree apps cannot be installed over the daily
+app. Keep the primary tracker and console checkouts at their installed paths.

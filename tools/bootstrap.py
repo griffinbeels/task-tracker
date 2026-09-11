@@ -180,8 +180,11 @@ def main(argv=None) -> int:
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--mac-app", action="store_true")
     parser.add_argument("--setup-only", action="store_true")
+    parser.add_argument("--install", action="store_true", help="Link the daily Mac app into Applications")
     args = parser.parse_args(argv)
     try:
+        if args.install and not args.mac_app:
+            raise BootstrapError("Use run.command --install for Mac installation.")
         if args.probe:
             probe(REPO, args.probe)
             return 0
@@ -189,6 +192,9 @@ def main(argv=None) -> int:
         if args.mac_app:
             from build_macos_app import build
             bundle = build(REPO, console)
+            if args.install:
+                from install_macos_app import install
+                bundle = install(REPO)
             print(f"Ready: {bundle}")
             if not args.setup_only:
                 run(mac_open_command(bundle), check=True)
