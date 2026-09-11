@@ -10,6 +10,7 @@ import hashlib
 import json
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,32 @@ def test_the_size_ladder_stays_addressable():
     """
     assert max(build_icon.SIZES) == 128
     assert all(0 < size < 256 for size in build_icon.SIZES)
+
+
+def test_mac_png_preserves_alpha_and_pixel_rows():
+    rgba = bytes([9, 40, 90, 0, 1, 2, 3, 255]) * 2
+    blob = build_icon.pack_png(rgba, 2)
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n"
+    offset, compressed = 8, b""
+    while offset < len(blob):
+        length = struct.unpack_from(">I", blob, offset)[0]
+        kind = blob[offset + 4:offset + 8]
+        data = blob[offset + 8:offset + 8 + length]
+        crc = struct.unpack_from(">I", blob, offset + 8 + length)[0]
+        assert crc == zlib.crc32(kind + data)
+        if kind == b"IHDR":
+            assert struct.unpack(">IIBBBBB", data) == (2, 2, 8, 6, 0, 0, 0)
+        if kind == b"IDAT":
+            compressed += data
+        offset += length + 12
+    assert zlib.decompress(compressed) == b"\0" + rgba[:8] + b"\0" + rgba[8:]
+
+
+def test_committed_mac_icon_matches_the_canonical_artwork_and_output():
+    stamp = json.loads(build_icon.MAC_STAMP.read_text(encoding="utf-8"))
+    assert stamp["sha256"] == hashlib.sha256(build_icon.SOURCE.read_bytes()).hexdigest()
+    blob = build_icon.MAC_TARGET.read_bytes()
+    assert stamp["output_sha256"] == hashlib.sha256(blob).hexdigest()
+    assert blob[:4] == b"icns"
+    assert struct.unpack_from(">I", blob, 4)[0] == len(blob)
+    assert stamp["sizes"] == list(build_icon.MAC_SIZES)
